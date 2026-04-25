@@ -2810,11 +2810,12 @@ window.normalizeCase = function(b) {
 
 // ─── Analytics view ─────────────────────────────────────────
 function v33EnsureAnalyticsView() {
-  // Self-healing: ensure container is INSIDE .main (so it inherits
-  // padding + max-width); recreate inner content if missing.
+  // Self-healing: dedupe (keep first, drop the rest), force into .main,
+  // recreate inner content if missing.
   const main = document.querySelector('.main');
-  let container = document.querySelector('[data-view="analytics"]');
-  // If a previous deploy appended this view outside .main, move it in.
+  const all = document.querySelectorAll('[data-view="analytics"]');
+  for (let i = 1; i < all.length; i++) all[i].remove();
+  let container = all[0] || null;
   if (container && main && container.parentNode !== main) {
     main.appendChild(container);
   }
@@ -3213,8 +3214,10 @@ function v34EnhanceUserBadge() {
 // ─── 資料匯入 admin tab ──────────────────────────────────────
 function v34EnsureImportView() {
   const main = document.querySelector('.main');
-  let container = document.querySelector('[data-view="import"]');
-  // If existing container lives outside .main, move it in.
+  // Defensive: drop duplicates that earlier deploys may have left behind.
+  const all = document.querySelectorAll('[data-view="import"]');
+  for (let i = 1; i < all.length; i++) all[i].remove();
+  let container = all[0] || null;
   if (container && main && container.parentNode !== main) {
     main.appendChild(container);
   }
