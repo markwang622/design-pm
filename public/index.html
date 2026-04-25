@@ -2810,10 +2810,12 @@ window.normalizeCase = function(b) {
 
 // ─── Analytics view ─────────────────────────────────────────
 function v33EnsureAnalyticsView() {
-  // Self-healing: dedupe (keep first, drop the rest), force into .main,
-  // recreate inner content if missing.
+  // Self-healing: dedupe (keep first VIEW, drop the rest), force into
+  // .main, recreate inner content if missing.
+  // CRITICAL: must scope to `.view[...]` — otherwise we also match the
+  // <button data-view="analytics"> in the nav and break it.
   const main = document.querySelector('.main');
-  const all = document.querySelectorAll('[data-view="analytics"]');
+  const all = document.querySelectorAll('div.view[data-view="analytics"]');
   for (let i = 1; i < all.length; i++) all[i].remove();
   let container = all[0] || null;
   if (container && main && container.parentNode !== main) {
@@ -3214,8 +3216,9 @@ function v34EnhanceUserBadge() {
 // ─── 資料匯入 admin tab ──────────────────────────────────────
 function v34EnsureImportView() {
   const main = document.querySelector('.main');
-  // Defensive: drop duplicates that earlier deploys may have left behind.
-  const all = document.querySelectorAll('[data-view="import"]');
+  // CRITICAL: scope to `.view[...]` so we don't accidentally match
+  // and remove the <button data-view="import"> nav element.
+  const all = document.querySelectorAll('div.view[data-view="import"]');
   for (let i = 1; i < all.length; i++) all[i].remove();
   let container = all[0] || null;
   if (container && main && container.parentNode !== main) {
