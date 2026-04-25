@@ -1,5 +1,5 @@
 {
-  "install_command": "npm ci --include=dev",
+  "install_command": "npm install --include=dev --no-audit --no-fund",
   "build_command": "npx prisma generate",
   "start_command": "npx prisma db push --skip-generate --accept-data-loss && node prisma/seed.js && node src/index.js"
 }
