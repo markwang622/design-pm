@@ -2971,6 +2971,550 @@ bootstrap = async function() {
   if (ME.role === 'admin') renderNav(); // re-render to include analytics tab
 };
 
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v3.4 ENHANCEMENTS — profile edit + bulk import ▼▼▼
+// ═══════════════════════════════════════════════════════════════
+
+// Extend api
+api.staff.update         = (id, body) => fetchJson('PATCH', `/api/staff/${id}`, body);
+api.auth                 = api.auth || {};
+api.auth.changePassword  = (body) => fetchJson('POST', '/api/auth/change-password', body);
+api.cases.bulkImport     = (body) => fetchJson('POST', '/api/cases/bulk-import', body);
+
+// ─── Profile edit modal (self + admin) ───────────────────────
+function v34EnsureProfileModal() {
+  if (document.getElementById('v34-profile-bg')) return;
+  const html = `
+    <div class="drawer-bg" id="v34-profile-bg" style="z-index:88;"></div>
+    <div id="v34-profile-modal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+         background:#fff;border-radius:8px;padding:24px;width:min(540px,94%);z-index:89;
+         box-shadow:0 12px 32px rgba(0,0,0,0.18);display:none;max-height:90vh;overflow-y:auto;">
+      <div style="display:flex;align-items:center;margin-bottom:16px;">
+        <h3 id="v34-profile-title" style="font-size:17px;margin:0;">編輯個人檔案</h3>
+        <button id="v34-profile-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px;">
+        <label style="grid-column:span 2;">姓名 <input id="v34-pf-name" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;"></label>
+        <label style="grid-column:span 2;">Email <input id="v34-pf-email" type="email" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;"></label>
+        <label>職稱 <input id="v34-pf-roleTitle" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;"></label>
+        <label>資歷
+          <select id="v34-pf-seniority" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;">
+            <option value="senior">senior（資深）</option>
+            <option value="mid">mid（一般）</option>
+            <option value="junior">junior（初階）</option>
+          </select>
+        </label>
+        <label id="v34-pf-role-wrap" style="grid-column:span 2;">角色（admin only）
+          <select id="v34-pf-role" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;">
+            <option value="member">member</option>
+            <option value="admin">admin</option>
+          </select>
+        </label>
+      </div>
+      <div id="v34-pf-pwsection" style="margin-top:18px;padding-top:14px;border-top:1px solid #E5E5E5;">
+        <div style="font-weight:500;font-size:13px;margin-bottom:8px;color:#404040;" id="v34-pf-pwtitle">修改密碼</div>
+        <div id="v34-pf-pw-self" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;">
+          <label style="grid-column:span 2;">舊密碼 <input id="v34-pf-pw-current" type="password" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;"></label>
+          <label>新密碼（≥ 8 字元）<input id="v34-pf-pw-new" type="password" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;"></label>
+          <label>再次輸入 <input id="v34-pf-pw-new2" type="password" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;"></label>
+        </div>
+        <div id="v34-pf-pw-admin" style="display:none;font-size:12px;">
+          <p style="color:#8C8C8C;margin:0 0 6px;">為此成員設定新密碼（直接覆蓋，他下次登入即用新密碼）</p>
+          <label>新密碼（≥ 8 字元）<input id="v34-pf-pw-reset" type="text" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;font-family:'SF Mono','Consolas',monospace;"></label>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
+        <button id="v34-pf-cancel" style="padding:7px 16px;border:1px solid #D4D4D4;background:#fff;border-radius:6px;cursor:pointer;">取消</button>
+        <button id="v34-pf-save" style="padding:7px 16px;background:#1F1F1F;color:#fff;border:none;border-radius:6px;cursor:pointer;">儲存</button>
+      </div>
+    </div>
+  `;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap);
+}
+
+let v34CurrentEditTarget = null;
+function openProfileEdit(staffOrSelf) {
+  v34EnsureProfileModal();
+  const target = staffOrSelf || STAFF.find(s => s.id === ME.id) || ME;
+  v34CurrentEditTarget = target;
+  const isSelf = target.id === ME.id;
+  const isAdmin = ME.role === 'admin';
+
+  document.getElementById('v34-profile-title').textContent = isSelf ? '編輯個人檔案' : `編輯：${target.name}`;
+  document.getElementById('v34-pf-name').value = target.name || '';
+  document.getElementById('v34-pf-email').value = target.email || '';
+  document.getElementById('v34-pf-roleTitle').value = target.roleTitle || '設計師';
+  document.getElementById('v34-pf-seniority').value = target.seniority || 'mid';
+  document.getElementById('v34-pf-role').value = target.role || 'member';
+
+  // Role field only for admin
+  document.getElementById('v34-pf-role-wrap').style.display = isAdmin ? '' : 'none';
+  // Seniority editable only by admin (members can't promote themselves)
+  document.getElementById('v34-pf-seniority').disabled = !isAdmin;
+
+  // Password section: self uses old+new; admin editing OTHER uses reset
+  if (isSelf) {
+    document.getElementById('v34-pf-pwtitle').textContent = '修改密碼（選填）';
+    document.getElementById('v34-pf-pw-self').style.display = '';
+    document.getElementById('v34-pf-pw-admin').style.display = 'none';
+    document.getElementById('v34-pf-pw-current').value = '';
+    document.getElementById('v34-pf-pw-new').value = '';
+    document.getElementById('v34-pf-pw-new2').value = '';
+  } else if (isAdmin) {
+    document.getElementById('v34-pf-pwtitle').textContent = '重設密碼（選填）';
+    document.getElementById('v34-pf-pw-self').style.display = 'none';
+    document.getElementById('v34-pf-pw-admin').style.display = '';
+    document.getElementById('v34-pf-pw-reset').value = '';
+  } else {
+    document.getElementById('v34-pf-pwsection').style.display = 'none';
+  }
+
+  document.getElementById('v34-profile-bg').classList.add('open');
+  document.getElementById('v34-profile-modal').style.display = 'block';
+}
+function closeProfileEdit() {
+  const bg = document.getElementById('v34-profile-bg'); if (bg) bg.classList.remove('open');
+  const m = document.getElementById('v34-profile-modal'); if (m) m.style.display = 'none';
+  v34CurrentEditTarget = null;
+}
+
+async function v34SaveProfile() {
+  const t = v34CurrentEditTarget;
+  if (!t) return;
+  const isSelf = t.id === ME.id;
+  const isAdmin = ME.role === 'admin';
+
+  const newName = document.getElementById('v34-pf-name').value.trim();
+  const newEmail = document.getElementById('v34-pf-email').value.trim();
+  const newRoleTitle = document.getElementById('v34-pf-roleTitle').value.trim();
+  const newSeniority = document.getElementById('v34-pf-seniority').value;
+  const newRole = document.getElementById('v34-pf-role').value;
+
+  if (!newName) { showToast('姓名不能為空', 'err'); return; }
+  if (!newEmail) { showToast('Email 不能為空', 'err'); return; }
+
+  const body = {};
+  if (newName !== t.name) body.name = newName;
+  if (newEmail !== t.email) body.email = newEmail;
+  if (newRoleTitle !== (t.roleTitle || '設計師')) body.roleTitle = newRoleTitle;
+  if (isAdmin && newSeniority !== t.seniority) body.seniority = newSeniority;
+  if (isAdmin && !isSelf && newRole !== t.role) body.role = newRole;
+
+  if (isAdmin && !isSelf) {
+    const resetPw = document.getElementById('v34-pf-pw-reset').value;
+    if (resetPw) {
+      if (resetPw.length < 8) { showToast('新密碼至少 8 字元', 'err'); return; }
+      body.resetPassword = resetPw;
+    }
+  }
+
+  // Self password change goes to a separate endpoint
+  let pwChange = null;
+  if (isSelf) {
+    const cur = document.getElementById('v34-pf-pw-current').value;
+    const nw  = document.getElementById('v34-pf-pw-new').value;
+    const nw2 = document.getElementById('v34-pf-pw-new2').value;
+    if (cur || nw || nw2) {
+      if (!cur || !nw || !nw2) { showToast('修改密碼三欄都要填', 'err'); return; }
+      if (nw !== nw2) { showToast('兩次新密碼不一致', 'err'); return; }
+      if (nw.length < 8) { showToast('新密碼至少 8 字元', 'err'); return; }
+      pwChange = { currentPassword: cur, newPassword: nw };
+    }
+  }
+
+  if (Object.keys(body).length === 0 && !pwChange) {
+    showToast('沒有偵測到變更', 'err');
+    return;
+  }
+
+  try {
+    if (Object.keys(body).length > 0) {
+      const updated = await api.staff.update(t.id, body);
+      const idx = STAFF.findIndex(s => s.id === t.id);
+      if (idx >= 0) STAFF[idx] = normalizeStaff(updated);
+      if (isSelf) {
+        ME.name = updated.name;
+        ME.email = updated.email;
+        const badge = document.getElementById('user-badge');
+        if (badge) badge.firstChild.nodeValue = `👤 ${ME.name} · ${ME.role === 'admin' ? '管理員' : '設計師'} `;
+      }
+    }
+    if (pwChange) {
+      await api.auth.changePassword(pwChange);
+      showToast('✓ 密碼已更新，下次登入請用新密碼');
+    } else {
+      showToast('✓ 個人檔案已更新');
+    }
+    closeProfileEdit();
+    if (currentView === 'staff') renderStaff();
+    refreshAll();
+  } catch (e) {
+    if (e.status === 409) showToast('Email 重複，請換一個', 'err');
+    else if (e.data?.error === 'wrong_current_password') showToast('舊密碼不正確', 'err');
+    else showToast('儲存失敗：' + (e.data?.message || e.message), 'err');
+  }
+}
+
+// ─── Inject Edit buttons into staff table after each render ───
+const _v34OrigRenderStaff = window.renderStaff;
+window.renderStaff = function() {
+  _v34OrigRenderStaff();
+  const rows = document.querySelectorAll('#staff-table .staff-row:not(.head)');
+  rows.forEach(row => {
+    const nameEl = row.querySelector('.s-name .n-primary');
+    if (!nameEl) return;
+    const name = nameEl.textContent.trim();
+    const staff = STAFF.find(s => s.name === name);
+    if (!staff) return;
+    const isSelf = staff.id === ME.id;
+    const canEdit = ME.role === 'admin' || isSelf;
+    if (!canEdit) return;
+    const actions = row.querySelector('.s-actions');
+    if (!actions || actions.querySelector('.v34-edit-btn')) return;
+    const btn = document.createElement('button');
+    btn.className = 'v34-edit-btn';
+    btn.style.cssText = 'margin-right:6px;padding:4px 10px;background:#F0F0F0;border:1px solid #D4D4D4;border-radius:4px;cursor:pointer;font-size:11px;';
+    btn.textContent = isSelf ? '編輯個人檔案' : '編輯';
+    btn.onclick = () => openProfileEdit(staff);
+    actions.insertBefore(btn, actions.firstChild);
+  });
+};
+
+// ─── User-badge dropdown (top-right) — add 編輯個人檔案 ───────
+function v34EnhanceUserBadge() {
+  const badge = document.getElementById('user-badge');
+  if (!badge || badge.querySelector('.v34-profile-link')) return;
+  const link = document.createElement('button');
+  link.className = 'v34-profile-link';
+  link.textContent = '編輯個人檔案';
+  link.style.cssText = 'margin-left:8px;padding:3px 8px;font-size:11px;background:#F5F5F5;border:1px solid #D4D4D4;border-radius:4px;cursor:pointer;';
+  link.onclick = () => openProfileEdit(STAFF.find(s => s.id === ME.id));
+  // Insert before the existing logout button
+  const logout = document.getElementById('logout-btn');
+  if (logout) badge.insertBefore(link, logout);
+  else badge.appendChild(link);
+}
+
+// ─── 資料匯入 admin tab ──────────────────────────────────────
+function v34EnsureImportView() {
+  if (document.querySelector('[data-view="import"]')) return;
+  const container = document.createElement('div');
+  container.className = 'view';
+  container.dataset.view = 'import';
+  container.innerHTML = `
+    <h2 style="margin:0 0 6px;">資料匯入</h2>
+    <p style="color:#8C8C8C;font-size:12px;margin:0 0 16px;line-height:1.6;">
+      把舊的 Google Sheet / Excel 案件資料一次匯入。先上傳 CSV，預覽後再按「匯入」送出。
+      <b>必填欄位：title（專案名稱）、designerName（設計師姓名，必須跟系統內現有同仁的姓名完全一樣）。</b>
+    </p>
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <label style="background:#1F1F1F;color:#fff;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;">
+          📂 選擇 CSV 檔案
+          <input type="file" id="v34-csv-input" accept=".csv,text/csv" style="display:none;">
+        </label>
+        <span id="v34-csv-filename" style="font-size:12px;color:#8C8C8C;">尚未選擇</span>
+        <button id="v34-csv-clear" style="margin-left:auto;padding:5px 12px;border:1px solid #D4D4D4;background:#fff;border-radius:4px;cursor:pointer;font-size:11px;display:none;">清空</button>
+      </div>
+      <details style="margin-top:14px;font-size:12px;">
+        <summary style="cursor:pointer;color:#1F6FEB;">CSV 範例 + 完整欄位說明</summary>
+        <pre style="margin-top:8px;padding:10px;background:#F4F4F4;border-radius:4px;font-size:11px;overflow-x:auto;line-height:1.5;">title,subTitle,requester,hotel,level,category,designerName,collaboratorNames,status,urgent,note,openDate,dispatchDate,copyDate,goLiveDate,closedOn,archivePath,requestCount,outputCount
+品牌更新,城旅 VI,集團執辦,集團,SS,提案,Sunny,Michelle,doing,false,進行中,2026-04-02,2026-04-02,2026-04-04,2026-04-30,,,,
+餐飲 IG 廣告,5/1 上線,餐飲行銷,新竹湖濱館,A,2 數位廣宣,Ruby,,review,true,,2026-04-08,2026-04-08,2026-04-11,2026-04-27,,,,</pre>
+        <p style="line-height:1.7;">
+          - <b>level</b>：SS / S / A / B / C / D（預設 C）<br>
+          - <b>status</b>：todo / wait / doing / review / done（預設 todo；中文也接受：尚未開始 / 等待中 / 進行中 / 確稿中 / 已完成）<br>
+          - <b>urgent</b>：true / false（或 是 / 否）<br>
+          - <b>collaboratorNames</b>：用 <code>;</code>（分號）或 <code>、</code> 串多人<br>
+          - <b>日期欄位</b>：YYYY-MM-DD 格式<br>
+          - <b>狀態 = done 但沒填 archivePath</b>：系統會自動填 <code>/設計部共用/2026/匯入/{caseId}-{title}</code>，你之後可以改
+        </p>
+      </details>
+    </div>
+    <div id="v34-csv-preview" style="display:none;">
+      <div class="card" style="margin-bottom:14px;">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:13px;">
+          <span><b id="v34-csv-rowcount">0</b> 筆</span>
+          <span style="color:#8C8C8C;">已勾選：<b id="v34-csv-selected">0</b></span>
+          <span style="color:#C0392B;">問題列：<b id="v34-csv-issues">0</b></span>
+          <button id="v34-csv-toggle-all" style="margin-left:auto;padding:5px 12px;border:1px solid #D4D4D4;background:#fff;border-radius:4px;cursor:pointer;font-size:11px;">全選 / 全不選</button>
+          <button id="v34-csv-submit" style="padding:7px 16px;background:#1F8A4C;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;">匯入勾選列</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="v34-csv-table" style="width:100%;border-collapse:collapse;font-size:11px;">
+          <thead style="background:#F4F4F4;">
+            <tr>
+              <th style="padding:8px 6px;border:1px solid #E5E5E5;width:30px;">勾</th>
+              <th style="padding:8px 6px;border:1px solid #E5E5E5;">title</th>
+              <th style="padding:8px 6px;border:1px solid #E5E5E5;">designer</th>
+              <th style="padding:8px 6px;border:1px solid #E5E5E5;">level</th>
+              <th style="padding:8px 6px;border:1px solid #E5E5E5;">status</th>
+              <th style="padding:8px 6px;border:1px solid #E5E5E5;">hotel</th>
+              <th style="padding:8px 6px;border:1px solid #E5E5E5;">requester</th>
+              <th style="padding:8px 6px;border:1px solid #E5E5E5;">goLive</th>
+              <th style="padding:8px 6px;border:1px solid #E5E5E5;">問題</th>
+            </tr>
+          </thead>
+          <tbody id="v34-csv-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div id="v34-csv-result" style="display:none;margin-top:16px;"></div>
+  `;
+  document.querySelector('main').appendChild(container);
+  // Wire events
+  document.getElementById('v34-csv-input').onchange = v34HandleCsvFile;
+  document.getElementById('v34-csv-clear').onclick = () => { v34CsvRows = []; v34RenderCsvPreview(); document.getElementById('v34-csv-preview').style.display='none'; document.getElementById('v34-csv-input').value=''; document.getElementById('v34-csv-filename').textContent='尚未選擇'; document.getElementById('v34-csv-clear').style.display='none'; document.getElementById('v34-csv-result').style.display='none'; };
+  document.getElementById('v34-csv-toggle-all').onclick = () => {
+    const all = v34CsvRows.every(r => r._skip);
+    v34CsvRows.forEach(r => r._skip = !all);
+    v34RenderCsvPreview();
+  };
+  document.getElementById('v34-csv-submit').onclick = v34SubmitImport;
+}
+
+let v34CsvRows = [];
+
+// Parse CSV (handles quoted fields, escaped quotes, mixed line endings)
+function v34ParseCsv(text) {
+  const rows = [];
+  let cur = [];
+  let cell = '';
+  let inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"' && text[i+1] === '"') { cell += '"'; i++; }
+      else if (c === '"') { inQ = false; }
+      else { cell += c; }
+    } else {
+      if (c === '"') { inQ = true; }
+      else if (c === ',') { cur.push(cell); cell = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i+1] === '\n') i++;
+        cur.push(cell); cell = '';
+        if (cur.some(x => x.trim() !== '')) rows.push(cur);
+        cur = [];
+      }
+      else { cell += c; }
+    }
+  }
+  if (cell !== '' || cur.length > 0) {
+    cur.push(cell);
+    if (cur.some(x => x.trim() !== '')) rows.push(cur);
+  }
+  return rows;
+}
+
+const V34_STATUS_MAP = {
+  '尚未開始':'todo','未開始':'todo','todo':'todo',
+  '等待中':'wait','等待':'wait','wait':'wait',
+  '進行中':'doing','處理中':'doing','doing':'doing',
+  '確稿中':'review','review':'review','確稿':'review',
+  '已完成':'done','已完成，結案':'done','已完成,結案':'done','結案':'done','done':'done',
+  '休假':'wait', // 把「休假」歸為 wait
+  '':'todo',
+};
+
+const V34_LEVEL_VALID = new Set(['SS','S','A','B','C','D']);
+
+function v34NormalizeRow(rawRow, headers) {
+  const obj = {};
+  headers.forEach((h, idx) => {
+    obj[h.trim()] = (rawRow[idx] ?? '').trim();
+  });
+  // Normalize status
+  if (obj.status) {
+    const k = obj.status.toLowerCase().replace(/\s/g,'');
+    obj.status = V34_STATUS_MAP[k] || V34_STATUS_MAP[obj.status] || 'todo';
+  }
+  // Normalize urgent
+  if (typeof obj.urgent === 'string') {
+    const u = obj.urgent.toLowerCase().trim();
+    obj.urgent = (u === 'true' || u === '1' || u === '是' || u === 'yes' || u === '✓');
+  }
+  // Normalize level
+  if (obj.level) {
+    const lv = obj.level.toUpperCase();
+    obj.level = V34_LEVEL_VALID.has(lv) ? lv : 'C';
+  } else { obj.level = 'C'; }
+  // Collaborators: split by ; or 、
+  if (obj.collaboratorNames) {
+    obj.collaboratorNames = obj.collaboratorNames.split(/[;、]/).map(s=>s.trim()).filter(Boolean);
+  } else { obj.collaboratorNames = []; }
+  // Numbers
+  ['requestCount','outputCount'].forEach(k => {
+    if (obj[k] === '' || obj[k] == null) delete obj[k];
+    else { const n = parseInt(obj[k],10); if (Number.isFinite(n)) obj[k] = n; else delete obj[k]; }
+  });
+  return obj;
+}
+
+async function v34HandleCsvFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  document.getElementById('v34-csv-filename').textContent = `${file.name} (${(file.size/1024).toFixed(1)} KB)`;
+  document.getElementById('v34-csv-clear').style.display = '';
+  document.getElementById('v34-csv-result').style.display = 'none';
+  const text = await file.text();
+  let rows;
+  try { rows = v34ParseCsv(text); } catch (err) { showToast('CSV 解析失敗：' + err.message, 'err'); return; }
+  if (rows.length < 2) { showToast('CSV 至少要有標頭 + 1 列資料', 'err'); return; }
+  const headers = rows[0].map(h => h.trim());
+  const requireHas = (h) => headers.includes(h);
+  if (!requireHas('title') || !requireHas('designerName')) {
+    showToast('CSV 第一列必須包含 title 與 designerName 欄位', 'err');
+    return;
+  }
+  v34CsvRows = rows.slice(1).map(r => {
+    const obj = v34NormalizeRow(r, headers);
+    obj._skip = false;
+    obj._issues = [];
+    if (!obj.title) obj._issues.push('缺 title');
+    if (!obj.designerName) obj._issues.push('缺 designerName');
+    else {
+      const found = STAFF.find(s => s.name.toLowerCase() === obj.designerName.toLowerCase());
+      if (!found) obj._issues.push(`查無設計師「${obj.designerName}」`);
+      else if (!found.active) obj._issues.push('設計師已離職');
+    }
+    if (obj._issues.length) obj._skip = true; // skip problematic rows by default
+    return obj;
+  });
+  document.getElementById('v34-csv-preview').style.display = '';
+  v34RenderCsvPreview();
+}
+
+function v34RenderCsvPreview() {
+  const tbody = document.getElementById('v34-csv-tbody');
+  if (!tbody) return;
+  document.getElementById('v34-csv-rowcount').textContent = v34CsvRows.length;
+  document.getElementById('v34-csv-selected').textContent = v34CsvRows.filter(r => !r._skip).length;
+  document.getElementById('v34-csv-issues').textContent = v34CsvRows.filter(r => r._issues.length).length;
+  tbody.innerHTML = v34CsvRows.map((r, i) => {
+    const hasIssue = r._issues.length > 0;
+    return `
+      <tr style="${hasIssue ? 'background:#FFF5F5;' : ''}">
+        <td style="border:1px solid #E5E5E5;text-align:center;padding:4px;"><input type="checkbox" ${r._skip ? '' : 'checked'} data-i="${i}" class="v34-csv-skip"></td>
+        <td style="border:1px solid #E5E5E5;padding:4px 6px;">${escapeHtml(r.title || '')}</td>
+        <td style="border:1px solid #E5E5E5;padding:4px;">
+          <input value="${escapeHtml(r.designerName || '')}" data-i="${i}" class="v34-csv-designer" style="width:90px;border:1px solid #E0E0E0;padding:2px 4px;font-size:11px;">
+        </td>
+        <td style="border:1px solid #E5E5E5;text-align:center;padding:4px;">${escapeHtml(r.level || '')}</td>
+        <td style="border:1px solid #E5E5E5;padding:4px 6px;">${escapeHtml(r.status || '')}</td>
+        <td style="border:1px solid #E5E5E5;padding:4px 6px;">${escapeHtml(r.hotel || '')}</td>
+        <td style="border:1px solid #E5E5E5;padding:4px 6px;">${escapeHtml(r.requester || '')}</td>
+        <td style="border:1px solid #E5E5E5;padding:4px 6px;font-family:'SF Mono','Consolas',monospace;font-size:10px;">${escapeHtml(r.goLiveDate || '')}</td>
+        <td style="border:1px solid #E5E5E5;padding:4px 6px;color:#C0392B;font-size:10px;">${r._issues.join('; ')}</td>
+      </tr>
+    `;
+  }).join('');
+  // wire checkboxes + designer edits
+  tbody.querySelectorAll('.v34-csv-skip').forEach(cb => {
+    cb.onchange = () => {
+      const i = parseInt(cb.dataset.i,10);
+      v34CsvRows[i]._skip = !cb.checked;
+      document.getElementById('v34-csv-selected').textContent = v34CsvRows.filter(r => !r._skip).length;
+    };
+  });
+  tbody.querySelectorAll('.v34-csv-designer').forEach(inp => {
+    inp.onchange = () => {
+      const i = parseInt(inp.dataset.i,10);
+      v34CsvRows[i].designerName = inp.value.trim();
+      // Re-validate
+      const r = v34CsvRows[i];
+      r._issues = [];
+      if (!r.title) r._issues.push('缺 title');
+      if (!r.designerName) r._issues.push('缺 designerName');
+      else {
+        const found = STAFF.find(s => s.name.toLowerCase() === r.designerName.toLowerCase());
+        if (!found) r._issues.push(`查無設計師「${r.designerName}」`);
+        else if (!found.active) r._issues.push('設計師已離職');
+      }
+      v34RenderCsvPreview();
+    };
+  });
+}
+
+async function v34SubmitImport() {
+  const rows = v34CsvRows.filter(r => !r._skip);
+  if (rows.length === 0) { showToast('沒有勾選任何列', 'err'); return; }
+  // strip internal _skip / _issues
+  const payload = rows.map(r => {
+    const { _skip, _issues, ...clean } = r;
+    return clean;
+  });
+  const btn = document.getElementById('v34-csv-submit');
+  btn.disabled = true;
+  btn.textContent = '匯入中…';
+  try {
+    const result = await api.cases.bulkImport({ rows: payload });
+    const box = document.getElementById('v34-csv-result');
+    box.style.display = '';
+    box.innerHTML = `
+      <div class="card">
+        <h3 style="margin:0 0 10px;font-size:15px;">匯入結果</h3>
+        <div style="display:flex;gap:18px;font-size:13px;margin-bottom:14px;">
+          <span>送出：<b>${result.summary.total}</b></span>
+          <span style="color:#1F8A4C;">成功：<b>${result.summary.created}</b></span>
+          <span style="color:#C0392B;">失敗：<b>${result.summary.failed}</b></span>
+        </div>
+        ${result.errors.length ? `
+          <div style="font-size:12px;color:#C0392B;border:1px solid #F5C2B6;border-radius:4px;padding:8px 12px;background:#FFF5F5;">
+            <b>失敗清單：</b>
+            <ul style="margin:6px 0 0 18px;line-height:1.8;">
+              ${result.errors.map(e => `<li>第 ${e.rowIndex+1} 列「${escapeHtml(e.title)}」：${escapeHtml(e.message)}</li>`).join('')}
+            </ul>
+          </div>
+        ` : '<div style="color:#1F8A4C;font-size:12px;">🎉 全部匯入成功！</div>'}
+      </div>
+    `;
+    showToast(`✓ 匯入 ${result.summary.created} / ${result.summary.total} 筆`);
+    await reloadAllCases();
+    refreshAll();
+  } catch (e) {
+    showToast('匯入失敗：' + (e.data?.message || e.message), 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '匯入勾選列';
+  }
+}
+
+// Hook switchView for 'import'
+const _v34OrigSwitchView2 = window.switchView;
+window.switchView = function(v) {
+  if (v === 'import') {
+    v34EnsureImportView();
+    currentView = 'import';
+    document.querySelectorAll('.view').forEach(x => x.classList.toggle('active', x.dataset.view === 'import'));
+    renderNav();
+    return;
+  }
+  _v34OrigSwitchView2(v);
+};
+
+// Add nav item for admin
+NAV_DEF.admin.push({ key: 'import', label: '資料匯入' });
+
+// Hook bootstrap to wire badge + ensure modals
+const _v34OrigBootstrap = bootstrap;
+bootstrap = async function() {
+  await _v34OrigBootstrap();
+  v34EnsureProfileModal();
+  v34EnsureImportView();
+  v34EnhanceUserBadge();
+  // Wire profile modal buttons (after DOM exists)
+  document.getElementById('v34-profile-close').onclick = closeProfileEdit;
+  document.getElementById('v34-pf-cancel').onclick = closeProfileEdit;
+  document.getElementById('v34-pf-save').onclick = v34SaveProfile;
+  document.getElementById('v34-profile-bg').onclick = closeProfileEdit;
+  if (ME.role === 'admin') renderNav();
+  // Re-render staff to inject Edit buttons if currently on that view
+  if (currentView === 'staff') renderStaff();
+};
+
 // ═══ GO ═══════════════════════════════════════════════════════
 bootstrap();
 </script>

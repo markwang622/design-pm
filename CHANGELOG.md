@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.4 (2026-04-25) · 批次匯入 + 個人檔案編輯
+
+### 新增
+
+- **批次匯入** — 新路由 `POST /api/cases/bulk-import`（admin only）
+  - 接收 `{ rows: [{ title, designerName, ... }] }`
+  - designer 用「姓名」對應到 ID（避免 CSV 沒有 ID）
+  - status 預設 todo，全部欄位皆有合理預設值
+  - 狀態 = done 但沒填 archivePath 時，自動產出占位路徑
+  - 回傳 `{ summary, created, errors }` — 每筆失敗都有詳細錯誤訊息
+- **管理員「資料匯入」分頁**
+  - 上傳 CSV → 客戶端解析 → 預覽表格
+  - 預覽列可現場修改 designerName、勾選跳過
+  - 自動驗證：title 必填、designerName 必須在系統內、狀態翻譯
+  - 一鍵送出，顯示成功 / 失敗清單
+  - 內建中文狀態翻譯（進行中→doing、等待中→wait、已完成→done…）
+- **個人檔案編輯** — 全員可編輯自己；admin 可編輯任何人
+  - 入口 1：頁面右上角「編輯個人檔案」連結（自己的）
+  - 入口 2：人員分頁每一列的「編輯」按鈕（admin 看到所有人；非 admin 只看到自己）
+  - 可編輯欄位：姓名、Email、職稱、資歷（admin 限定）、角色（admin 限定）
+  - 自己改密碼：填舊密碼 + 新密碼 + 確認新密碼
+  - admin 重設他人密碼：直接覆蓋（PATCH /api/staff/:id 帶 resetPassword）
+
+### 變更
+
+- **PATCH /api/staff/:id** body 新增可選 `resetPassword` 欄位（admin only，僅限用於他人）
+- 錯誤處理擴增：P2002 → 409、P2025 → 404
+- CSV 解析：支援帶引號欄位、逃逸雙引號、多種行尾
+
 ## v3.3 (2026-04-25) · 變更追蹤 + 貢獻指標
 
 ### 新增

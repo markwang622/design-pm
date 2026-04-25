@@ -55,6 +55,157 @@ const updateSchema = z.object({
   reason: z.string().optional(), // required only when tracked fields change
 });
 
+// ─── POST /api/cases/bulk-import — admin only (v3.4) ──────
+// Accepts { rows: [...] } where each row is a partial case row.
+// Designer is identified by NAME (string) instead of ID, since
+// CSV uploads don't carry IDs. Status / archivePath / closedOn /
+// requestCount / outputCount are optional — historical records
+// can be imported with status=done.
+const bulkRowSchema = z.object({
+  title: z.string().min(1),
+  subTitle: z.string().optional(),
+  requester: z.string().default('—'),
+  hotel: z.string().optional(),
+  level: z.enum(['SS', 'S', 'A', 'B', 'C', 'D']).default('C'),
+  category: z.string().optional(),
+  designerName: z.string().min(1),
+  collaboratorNames: z.array(z.string()).default([]),
+  status: z.enum(['todo', 'wait', 'doing', 'review', 'done']).default('todo'),
+  urgent: z.boolean().default(false),
+  note: z.string().default(''),
+  // Dates — accept YYYY-MM-DD strings; convert later
+  openDate: z.string().optional(),
+  dispatchDate: z.string().optional(),
+  copyDate: z.string().optional(),
+  goLiveDate: z.string().optional(),
+  closedOn: z.string().optional(),
+  archivePath: z.string().optional(),
+  requestCount: z.number().int().optional(),
+  outputCount: z.number().int().optional(),
+});
+
+const bulkImportSchema = z.object({
+  rows: z.array(z.any()).min(1).max(500),
+  defaultGoLiveDate: z.string().optional(), // fallback when missing
+});
+
+function parseDate(s) {
+  if (!s) return null;
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(`${s}T00:00:00Z`);
+}
+
+router.post('/bulk-import', requireAdmin, async (req, res) => {
+  const parsed = bulkImportSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues });
+  }
+  const { rows } = parsed.data;
+  const fallbackGoLive = parsed.data.defaultGoLiveDate
+    ? parseDate(parsed.data.defaultGoLiveDate)
+    : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 2 weeks from now
+  const today = new Date();
+
+  // Build a name → id lookup for staff
+  const allStaff = await prisma.staff.findMany({
+    select: { id: true, name: true, active: true },
+  });
+  const nameToId = new Map(allStaff.map((s) => [s.name.toLowerCase(), s.id]));
+
+  const created = [];
+  const errors = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const raw = rows[i];
+    const rowParsed = bulkRowSchema.safeParse(raw);
+    if (!rowParsed.success) {
+      errors.push({
+        rowIndex: i,
+        title: raw?.title || '(unknown)',
+        message: 'invalid_fields: ' + rowParsed.error.issues.map((e) => e.path.join('.') + ' ' + e.message).join('; '),
+      });
+      continue;
+    }
+    const r = rowParsed.data;
+
+    const designerId = nameToId.get(r.designerName.toLowerCase());
+    if (!designerId) {
+      errors.push({
+        rowIndex: i,
+        title: r.title,
+        message: `找不到設計師「${r.designerName}」 — 請先在「人員」分頁新增此成員，或修改 CSV`,
+      });
+      continue;
+    }
+
+    const collabIds = (r.collaboratorNames || [])
+      .map((n) => nameToId.get(String(n).toLowerCase()))
+      .filter((id) => id && id !== designerId);
+
+    // Build dates with sensible fallbacks
+    const openDate = parseDate(r.openDate) || today;
+    const dispatchDate = parseDate(r.dispatchDate) || openDate;
+    const copyDate = parseDate(r.copyDate);
+    const goLiveDate = parseDate(r.goLiveDate) || fallbackGoLive;
+    const closedOn = parseDate(r.closedOn);
+
+    try {
+      const id = await nextCaseId(r.level, openDate);
+      const data = {
+        id,
+        title: r.title.slice(0, 100),
+        subTitle: r.subTitle,
+        requester: r.requester,
+        hotel: r.hotel,
+        level: r.level,
+        category: r.category,
+        status: r.status,
+        urgent: !!r.urgent,
+        note: r.note || '',
+        openDate,
+        dispatchDate,
+        copyDate,
+        goLiveDate,
+        designer: { connect: { id: designerId } },
+        collaborators: { connect: collabIds.map((id) => ({ id })) },
+        createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
+      };
+      // Status-specific fields
+      if (r.status === 'done') {
+        data.closedOn = closedOn || today;
+        if (r.archivePath) data.archivePath = r.archivePath;
+        if (r.requestCount !== undefined) data.requestCount = r.requestCount;
+        if (r.outputCount !== undefined) data.outputCount = r.outputCount;
+        if (data.archivePath == null || data.archivePath === '') {
+          // fall back: synthesize a placeholder path the user can edit later
+          data.archivePath = `/設計部共用/2026/匯入/${id}-${r.title}`.replace(/\s+/g, '_');
+        }
+      }
+
+      const row = await prisma.case.create({ data, include: caseInclude });
+      created.push({ rowIndex: i, id: row.id, title: row.title, designer: row.designer.name });
+    } catch (e) {
+      errors.push({
+        rowIndex: i,
+        title: r.title,
+        message: e.message?.slice(0, 200) || 'unknown_error',
+      });
+    }
+  }
+
+  res.json({
+    ok: true,
+    summary: {
+      total: rows.length,
+      created: created.length,
+      failed: errors.length,
+    },
+    created,
+    errors,
+  });
+});
+
 // ─── GET /api/cases — list ─────────────────────────────────
 router.get('/', async (req, res) => {
   const includeArchived = req.query.includeArchived === '1';

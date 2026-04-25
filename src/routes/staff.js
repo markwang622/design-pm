@@ -85,32 +85,58 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
-// ─── PATCH /api/staff/:id — update (admin or self) ───────
+// ─── PATCH /api/staff/:id — update (admin or self, v3.4 expanded) ─
 const updateSchema = z.object({
   name: z.string().optional(),
   email: z.string().email().optional(),
   seniority: z.enum(['senior', 'mid', 'junior']).optional(),
   roleTitle: z.string().optional(),
   role: z.enum(['admin', 'member']).optional(),
+  // v3.4: admin-only password reset for OTHER users
+  resetPassword: z.string().min(8).optional(),
 });
 
 router.patch('/:id', async (req, res) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'invalid_id' });
 
-  // self or admin
-  if (req.user.id !== id && req.user.role !== 'admin') {
+  const isSelf = req.user.id === id;
+  const isAdmin = req.user.role === 'admin';
+
+  if (!isSelf && !isAdmin) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
   const parsed = updateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues });
 
+  const data = { ...parsed.data };
   // non-admin cannot change role
-  if (parsed.data.role && req.user.role !== 'admin') delete parsed.data.role;
+  if (data.role && !isAdmin) delete data.role;
+  // Password reset: only admin, only for OTHER users (self uses /change-password with current pw)
+  if (data.resetPassword !== undefined) {
+    if (!isAdmin || isSelf) {
+      return res.status(403).json({
+        error: 'password_reset_forbidden',
+        message: '管理員只能重設他人的密碼；自己的密碼請走「修改密碼」並輸入舊密碼',
+      });
+    }
+    data.password = await bcrypt.hash(data.resetPassword, 10);
+    delete data.resetPassword;
+  }
 
-  const updated = await prisma.staff.update({ where: { id }, data: parsed.data });
-  res.json({ ...updated, password: undefined });
+  try {
+    const updated = await prisma.staff.update({ where: { id }, data });
+    res.json({ ...updated, password: undefined });
+  } catch (e) {
+    if (e.code === 'P2002') {
+      return res.status(409).json({ error: 'duplicate', field: e.meta?.target });
+    }
+    if (e.code === 'P2025') {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    throw e;
+  }
 });
 
 // ─── GET /api/staff/:id/departure-preview — pre-compute ──
