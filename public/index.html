@@ -2810,15 +2810,19 @@ window.normalizeCase = function(b) {
 
 // ─── Analytics view ─────────────────────────────────────────
 function v33EnsureAnalyticsView() {
-  // Self-healing: if the container exists but inner elements are
-  // missing (e.g. partial render on previous deploy), rebuild content.
+  // Self-healing: ensure container is INSIDE .main (so it inherits
+  // padding + max-width); recreate inner content if missing.
+  const main = document.querySelector('.main');
   let container = document.querySelector('[data-view="analytics"]');
-  const root = document.querySelector('.main') || document.querySelector('main') || document.body;
+  // If a previous deploy appended this view outside .main, move it in.
+  if (container && main && container.parentNode !== main) {
+    main.appendChild(container);
+  }
   if (!container) {
     container = document.createElement('div');
     container.className = 'view';
     container.dataset.view = 'analytics';
-    root.appendChild(container);
+    (main || document.body).appendChild(container);
   }
   if (container.querySelector('#v33-analytics-totals')) return; // healthy already
   container.innerHTML = `
@@ -3208,14 +3212,17 @@ function v34EnhanceUserBadge() {
 
 // ─── 資料匯入 admin tab ──────────────────────────────────────
 function v34EnsureImportView() {
-  // Self-healing: rebuild inner content if missing.
+  const main = document.querySelector('.main');
   let container = document.querySelector('[data-view="import"]');
-  const v34Root = document.querySelector('.main') || document.querySelector('main') || document.body;
+  // If existing container lives outside .main, move it in.
+  if (container && main && container.parentNode !== main) {
+    main.appendChild(container);
+  }
   if (!container) {
     container = document.createElement('div');
     container.className = 'view';
     container.dataset.view = 'import';
-    v34Root.appendChild(container);
+    (main || document.body).appendChild(container);
   }
   if (container.querySelector('#v34-csv-input')) return; // healthy
   container.innerHTML = `
