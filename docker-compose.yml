@@ -1,7 +1,7 @@
 # ── Local-dev Postgres + app ──────────────────────────────────
 # Usage:
 #   docker compose up --build
-#   open http://localhost:3000/login → mark@company.com / design2026!
+#   open http://localhost:3000/login → wasimark0622@gmail.com / design2026!
 # ─────────────────────────────────────────────────────────────
 services:
   db:
@@ -33,7 +33,7 @@ services:
       NODE_ENV: production
       PORT: "3000"
       SEED_DEFAULT_PASSWORD: design2026!
-      SEED_ADMIN_EMAIL: mark@company.com
+      SEED_ADMIN_EMAIL: wasimark0622@gmail.com
     ports:
       - "3000:3000"
 
