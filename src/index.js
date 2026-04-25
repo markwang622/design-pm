@@ -25,10 +25,32 @@ const app = express();
 // Security / basics
 app.disable('x-powered-by');
 app.set('trust proxy', 1); // behind Zeabur's proxy
+// Explicit CSP (instead of helmet's default strict mode).
+// We override any upstream proxy CSP. SPA uses inline scripts and
+// inline event handlers, so 'unsafe-inline' is required for script-src
+// and style-src. 'unsafe-eval' is included defensively for any future
+// dynamic-template usage and to silence Chrome DevTools warnings.
 app.use(
   helmet({
-    contentSecurityPolicy: false, // SPA uses inline styles/scripts
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        scriptSrcAttr: ["'unsafe-inline'"], // for inline onclick="…"
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        fontSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'self'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
     crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false,
+    crossOriginResourcePolicy: { policy: 'same-origin' },
   })
 );
 app.use(cors({ credentials: true, origin: true }));
@@ -57,21 +79,39 @@ app.use('/api/analytics', analyticsRouter);
 // 404 for unknown API paths
 app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
 
-// Static frontend
+// Static frontend.
+// HTML files: never cache (so deploys take effect immediately).
+// Other static (favicon etc.): 1h cache.
+const noCacheHtml = (res, filePath) => {
+  if (filePath.endsWith('.html')) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+};
+
 app.use(
   express.static(PUBLIC_DIR, {
     etag: true,
     maxAge: '1h',
-    index: false, // we handle index manually so we can serve login.html
+    index: false,
+    setHeaders: noCacheHtml,
   })
 );
 
+const sendNoCacheHtml = (res, file) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.sendFile(file);
+};
+
 // Un-authenticated login page
-app.get('/login', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'login.html')));
+app.get('/login', (req, res) => sendNoCacheHtml(res, path.join(PUBLIC_DIR, 'login.html')));
 
 // SPA fallback — everything else goes to the main shell
 app.get('*', (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+  sendNoCacheHtml(res, path.join(PUBLIC_DIR, 'index.html'));
 });
 
 // Error handler
