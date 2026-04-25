@@ -2810,12 +2810,17 @@ window.normalizeCase = function(b) {
 
 // ─── Analytics view ─────────────────────────────────────────
 function v33EnsureAnalyticsView() {
-  if (document.querySelector('[data-view="analytics"]')) return;
-  // Build the markup
+  // Self-healing: if the container exists but inner elements are
+  // missing (e.g. partial render on previous deploy), rebuild content.
+  let container = document.querySelector('[data-view="analytics"]');
   const root = document.querySelector('.main') || document.querySelector('main') || document.body;
-  const container = document.createElement('div');
-  container.className = 'view';
-  container.dataset.view = 'analytics';
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'view';
+    container.dataset.view = 'analytics';
+    root.appendChild(container);
+  }
+  if (container.querySelector('#v33-analytics-totals')) return; // healthy already
   container.innerHTML = `
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
       <h2 style="margin:0;">部門產出 / 貢獻分析</h2>
@@ -2845,7 +2850,7 @@ function v33EnsureAnalyticsView() {
       LEVEL_WEIGHT：SS=5 · S=4 · A=3 · B=2 · C=1 · D=1；主負責 ×1.0、協作者 ×0.4；準時完成 ×1.1、逾期 ×0.8；急件 ×1.3、一般 ×1.0。
     </p>
   `;
-  root.appendChild(container);
+  // (container was already appended above when newly created)
 }
 
 let v33Period = 'month';
@@ -2864,6 +2869,10 @@ async function renderAnalytics() {
   const totals = document.getElementById('v33-analytics-totals');
   const board = document.getElementById('v33-leaderboard');
   const list = document.getElementById('v33-cases-list');
+  if (!totals || !board || !list) {
+    console.error('[v33 analytics] inner DOM nodes missing — aborting render', { totals, board, list });
+    return;
+  }
   totals.innerHTML = '<div style="color:#8C8C8C;padding:20px;">載入中…</div>';
   try {
     const data = await api.analytics.get({ period: v33Period, offset: v33Offset });
@@ -3199,10 +3208,16 @@ function v34EnhanceUserBadge() {
 
 // ─── 資料匯入 admin tab ──────────────────────────────────────
 function v34EnsureImportView() {
-  if (document.querySelector('[data-view="import"]')) return;
-  const container = document.createElement('div');
-  container.className = 'view';
-  container.dataset.view = 'import';
+  // Self-healing: rebuild inner content if missing.
+  let container = document.querySelector('[data-view="import"]');
+  const v34Root = document.querySelector('.main') || document.querySelector('main') || document.body;
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'view';
+    container.dataset.view = 'import';
+    v34Root.appendChild(container);
+  }
+  if (container.querySelector('#v34-csv-input')) return; // healthy
   container.innerHTML = `
     <h2 style="margin:0 0 6px;">資料匯入</h2>
     <p style="color:#8C8C8C;font-size:12px;margin:0 0 16px;line-height:1.6;">
@@ -3264,10 +3279,8 @@ function v34EnsureImportView() {
     </div>
     <div id="v34-csv-result" style="display:none;margin-top:16px;"></div>
   `;
-  // Append to the .main container (NOT the <main> element — there isn't one).
-  // Fallback to body so we never throw if the markup changes.
-  const v34Root = document.querySelector('.main') || document.body;
-  v34Root.appendChild(container);
+  // (container was already appended above when newly created; this branch
+  // only runs when inner content was missing on an existing container)
   // Wire events
   document.getElementById('v34-csv-input').onchange = v34HandleCsvFile;
   document.getElementById('v34-csv-clear').onclick = () => { v34CsvRows = []; v34RenderCsvPreview(); document.getElementById('v34-csv-preview').style.display='none'; document.getElementById('v34-csv-input').value=''; document.getElementById('v34-csv-filename').textContent='尚未選擇'; document.getElementById('v34-csv-clear').style.display='none'; document.getElementById('v34-csv-result').style.display='none'; };
