@@ -2812,7 +2812,7 @@ window.normalizeCase = function(b) {
 function v33EnsureAnalyticsView() {
   if (document.querySelector('[data-view="analytics"]')) return;
   // Build the markup
-  const root = document.querySelector('main') || document.body;
+  const root = document.querySelector('.main') || document.querySelector('main') || document.body;
   const container = document.createElement('div');
   container.className = 'view';
   container.dataset.view = 'analytics';
@@ -3264,7 +3264,10 @@ function v34EnsureImportView() {
     </div>
     <div id="v34-csv-result" style="display:none;margin-top:16px;"></div>
   `;
-  document.querySelector('main').appendChild(container);
+  // Append to the .main container (NOT the <main> element — there isn't one).
+  // Fallback to body so we never throw if the markup changes.
+  const v34Root = document.querySelector('.main') || document.body;
+  v34Root.appendChild(container);
   // Wire events
   document.getElementById('v34-csv-input').onchange = v34HandleCsvFile;
   document.getElementById('v34-csv-clear').onclick = () => { v34CsvRows = []; v34RenderCsvPreview(); document.getElementById('v34-csv-preview').style.display='none'; document.getElementById('v34-csv-input').value=''; document.getElementById('v34-csv-filename').textContent='尚未選擇'; document.getElementById('v34-csv-clear').style.display='none'; document.getElementById('v34-csv-result').style.display='none'; };
