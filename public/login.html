@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登入 · 藝術設計部專案管理</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; font-family: -apple-system, "Microsoft JhengHei", "PingFang TC", sans-serif; color: #1A1A1A; }
+    body {
+      background: linear-gradient(135deg, #F5F5F5 0%, #EDEDED 100%);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .card {
+      background: #FFFFFF; padding: 40px 36px; border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.08);
+      width: 360px;
+    }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; color: #1A1A1A; letter-spacing: 0.3px; }
+    .sub { font-size: 12px; color: #8C8C8C; margin-bottom: 28px; }
+    label { display: block; font-size: 12px; color: #444; margin: 12px 0 6px; font-weight: 500; }
+    input {
+      width: 100%; padding: 10px 12px; border: 1px solid #D4D4D4; border-radius: 4px;
+      font-size: 14px; font-family: inherit; background: #FAFAFA;
+    }
+    input:focus { outline: 2px solid #1A1A1A; outline-offset: -1px; background: #FFF; }
+    button {
+      width: 100%; margin-top: 20px; padding: 10px; background: #1A1A1A; color: #FFF;
+      border: none; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer;
+      font-family: inherit;
+    }
+    button:hover { background: #333; }
+    button:disabled { background: #999; cursor: not-allowed; }
+    .err { color: #A32D2D; font-size: 12px; margin-top: 12px; display: none; }
+    .err.show { display: block; }
+    .hint { font-size: 11px; color: #8C8C8C; margin-top: 16px; text-align: center; line-height: 1.6; }
+    .brand { font-size: 11px; color: #BBB; text-align: center; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <form class="card" id="login-form">
+    <h1>藝術設計部專案管理</h1>
+    <div class="sub">請使用公司 Email 登入</div>
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="username" required autofocus>
+    <label for="password">密碼</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit" id="submit">登入</button>
+    <div class="err" id="err"></div>
+    <div class="hint">忘記密碼請聯絡系統管理員<br>預設密碼為 design2026!（首次登入請儘速變更）</div>
+    <div class="brand">Design-PM v3.2 · 內部使用</div>
+  </form>
+  <script>
+    const form = document.getElementById('login-form');
+    const errEl = document.getElementById('err');
+    const btn = document.getElementById('submit');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errEl.classList.remove('show');
+      btn.disabled = true; btn.textContent = '登入中…';
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      try {
+        const r = await fetch('/api/auth/login', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error === 'invalid_credentials' ? 'Email 或密碼錯誤' : (d.error || '登入失敗'));
+        location.replace('/');
+      } catch (ex) {
+        errEl.textContent = ex.message;
+        errEl.classList.add('show');
+        btn.disabled = false; btn.textContent = '登入';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "install_command": "npm ci --include=dev",
+  "build_command": "npx prisma generate",
+  "start_command": "npx prisma db push --skip-generate --accept-data-loss && node prisma/seed.js && node src/index.js"
+}

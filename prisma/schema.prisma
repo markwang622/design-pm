@@ -1,0 +1,121 @@
+// ─────────────────────────────────────────────────────────────
+// Design Department PM System — Prisma schema
+// Datasource: Postgres (Zeabur-managed)
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Staff {
+  id         Int       @id @default(autoincrement())
+  name       String    @unique
+  email      String    @unique
+  password   String // bcrypt hash
+  role       String    @default("member") // 'admin' | 'member'
+  active     Boolean   @default(true)
+  joined     DateTime  @db.Date
+  departedOn DateTime? @db.Date
+  seniority  String // 'senior' | 'mid' | 'junior'
+  roleTitle  String    @default("設計師")
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  ownedCases        Case[]         @relation("owner")
+  collaboratedCases Case[]         @relation("collaborators")
+  createdCases      Case[]         @relation("creator")
+  notifications     Notification[]
+
+  @@map("staff")
+}
+
+model Case {
+  id            String   @id // e.g., "SS-2026-04-001"
+  title         String
+  subTitle      String?
+  requester     String
+  hotel         String?
+  level         String // SS/S/A/B/C/D
+  category      String?
+  status        String   @default("todo") // todo/wait/doing/review/done
+  urgent        Boolean  @default(false)
+  note          String   @default("")
+  openDate      DateTime @db.Date
+  dispatchDate  DateTime @db.Date
+  copyDate      DateTime? @db.Date
+  goLiveDate    DateTime @db.Date
+  archivePath   String?
+  archived      Boolean  @default(false)
+  closedOn      DateTime? @db.Date
+  requestCount  Int?
+  outputCount   Int?
+  actualWorkdays Int?
+  items         Json?
+  logs          Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  designerId    Int
+  designer      Staff    @relation("owner", fields: [designerId], references: [id])
+  collaborators Staff[]  @relation("collaborators")
+
+  createdById   Int?
+  createdBy     Staff?   @relation("creator", fields: [createdById], references: [id])
+
+  transferLogs TransferLog[]
+  changeLogs   ChangeLog[]
+
+  @@index([status])
+  @@index([archived])
+  @@index([designerId])
+  @@index([createdById])
+  @@map("cases")
+}
+
+model ChangeLog {
+  id        Int      @id @default(autoincrement())
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  field     String   // goLiveDate | dispatchDate | copyDate | designerId | status | level | urgent | other
+  fromValue String?
+  toValue   String?
+  reason    String
+  operator  String
+  createdAt DateTime @default(now())
+
+  @@index([caseId, createdAt])
+  @@map("change_logs")
+}
+
+model TransferLog {
+  id       Int      @id @default(autoincrement())
+  caseId   String
+  case     Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  fromName String
+  toName   String
+  date     DateTime @default(now())
+  reason   String // 主管派發 | 離職移轉 | 自願轉移
+  operator String
+
+  @@map("transfer_logs")
+}
+
+model Notification {
+  id            Int      @id @default(autoincrement())
+  type          String // caseAssigned | collabInvite | statusChange | staffAdd | departure | overdue
+  recipientId   Int
+  recipient     Staff    @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  subject       String
+  body          String
+  relatedCaseId String?
+  createdAt     DateTime @default(now())
+  readAt        DateTime?
+
+  @@index([recipientId, readAt])
+  @@map("notifications")
+}
