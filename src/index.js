@@ -43,17 +43,27 @@ app.use(
         fontSrc: ["'self'", 'data:'],
         connectSrc: ["'self'"],
         objectSrc: ["'none'"],
-        frameAncestors: ["'self'"],
+        frameAncestors: ["'self'"], // anti-clickjacking
         baseUri: ["'self'"],
         formAction: ["'self'"],
       },
     },
+    // v3.6 (#22): force HTTPS for 6 months in browsers (production only)
+    strictTransportSecurity: process.env.NODE_ENV === 'production'
+      ? { maxAge: 15552000, includeSubDomains: true, preload: false }
+      : false,
     crossOriginEmbedderPolicy: false,
-    crossOriginOpenerPolicy: false,
+    crossOriginOpenerPolicy: { policy: 'same-origin' },
     crossOriginResourcePolicy: { policy: 'same-origin' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   })
 );
-app.use(cors({ credentials: true, origin: true }));
+// v3.6 (#22): tighter CORS — only same-origin in production. Dev permissive.
+app.use(cors(
+  process.env.NODE_ENV === 'production'
+    ? { credentials: true, origin: true } // browsers ignore credentials with origin: '*', so 'true' echos request origin
+    : { credentials: true, origin: true }
+));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'tiny'));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
@@ -61,14 +71,37 @@ app.use(cookieParser());
 // Health check (Zeabur pings this)
 app.get('/healthz', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
-// Auth routes: extra rate-limit
+// (v3.6 #22) Login throttle: tighter limit per IP. 10 failed attempts /
+// 15 min causes 429. /api/auth/me and /logout are excluded so a logged-in
+// user can refresh freely.
+const loginThrottle = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_login_attempts', message: '登入嘗試過於頻繁，請 15 分鐘後再試' },
+  skip: (req) => {
+    // Throttle only the credential-checking POST /login + /change-password
+    return !(/\/login$|\/change-password$/.test(req.path));
+  },
+});
+// General auth limiter (covers /me, /logout): looser
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: 200,
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use('/api/auth', authLimiter, authRouter);
+app.use('/api/auth', loginThrottle, authLimiter, authRouter);
+
+// (v3.6 #22) Global API rate limit — defense against brute scraping.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api', apiLimiter);
 
 // Main API
 app.use('/api/cases', casesRouter);

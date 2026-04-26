@@ -1,5 +1,44 @@
 # Changelog
 
+## v3.6 (2026-04-26) · Medium 批次（三段式結案 + 審核流 + 歷史 + 安全）
+
+### 新增（後端）
+
+- **狀態擴增**：`todo → wait → doing → review → review_done → closed`（取代過去的 `done`，舊 `done` 視為等同 `closed`）
+- **審核 API** `POST /api/cases/:id/approve`（admin only） — body `{ decision: 'approve' | 'reject', comment? }`
+  - approve：status → closed、archived → true、closedOn 自動填入；通知設計師
+  - reject：status → doing；通知設計師（附評語）
+- **待審清單 API** `GET /api/cases/pending-approval/list`（admin）— 列出 `status = review_done` 的所有案
+- **`review_done` 觸發通知** — 設計師 PATCH 把案件推到 review_done 時，自動寄 notification 給所有 admin
+- **`closed` 自動 archive** — PATCH 或 approve 把案件設成 closed 時，archived 同步設為 true
+- **權限收緊** — 非 admin 的 PATCH /api/cases/:id 限定該案件的主負責人；協作者只能讀
+- **member 不能直接設 closed** — 必須走 `review_done` → admin 審核
+
+### 新增（前端）
+
+- **新分頁「審核中心」** (admin) — 列出待審案件、通過/退回按鈕、評語欄；nav 上有未審計數紅點徽章（每 60 秒更新）
+- **新分頁「歷史案件」**（全員）— 列出 closed/archived 案，可搜尋、分級／設計師篩選；唯讀
+- **看板 / 甘特** — 取消「設計師只看自己」限制：member 可以看全部，但編輯（狀態、轉派、刪除）只能在自己的案件上（抽屜會顯示「僅可瀏覽」橫幅）
+- **header 使用者選單** — admin 取代原本 role-switch，改用：自己（Admin）按鈕 + 切換到任何成員視角的下拉
+- **甘特工具列** — 加上年/月區間標籤
+- **狀態 UI** — 抽屜下拉新增「確稿完成（送 admin 審核）」；新增 `status-review_done`、`status-closed` chip 樣式
+
+### 安全強化（#22）
+
+- **密碼複雜度**：至少 10 字元、大小寫字母 + 數字、不允許常見字串
+- **bcrypt rounds 提到 12**（從 10 升級）
+- **JWT TTL 縮短到 2 天**（從 7 天）— 失竊 cookie 暴露時間減少 70%
+- **登入限速**：每 IP 15 分鐘最多 10 次失敗，超過回 429
+- **全域 API 限速**：每 IP 每分鐘 300 req
+- **HSTS** 啟用（生產環境，6 個月）— 強制瀏覽器走 HTTPS
+- **Cross-Origin-Opener-Policy** 設為 same-origin — 阻擋同源 popup 攻擊
+- **Referrer-Policy** 設為 strict-origin-when-cross-origin
+
+### 變更
+
+- 分析計算同時納入 `done`（舊資料）+ `closed`（新資料）
+- 確稿日待簽核倒數：把 `review`、`review_done`、`closed`、`done` 全當「不需倒數」狀態
+
 ## v3.5 (2026-04-26) · Quick 修補批次
 
 ### 修正

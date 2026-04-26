@@ -59,7 +59,9 @@ h1, h2, h3, h4 { font-weight: 500; }
 .chip.status-wait { background: #EAE3D4; color: #6B5F43; border-color: #D9CEBF; }
 .chip.status-doing { background: #D6E8F8; color: #1E5A85; border-color: #BBD6EB; }
 .chip.status-review { background: #FBE8B7; color: #8C6A12; border-color: #EDD79A; }
-.chip.status-done { background: #CDE4CD; color: #2F6B2F; border-color: #BFD9BF; }
+.chip.status-review_done { background: #FFE0CC; color: #8B4513; border-color: #F0C49B; } /* v3.6: 確稿完成（待 admin 審核）*/
+.chip.status-done { background: #CDE4CD; color: #2F6B2F; border-color: #BFD9BF; }       /* legacy v3.5- */
+.chip.status-closed { background: #C8E6C9; color: #1B5E20; border-color: #A5D6A7; font-weight: 500; } /* v3.6: 已結案 */
 .chip.gate { background: #FDE0E0; color: #9A2E2E; border-color: #F5B5B5; }
 .chip.collab { background: #EEF3F8; color: #1E5A85; border-color: #C9DCF0; }
 .chip.archived { background: #F2F2F2; color: #8C8C8C; border-color: #D9D9D9; }
@@ -91,7 +93,9 @@ h1, h2, h3, h4 { font-weight: 500; }
 .case-card.s-wait { background: #F6F3EE; border-color: #D9CEBF; }
 .case-card.s-doing { background: #F4F9FF; border-color: #C9DCF0; }
 .case-card.s-review { background: #FFF8E6; border-color: #EDD79A; }
+.case-card.s-review_done { background: #FFEFE0; border-color: #F0C49B; }
 .case-card.s-done { background: #EEF6EE; border-color: #BFD9BF; }
+.case-card.s-closed { background: #E8F5E9; border-color: #A5D6A7; }
 .case-card.archived-case { opacity: 0.55; background: #F5F5F5; border-color: #D9D9D9; border-left-color: transparent; }
 .case-card .row1 { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
 .case-card .case-id { font-size: 10px; color: #8C8C8C; font-family: "SF Mono", "Consolas", monospace; }
@@ -733,7 +737,8 @@ h1, h2, h3, h4 { font-weight: 500; }
         <option value="wait">等待中</option>
         <option value="doing">進行中</option>
         <option value="review">確稿中（提出確稿）</option>
-        <option value="done">已完成</option>
+        <option value="review_done">確稿完成（送 admin 審核）</option>
+        <!-- 已結案 由 admin 在審核中心通過後自動設定，這裡不開放選 -->
       </select>
     </div>
     <div class="gate-info" id="d-gate">
@@ -927,8 +932,15 @@ const STATUSES = [
   {key:'wait', name:'等待中'},
   {key:'doing', name:'進行中'},
   {key:'review', name:'確稿中'},
-  {key:'done', name:'已完成'},
+  {key:'review_done', name:'確稿完成'},   // v3.6: designer marks done, awaits admin
+  {key:'closed', name:'已結案'},           // v3.6: admin approved, auto-archived
+  {key:'done', name:'已完成（舊）'},       // legacy / backward compat — hidden from new dropdowns
 ];
+// Subset shown in user-facing pickers (excludes legacy 'done')
+const SELECTABLE_STATUSES = STATUSES.filter(s => s.key !== 'done');
+// Final / completed statuses (treated as "結案" for analytics + history)
+const FINAL_STATUS_KEYS = new Set(['done', 'closed']);
+const PENDING_REVIEW_KEY = 'review_done';
 const CATS = ['1 平面設計製作物','2 數位廣宣','3 拍攝(外發)','4 拍攝(自拍)','5 實體陳列','6 提案','7 其他'];
 const LEVELS = ['SS','S','A','B','C','D'];
 
@@ -981,12 +993,13 @@ function decorateCases() {
     c.archivePath = c.archivePath || null;
     c.archived = c.archived || false;
     c.needed = c.goLive;
-    c.overdue = c.goLive < TODAY && c.status !== 'done';
+    c.overdue = c.goLive < TODAY && !FINAL_STATUS_KEYS.has(c.status);
     c.daysLeft = daysUntil(c.goLive);
     const k = computeKeyDates(c.goLive);
     c.reviewDate = k.review;
     c.proofStart = k.proofStart;
-    const wdToReview = c.status === 'review' || c.status === 'done' ? 999 : workdaysBetween(TODAY, c.reviewDate) - 1;
+    const wdToReview = (c.status === 'review' || c.status === 'review_done' || FINAL_STATUS_KEYS.has(c.status))
+      ? 999 : workdaysBetween(TODAY, c.reviewDate) - 1;
     c.gateActive = (wdToReview >= 0 && wdToReview <= 3);
   });
 }
@@ -1095,11 +1108,11 @@ function renderPersonal() {
   const me = myCases();
   const kpi = document.getElementById('personal-kpi');
   const open = me.filter(c => c.status !== 'done');
-  const weekDue = me.filter(c => c.status !== 'done' && c.daysLeft >= 0 && c.daysLeft <= 7);
+  const weekDue = me.filter(c => !FINAL_STATUS_KEYS.has(c.status) && c.daysLeft >= 0 && c.daysLeft <= 7);
   const overdue = me.filter(c => c.overdue);
-  const urgent = me.filter(c => c.urgent && c.status !== 'done');
+  const urgent = me.filter(c => c.urgent && !FINAL_STATUS_KEYS.has(c.status));
   const gate = me.filter(c => c.gateActive);
-  const doneThisMonth = me.filter(c => c.status === 'done').length;
+  const doneThisMonth = me.filter(c => FINAL_STATUS_KEYS.has(c.status)).length;
   const collab = me.filter(c => c.designer !== ME_NAME() && (c.collaborators||[]).includes(ME_NAME()));
   kpi.innerHTML = `
     <div class="kpi"><div class="label">負責中</div><div class="value">${open.length}</div><div class="sub">本月總件數 ${me.length}</div></div>
@@ -1155,7 +1168,7 @@ function makeCaseCard(c) {
     </div>
     <div class="row3">
       <span>上線 ${md(c.goLive)} · 確稿 ${md(c.reviewDate)}</span>
-      <span>${c.status === 'done' ? '已結案' : c.daysLeft < 0 ? `逾期 ${-c.daysLeft} 天` : `剩 ${wd} 工作天`}</span>
+      <span>${FINAL_STATUS_KEYS.has(c.status) ? '已結案' : c.status === 'review_done' ? '送審中' : c.daysLeft < 0 ? `逾期 ${-c.daysLeft} 天` : `剩 ${wd} 工作天`}</span>
     </div>
     <button class="mini-btn" title="轉派單" onclick="event.stopPropagation();openReassign('${c.id}')">↻ 轉派</button>
   `;
@@ -1179,12 +1192,16 @@ function renderKanban() {
   ds.onchange = () => { kbFilterDes = ds.value; renderKanban(); };
   hs.onchange = () => { kbFilterHotel = hs.value; renderKanban(); };
   ds.value = kbFilterDes; hs.value = kbFilterHotel;
-  let list = currentRole === 'designer' ? CASES.filter(c => !c.archived && c.designer === ME_NAME()) : CASES.filter(c => !c.archived);
+  // v3.6 (#16): designer can SEE all cases on kanban, but edit only own (drawer enforces).
+  let list = CASES.filter(c => !c.archived);
   if (kbFilterDes !== 'all') list = list.filter(c => c.designer === kbFilterDes);
   if (kbFilterHotel !== 'all') list = list.filter(c => c.hotel === kbFilterHotel);
   const kb = document.getElementById('kanban');
   kb.innerHTML = '';
-  STATUSES.forEach(s => {
+  // v3.6: kanban excludes terminal/legacy statuses (done/closed) — closed cases auto-archive.
+  // Order: todo → wait → doing → review → review_done (5 columns, same count as before)
+  const KANBAN_STATUSES = STATUSES.filter(s => !FINAL_STATUS_KEYS.has(s.key));
+  KANBAN_STATUSES.forEach(s => {
     const col = document.createElement('div');
     col.className = 'kb-col';
     const cards = list.filter(c => c.status === s.key);
@@ -1282,7 +1299,8 @@ function renderGantt() {
   } else {
     for (let i = 0; i < 4; i++) ticks.push({ label: `Q${i+1}` });
   }
-  const pool = currentRole === 'designer' ? CASES.filter(c => !c.archived && c.designer === ME_NAME()) : CASES.filter(c => !c.archived);
+  // v3.6 (#16): designer sees all on gantt; editing limited via drawer.
+  const pool = CASES.filter(c => !c.archived);
   const groups = {};
   pool.forEach(c => {
     const k = ganttScope === 'designer' ? c.designer : c.hotel;
@@ -1394,10 +1412,10 @@ document.getElementById('gantt-collapse-all').onclick = () => {
 function renderDashboard() {
   const live = CASES.filter(c => !c.archived);
   const total = live.length;
-  const doing = live.filter(c => c.status === 'doing' || c.status === 'review').length;
-  const done = live.filter(c => c.status === 'done').length;
+  const doing = live.filter(c => c.status === 'doing' || c.status === 'review' || c.status === 'review_done').length;
+  const done = live.filter(c => FINAL_STATUS_KEYS.has(c.status)).length;
   const overdue = live.filter(c => c.overdue).length;
-  const urgent = live.filter(c => c.urgent && c.status !== 'done').length;
+  const urgent = live.filter(c => c.urgent && !FINAL_STATUS_KEYS.has(c.status)).length;
   const gate = live.filter(c => c.gateActive).length;
   document.getElementById('admin-kpi').innerHTML = `
     <div class="kpi"><div class="label">本月總件數</div><div class="value">${total}</div><div class="sub">VS 上月 +${Math.round(total*0.12)}</div></div>
@@ -3628,6 +3646,380 @@ document.addEventListener('click', (e) => {
     setTimeout(v35ApplyRoleVisibility, 0);
   }
 });
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v3.6 ENHANCEMENTS — three-stage flow + view-as + history + approval ▼▼▼
+// ═══════════════════════════════════════════════════════════════
+
+api.cases.approve   = (id, body) => fetchJson('POST', `/api/cases/${encodeURIComponent(id)}/approve`, body);
+api.cases.pending   = ()         => fetchJson('GET',  '/api/cases/pending-approval/list');
+
+// (#16) — Compute whether ME can write (edit fields, change status, delete) on a given case.
+function v36CanWriteCase(c) {
+  if (!ME) return false;
+  if (ME.role === 'admin') return true;
+  // primary designer can edit own case
+  return c.designer === ME_NAME() || c._designerId === ME.id;
+}
+
+// (#16) Read-only drawer: when a member opens someone else's case, disable
+// inputs / status select / delete / urgent toggle / archive path / log textarea.
+const _v36OrigOpenDrawer = window.openDrawer;
+window.openDrawer = async function(c) {
+  await _v36OrigOpenDrawer(c);
+  const writable = v36CanWriteCase(c);
+  if (!writable) {
+    // Disable interactive controls inside the drawer
+    const drawer = document.getElementById('drawer');
+    if (drawer) {
+      drawer.querySelectorAll('input, textarea, select, button').forEach(el => {
+        // Allow close + reassign read-button + drawer-close + scroll
+        if (el.id === 'drawer-close') return;
+        if (el.classList.contains('close')) return;
+        // keep delete / reassign / urgent disabled too
+        el.disabled = true;
+        el.classList.add('v36-readonly');
+      });
+      // Add a banner
+      if (!document.getElementById('v36-readonly-banner')) {
+        const banner = document.createElement('div');
+        banner.id = 'v36-readonly-banner';
+        banner.style.cssText = 'margin:0 0 12px;padding:8px 12px;background:#FFF8E6;border:1px solid #EDD79A;border-radius:5px;font-size:12px;color:#8C6A12;';
+        banner.textContent = '👁 你不是此案件的負責人，僅可瀏覽不可修改';
+        const body = drawer.querySelector('.drawer-body');
+        if (body) body.insertBefore(banner, body.firstChild);
+      }
+    }
+  } else {
+    // Cleanup banner if present from previous open
+    const b = document.getElementById('v36-readonly-banner');
+    if (b) b.remove();
+    // Re-enable
+    const drawer = document.getElementById('drawer');
+    drawer?.querySelectorAll('.v36-readonly').forEach(el => {
+      el.disabled = false;
+      el.classList.remove('v36-readonly');
+    });
+  }
+};
+
+// ─── 歷史案件 view (#15) ───────────────────────────────────
+function v36EnsureHistoryView() {
+  const main = document.querySelector('.main');
+  const all = document.querySelectorAll('div.view[data-view="history"]');
+  for (let i = 1; i < all.length; i++) all[i].remove();
+  let container = all[0] || null;
+  if (container && main && container.parentNode !== main) main.appendChild(container);
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'view';
+    container.dataset.view = 'history';
+    (main || document.body).appendChild(container);
+  }
+  if (container.querySelector('#v36-history-list')) return;
+  container.innerHTML = `
+    <h2 style="margin:0 0 6px;">歷史案件</h2>
+    <p style="color:#8C8C8C;font-size:12px;margin:0 0 14px;line-height:1.6;">所有狀態 = 已結案 或已封存的案件，唯讀展示。可搜尋、查看詳情。</p>
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;">
+        <input id="v36-history-search" placeholder="搜尋案件 ID、名稱、設計師、館別…" style="flex:1;min-width:240px;padding:7px 10px;border:1px solid #D4D4D4;border-radius:5px;">
+        <select id="v36-history-designer" style="padding:7px 10px;border:1px solid #D4D4D4;border-radius:5px;"><option value="">所有設計師</option></select>
+        <select id="v36-history-level" style="padding:7px 10px;border:1px solid #D4D4D4;border-radius:5px;">
+          <option value="">所有分級</option>
+          ${LEVELS.map(l=>`<option value="${l}">${l}</option>`).join('')}
+        </select>
+        <span id="v36-history-count" style="margin-left:auto;color:#595959;"></span>
+      </div>
+    </div>
+    <div id="v36-history-list" class="case-list"></div>
+  `;
+  document.getElementById('v36-history-search').oninput = renderHistory;
+  document.getElementById('v36-history-designer').onchange = renderHistory;
+  document.getElementById('v36-history-level').onchange = renderHistory;
+}
+
+function renderHistory() {
+  v36EnsureHistoryView();
+  // Populate designer select once
+  const dSel = document.getElementById('v36-history-designer');
+  if (dSel.children.length === 1) {
+    STAFF.forEach(s => dSel.innerHTML += `<option value="${s.name}">${s.name}</option>`);
+  }
+  const q = (document.getElementById('v36-history-search').value || '').toLowerCase();
+  const dFilter = dSel.value;
+  const lFilter = document.getElementById('v36-history-level').value;
+
+  const list = CASES.filter(c =>
+    (FINAL_STATUS_KEYS.has(c.status) || c.archived) &&
+    (!dFilter || c.designer === dFilter) &&
+    (!lFilter || c.level === lFilter) &&
+    (!q || (
+      (c.id || '').toLowerCase().includes(q) ||
+      (c.name || '').toLowerCase().includes(q) ||
+      (c.sub || '').toLowerCase().includes(q) ||
+      (c.designer || '').toLowerCase().includes(q) ||
+      (c.hotel || '').toLowerCase().includes(q)
+    ))
+  ).sort((a, b) => (b.closedOn?.getTime() || 0) - (a.closedOn?.getTime() || 0));
+
+  document.getElementById('v36-history-count').textContent = `${list.length} 筆`;
+  const wrap = document.getElementById('v36-history-list');
+  if (!list.length) {
+    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:#8C8C8C;">無符合的案件</div>';
+    return;
+  }
+  wrap.innerHTML = list.map(c => `
+    <div class="case-card archived-case" onclick='openDrawer(CASES.find(x=>x.id===${JSON.stringify(c.id)}))'>
+      <div class="row1">
+        <div>
+          <div class="case-id">${escapeHtml(c.id)}</div>
+          <div class="title">${escapeHtml(c.name)}</div>
+          <div class="sub">${escapeHtml(c.sub || '')}</div>
+        </div>
+        <span class="chip status-${c.status}">${(STATUSES.find(s=>s.key===c.status)||{name:c.status}).name}</span>
+      </div>
+      <div class="row2">
+        <span class="chip level-${c.level}">${c.level}</span>
+        <span class="chip">${escapeHtml(c.hotel||'—')}</span>
+        <span class="chip">${escapeHtml(c.designer||'—')}</span>
+      </div>
+      <div class="row3">
+        <span>結案 ${c.closedOn ? ymd(c.closedOn) : '—'}</span>
+        <span>${c.archivePath ? '✓ 已歸檔' : ''}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ─── admin 審核中心 (#21) ───────────────────────────────
+function v36EnsureApprovalView() {
+  const main = document.querySelector('.main');
+  const all = document.querySelectorAll('div.view[data-view="approval"]');
+  for (let i = 1; i < all.length; i++) all[i].remove();
+  let container = all[0] || null;
+  if (container && main && container.parentNode !== main) main.appendChild(container);
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'view';
+    container.dataset.view = 'approval';
+    (main || document.body).appendChild(container);
+  }
+  if (container.querySelector('#v36-approval-list')) return;
+  container.innerHTML = `
+    <h2 style="margin:0 0 6px;">審核中心</h2>
+    <p style="color:#8C8C8C;font-size:12px;margin:0 0 14px;line-height:1.6;">設計師確稿完成後，案件進入此清單等候審核。「通過」→ 自動結案並進入歷史；「退回」→ 狀態切回「進行中」由設計師修改後重提。</p>
+    <div id="v36-approval-list"></div>
+  `;
+}
+
+async function renderApproval() {
+  v36EnsureApprovalView();
+  const wrap = document.getElementById('v36-approval-list');
+  wrap.innerHTML = '<div style="padding:20px;color:#8C8C8C;">載入中…</div>';
+  try {
+    const rows = await api.cases.pending();
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="card" style="text-align:center;color:#8C8C8C;padding:30px;">🎉 目前沒有待審案件</div>';
+      // Update badge
+      v36UpdateApprovalBadge(0);
+      return;
+    }
+    v36UpdateApprovalBadge(rows.length);
+    wrap.innerHTML = rows.map(r => `
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:240px;">
+            <div style="font-family:'SF Mono','Consolas',monospace;font-size:11px;color:#8C8C8C;">${escapeHtml(r.id)}</div>
+            <div style="font-weight:500;font-size:15px;margin:4px 0;">${escapeHtml(r.title)}</div>
+            <div style="font-size:12px;color:#595959;">${escapeHtml(r.subTitle || '')}</div>
+            <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;font-size:11px;">
+              <span class="chip level-${r.level}">${r.level}</span>
+              <span class="chip">${escapeHtml(r.hotel || '—')}</span>
+              <span class="chip">${r.urgent ? '🔥 急件' : '一般'}</span>
+              <span class="chip">${escapeHtml(r.designer?.name || '—')}</span>
+              <span style="margin-left:auto;color:#8C8C8C;">上線 ${r.goLiveDate ? new Date(r.goLiveDate).toISOString().slice(0,10) : '—'}</span>
+            </div>
+            ${r.archivePath ? `<div style="margin-top:6px;font-size:11px;color:#1F8A4C;">✓ 歸檔路徑：${escapeHtml(r.archivePath)}</div>` : `<div style="margin-top:6px;font-size:11px;color:#C0392B;">⚠ 尚未填寫歸檔路徑（通過時必填）</div>`}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <textarea id="v36-cmt-${r.id}" placeholder="評語（可選）" rows="2" style="width:200px;padding:5px 8px;border:1px solid #D4D4D4;border-radius:4px;font-size:11px;resize:vertical;"></textarea>
+            <div style="display:flex;gap:6px;">
+              <button onclick="v36ApprovalDecision('${r.id}', 'reject')" style="flex:1;padding:6px 10px;background:#fff;color:#9A2E2E;border:1px solid #9A2E2E;border-radius:4px;cursor:pointer;font-size:12px;">↩ 退回</button>
+              <button onclick="v36ApprovalDecision('${r.id}', 'approve')" style="flex:1;padding:6px 10px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">✓ 通過</button>
+            </div>
+            <button onclick='openDrawer(CASES.find(x=>x.id===${JSON.stringify(r.id)}))' style="padding:5px;background:transparent;border:none;color:#1F6FEB;font-size:11px;cursor:pointer;">查看詳情 →</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    wrap.innerHTML = `<div style="padding:20px;color:#C0392B;">載入失敗：${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function v36ApprovalDecision(id, decision) {
+  const cmtEl = document.getElementById('v36-cmt-' + id);
+  const comment = cmtEl ? cmtEl.value.trim() : '';
+  const verb = decision === 'approve' ? '通過審核並結案' : '退回';
+  if (!confirm(`確定${verb}案件 ${id}？`)) return;
+  try {
+    await api.cases.approve(id, { decision, comment });
+    showToast(`✓ 案件 ${id} 已${verb}`);
+    await reloadCase(id);
+    refreshAll();
+    renderApproval();
+  } catch (e) {
+    if (e.data?.error === 'archive_path_required') {
+      showToast('案件未填寫歸檔路徑，無法結案 — 請先在抽屜中補上', 'err');
+    } else {
+      showToast('操作失敗：' + (e.data?.message || e.message), 'err');
+    }
+  }
+}
+
+function v36UpdateApprovalBadge(count) {
+  const navBtn = document.querySelector('#nav button[data-view="approval"]');
+  if (!navBtn) return;
+  let badge = navBtn.querySelector('.v36-badge');
+  if (count > 0) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'v36-badge';
+      badge.style.cssText = 'margin-left:5px;padding:0 6px;background:#C0392B;color:#fff;border-radius:8px;font-size:10px;';
+      navBtn.appendChild(badge);
+    }
+    badge.textContent = count;
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+async function v36RefreshApprovalBadge() {
+  if (!ME || ME.role !== 'admin') return;
+  try {
+    const rows = await api.cases.pending();
+    v36UpdateApprovalBadge(rows.length);
+  } catch {}
+}
+
+// ─── Gantt year/month header (#2) ─────────────────────────
+const _v36OrigRenderGantt = window.renderGantt;
+window.renderGantt = function() {
+  _v36OrigRenderGantt();
+  // Inject a year+month overlay above the existing tick row
+  const ganttEl = document.getElementById('gantt');
+  if (!ganttEl) return;
+  // Find the first body row to read columns
+  const tickRow = ganttEl.querySelector('.tick-row, .gantt-ticks, .timeline');
+  if (!tickRow) return;
+  // Read the rangeLabel which we already set in original renderGantt
+  const range = document.getElementById('gantt-range');
+  if (!range) return;
+  // Add a small year+month strip just under range label if not present
+  const timelineHead = ganttEl.parentElement?.querySelector('.gantt-toolbar');
+  if (timelineHead && !timelineHead.querySelector('.v36-ym')) {
+    const ymStrip = document.createElement('span');
+    ymStrip.className = 'v36-ym';
+    ymStrip.style.cssText = 'margin-left:10px;padding:2px 8px;background:#1F1F1F;color:#fff;border-radius:4px;font-size:11px;font-family:"SF Mono","Consolas",monospace;';
+    const start = new Date(ganttStart);
+    const end = new Date(start.getTime() + (SCALE_CFG[ganttScale]?.days || 30) * 86400000);
+    ymStrip.textContent = `${start.getFullYear()}/${pad(start.getMonth()+1)} – ${end.getFullYear()}/${pad(end.getMonth()+1)}`;
+    timelineHead.appendChild(ymStrip);
+  } else {
+    const existing = ganttEl.parentElement?.querySelector('.v36-ym');
+    if (existing) {
+      const start = new Date(ganttStart);
+      const end = new Date(start.getTime() + (SCALE_CFG[ganttScale]?.days || 30) * 86400000);
+      existing.textContent = `${start.getFullYear()}/${pad(start.getMonth()+1)} – ${end.getFullYear()}/${pad(end.getMonth()+1)}`;
+    }
+  }
+};
+
+// ─── header user dropdown (#5) ────────────────────────────
+// For admin: replace the role-switch with a dropdown listing all members.
+// Selecting a member switches to "view-as" mode (designer view of that member).
+let v36ViewAsName = null;
+function v36BuildUserMenu() {
+  const rs = document.getElementById('role-switch');
+  if (!rs || !ME) return;
+  rs.innerHTML = '';
+  if (ME.role !== 'admin') {
+    // Just show name
+    const span = document.createElement('span');
+    span.style.cssText = 'padding:6px 12px;color:#FAFAFA;';
+    span.textContent = ME.name;
+    rs.appendChild(span);
+    return;
+  }
+  // Admin: dropdown with admin / designer view-as options
+  const adminBtn = document.createElement('button');
+  adminBtn.className = (currentRole === 'admin' && !v36ViewAsName) ? 'active' : '';
+  adminBtn.textContent = `${ME.name} (Admin)`;
+  adminBtn.onclick = () => { v36ViewAsName = null; currentRole = 'admin'; currentView = 'dashboard'; v36BuildUserMenu(); renderNav(); switchView(currentView); };
+  rs.appendChild(adminBtn);
+
+  const sel = document.createElement('select');
+  sel.style.cssText = 'background:#2B2B2B;color:#FAFAFA;border:1px solid #595959;border-left:none;padding:6px 8px;font-size:12px;cursor:pointer;';
+  sel.innerHTML = '<option value="">— 切換到成員視角 —</option>' +
+    STAFF.filter(s => s.active && s.id !== ME.id).map(s => `<option value="${s.name}" ${v36ViewAsName === s.name ? 'selected' : ''}>${s.name}</option>`).join('');
+  sel.onchange = () => {
+    if (!sel.value) { v36ViewAsName = null; currentRole = 'admin'; }
+    else { v36ViewAsName = sel.value; currentRole = 'designer'; currentView = 'personal'; }
+    v36BuildUserMenu();
+    renderNav();
+    switchView(currentView);
+  };
+  rs.appendChild(sel);
+}
+
+// Override ME_NAME so render functions use the impersonated name when view-as is on
+const _v36OrigMeName = window.ME_NAME;
+window.ME_NAME = function() {
+  if (v36ViewAsName) return v36ViewAsName;
+  return _v36OrigMeName();
+};
+
+// Add nav items
+NAV_DEF.admin.push({ key: 'approval', label: '審核中心' });
+NAV_DEF.admin.push({ key: 'history', label: '歷史案件' });
+NAV_DEF.designer.push({ key: 'history', label: '歷史案件' });
+
+// Hook switchView for new views
+const _v36OrigSwitchView = window.switchView;
+window.switchView = function(v) {
+  if (v === 'history') {
+    v36EnsureHistoryView();
+    currentView = 'history';
+    document.querySelectorAll('div.view').forEach(x => x.classList.toggle('active', x.dataset.view === 'history'));
+    renderNav();
+    renderHistory();
+    return;
+  }
+  if (v === 'approval') {
+    v36EnsureApprovalView();
+    currentView = 'approval';
+    document.querySelectorAll('div.view').forEach(x => x.classList.toggle('active', x.dataset.view === 'approval'));
+    renderNav();
+    renderApproval();
+    return;
+  }
+  _v36OrigSwitchView(v);
+};
+
+// Hook bootstrap to set up v3.6 things
+const _v36OrigBootstrap = bootstrap;
+bootstrap = async function() {
+  await _v36OrigBootstrap();
+  v36EnsureHistoryView();
+  v36EnsureApprovalView();
+  v36BuildUserMenu();
+  if (ME.role === 'admin') {
+    renderNav();
+    v36RefreshApprovalBadge();
+    // refresh badge every 60s
+    setInterval(v36RefreshApprovalBadge, 60000);
+  }
+};
 
 // ═══ GO ═══════════════════════════════════════════════════════
 bootstrap();

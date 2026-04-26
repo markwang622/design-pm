@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../lib/db.js';
-import { signToken, setAuthCookie, clearAuthCookie, requireAuth } from '../middleware/auth.js';
+import { signToken, setAuthCookie, clearAuthCookie, requireAuth, validatePasswordStrength } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -63,13 +63,22 @@ router.post('/change-password', requireAuth, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
   const { currentPassword, newPassword } = parsed.data;
 
+  // v3.6 (#22): server-side strength check
+  const strengthErr = validatePasswordStrength(newPassword);
+  if (strengthErr) {
+    return res.status(422).json({ error: 'weak_password', message: strengthErr });
+  }
+  if (newPassword === currentPassword) {
+    return res.status(422).json({ error: 'same_as_old', message: '新密碼不能跟舊密碼一樣' });
+  }
+
   const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
   if (!staff) return res.status(401).json({ error: 'unauthenticated' });
 
   const ok = await bcrypt.compare(currentPassword, staff.password);
   if (!ok) return res.status(401).json({ error: 'wrong_current_password' });
 
-  const hash = await bcrypt.hash(newPassword, 10);
+  const hash = await bcrypt.hash(newPassword, 12); // v3.6: 10 → 12 rounds
   await prisma.staff.update({ where: { id: staff.id }, data: { password: hash } });
   res.json({ ok: true });
 });

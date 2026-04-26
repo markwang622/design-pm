@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../lib/db.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, validatePasswordStrength } from '../middleware/auth.js';
 import { workloadScore, workloadForAll, suggestSuccessor } from '../services/workload.js';
 import { notify, tplStaffAdd, tplDeparture } from '../services/notify.js';
 
@@ -51,7 +51,14 @@ router.post('/', requireAdmin, async (req, res) => {
   const body = parsed.data;
 
   const defaultPw = process.env.SEED_DEFAULT_PASSWORD || 'design2026!';
-  const hash = await bcrypt.hash(body.password || defaultPw, 10);
+  // v3.6 (#22): if admin supplies a password, enforce strength
+  if (body.password) {
+    const strengthErr = validatePasswordStrength(body.password);
+    if (strengthErr) {
+      return res.status(422).json({ error: 'weak_password', message: strengthErr });
+    }
+  }
+  const hash = await bcrypt.hash(body.password || defaultPw, 12);
 
   try {
     const created = await prisma.staff.create({
@@ -121,7 +128,12 @@ router.patch('/:id', async (req, res) => {
         message: '管理員只能重設他人的密碼；自己的密碼請走「修改密碼」並輸入舊密碼',
       });
     }
-    data.password = await bcrypt.hash(data.resetPassword, 10);
+    // v3.6 (#22): enforce strength on admin-reset too
+    const strengthErr = validatePasswordStrength(data.resetPassword);
+    if (strengthErr) {
+      return res.status(422).json({ error: 'weak_password', message: strengthErr });
+    }
+    data.password = await bcrypt.hash(data.resetPassword, 12);
     delete data.resetPassword;
   }
 

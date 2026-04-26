@@ -8,8 +8,8 @@
 //      × TIMELY_COEF(case)          // on-time ×1.1 / overdue ×0.8
 //      × URGENT_COEF(case)          // urgent ×1.3 / normal ×1.0
 //
-// Only counts cases where status === 'done' AND closedOn falls inside
-// the requested natural calendar period.
+// Counts cases where status ∈ { 'done', 'closed' } AND closedOn falls
+// inside the requested natural calendar period. (v3.6 added 'closed'.)
 // ─────────────────────────────────────────────────────────────
 import { prisma } from '../lib/db.js';
 
@@ -154,7 +154,7 @@ export async function rollup({ period, offset, staffId }) {
   const win = resolvePeriod(period, offset);
 
   const where = {
-    status: 'done',
+    status: { in: ['done', 'closed'] }, // v3.6: closed cases also count
     closedOn: { gte: win.start, lt: win.end },
   };
 

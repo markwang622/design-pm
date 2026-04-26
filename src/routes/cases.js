@@ -42,7 +42,9 @@ const updateSchema = z.object({
   hotel: z.string().optional(),
   level: z.enum(['SS', 'S', 'A', 'B', 'C', 'D']).optional(),
   category: z.string().optional(),
-  status: z.enum(['todo', 'wait', 'doing', 'review', 'done']).optional(),
+  // v3.6: three-stage close — review → review_done → closed
+  // 'done' kept for backward compat with v3.3/v3.4 data; treated like 'closed'
+  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'done', 'closed']).optional(),
   designerId: z.number().int().optional(),
   collaboratorIds: z.array(z.number().int()).max(3).optional(),
   openDate: dateStr.optional(),
@@ -70,7 +72,7 @@ const bulkRowSchema = z.object({
   category: z.string().optional(),
   designerName: z.string().min(1),
   collaboratorNames: z.array(z.string()).default([]),
-  status: z.enum(['todo', 'wait', 'doing', 'review', 'done']).default('todo'),
+  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'done', 'closed']).default('todo'),
   urgent: z.boolean().default(false),
   note: z.string().default(''),
   // Dates — accept YYYY-MM-DD strings; convert later
@@ -171,16 +173,18 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
         collaborators: { connect: collabIds.map((id) => ({ id })) },
         createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
       };
-      // Status-specific fields
-      if (r.status === 'done') {
+      // Status-specific fields (v3.6: any of done/closed/review_done are "終態")
+      const isFinal = r.status === 'done' || r.status === 'closed' || r.status === 'review_done';
+      if (isFinal) {
         data.closedOn = closedOn || today;
         if (r.archivePath) data.archivePath = r.archivePath;
         if (r.requestCount !== undefined) data.requestCount = r.requestCount;
         if (r.outputCount !== undefined) data.outputCount = r.outputCount;
         if (data.archivePath == null || data.archivePath === '') {
-          // fall back: synthesize a placeholder path the user can edit later
           data.archivePath = `/設計部共用/2026/匯入/${id}-${r.title}`.replace(/\s+/g, '_');
         }
+        // closed → also auto-archive (v3.6 #17)
+        if (r.status === 'closed') data.archived = true;
       }
 
       const row = await prisma.case.create({ data, include: caseInclude });
@@ -304,15 +308,37 @@ router.patch('/:id', async (req, res) => {
   const existing = await prisma.case.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
 
-  // ── Archive-path guard (PRD §5.6) ───────────────────────
-  if (body.status === 'done') {
+  // ── Permission: non-admin can only PATCH cases they own (v3.6 #16) ──
+  // Note: bulk-import / approval / transfer have their own permission gates.
+  if (req.user.role !== 'admin' && existing.designerId !== req.user.id) {
+    // Allow self-collaborated cases? For simplicity, NO — only the primary
+    // designer may edit. Collaborators read but don't write.
+    return res.status(403).json({
+      error: 'forbidden',
+      message: '此案件不屬於你，僅主負責人可修改',
+    });
+  }
+
+  // ── Archive-path guard ───────────────────────────────────
+  // Required when going into review_done / done / closed (any "終態")
+  const FINAL_STATUSES = new Set(['review_done', 'done', 'closed']);
+  if (body.status && FINAL_STATUSES.has(body.status)) {
     const nextPath = body.archivePath !== undefined ? body.archivePath : existing.archivePath;
     if (!nextPath || !String(nextPath).trim()) {
       return res.status(422).json({
         error: 'archive_path_required',
-        message: '未填寫檔案歸檔位置，無法結案',
+        message: '未填寫檔案歸檔位置，無法進入確稿完成 / 結案',
       });
     }
+  }
+
+  // ── Approval gate (v3.6 #13): non-admin can NOT directly set 'closed'.
+  // Designer must use review_done; admin then approves via /approve endpoint.
+  if (body.status === 'closed' && req.user.role !== 'admin') {
+    return res.status(403).json({
+      error: 'closed_admin_only',
+      message: '結案需要由 admin 在審核中心通過，請改成「確稿完成」狀態',
+    });
   }
 
   // ── ChangeLog reason guard (v3.3) ───────────────────────
@@ -367,9 +393,14 @@ router.patch('/:id', async (req, res) => {
     };
   }
 
-  // When going to done, stamp closedOn
-  if (body.status === 'done' && existing.status !== 'done') {
+  // When entering a final-ish state, stamp closedOn (idempotent)
+  if (body.status && FINAL_STATUSES.has(body.status) && !existing.closedOn) {
     data.closedOn = new Date();
+  }
+
+  // (v3.6 #17) closed → auto-archive
+  if (body.status === 'closed') {
+    data.archived = true;
   }
 
   const updated = await prisma.case.update({
@@ -387,7 +418,118 @@ router.patch('/:id', async (req, res) => {
     }
   }
 
+  // (v3.6 #12) When designer pushes to review_done, notify all admins
+  if (body.status === 'review_done' && existing.status !== 'review_done') {
+    try {
+      const admins = await prisma.staff.findMany({
+        where: { role: 'admin', active: true },
+        select: { id: true, name: true },
+      });
+      for (const a of admins) {
+        await notify({
+          type: 'reviewDone',
+          recipientId: a.id,
+          subject: `📝 確稿完成待審核：${updated.id} · ${updated.title}`,
+          body: `${updated.designer?.name || '—'} 已將案件 ${updated.id}「${updated.title}」推到「確稿完成」狀態，等待您審核 → 通過後自動結案、進入歷史。`,
+          relatedCaseId: updated.id,
+        });
+      }
+    } catch (e) {
+      console.warn('[cases.update] reviewDone notify failed:', e.message);
+    }
+  }
+
   res.json(updated);
+});
+
+// ─── POST /api/cases/:id/approve — admin approval (v3.6 #13/#21) ─
+// Body: { decision: 'approve' | 'reject', comment?: string }
+//   approve → status = 'closed', archived = true (auto), notify designer
+//   reject  → status = 'doing', notify designer with comment
+// Only allowed when current status is 'review_done'.
+const approveSchema = z.object({
+  decision: z.enum(['approve', 'reject']),
+  comment: z.string().optional(),
+});
+router.post('/:id/approve', requireAdmin, async (req, res) => {
+  const parsed = approveSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+  const { decision, comment } = parsed.data;
+
+  const existing = await prisma.case.findUnique({
+    where: { id: req.params.id },
+    include: { designer: { select: { id: true, name: true } } },
+  });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (existing.status !== 'review_done') {
+    return res.status(409).json({
+      error: 'wrong_state',
+      message: '此案件不在「確稿完成」狀態，無法審核',
+      currentStatus: existing.status,
+    });
+  }
+
+  const data = { };
+  if (decision === 'approve') {
+    if (!existing.archivePath || !String(existing.archivePath).trim()) {
+      return res.status(422).json({
+        error: 'archive_path_required',
+        message: '結案前必須先填寫檔案歸檔位置',
+      });
+    }
+    data.status = 'closed';
+    data.archived = true;
+    if (!existing.closedOn) data.closedOn = new Date();
+  } else {
+    data.status = 'doing';
+  }
+
+  const updated = await prisma.case.update({
+    where: { id: existing.id },
+    data,
+    include: caseInclude,
+  });
+
+  // ChangeLog
+  try {
+    await writeChangeLog(
+      updated.id,
+      [{ field: 'status', fromValue: 'review_done', toValue: data.status }],
+      decision === 'approve' ? `審核通過 ${comment ? '— ' + comment : ''}` : `退回修改 ${comment ? '— ' + comment : ''}`,
+      req.user.name,
+    );
+  } catch (e) {
+    console.warn('[approve] changelog failed:', e.message);
+  }
+
+  // Notify designer
+  try {
+    await notify({
+      type: decision === 'approve' ? 'caseClosed' : 'caseRejected',
+      recipientId: existing.designer.id,
+      subject: decision === 'approve'
+        ? `✅ 案件已結案：${updated.id} · ${updated.title}`
+        : `↩ 案件被退回：${updated.id} · ${updated.title}`,
+      body: decision === 'approve'
+        ? `Admin ${req.user.name} 已通過審核，案件已自動結案並進入歷史。${comment ? '評語：' + comment : ''}`
+        : `Admin ${req.user.name} 退回此案，狀態已切回「進行中」，請依評語修改後重新提送。${comment ? '評語：' + comment : ''}`,
+      relatedCaseId: updated.id,
+    });
+  } catch (e) {
+    console.warn('[approve] notify failed:', e.message);
+  }
+
+  res.json(updated);
+});
+
+// ─── GET /api/cases/pending-approval — admin queue (v3.6 #21) ─
+router.get('/pending-approval/list', requireAdmin, async (req, res) => {
+  const rows = await prisma.case.findMany({
+    where: { status: 'review_done', archived: false },
+    include: caseInclude,
+    orderBy: { goLiveDate: 'asc' },
+  });
+  res.json(rows);
 });
 
 // ─── DELETE /api/cases/:id — delete a case (v3.3) ─────────
