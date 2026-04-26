@@ -5,13 +5,102 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>藝術設計部 · 專案管理系統</title>
 <style>
-:root { color-scheme: light; }
+:root {
+  color-scheme: light;
+  /* v3.8 theme variables — light defaults */
+  --bg: #FAFAFA;
+  --fg: #1F1F1F;
+  --fg-muted: #8C8C8C;
+  --fg-dim: #595959;
+  --card-bg: #FFFFFF;
+  --card-border: #E5E5E5;
+  --card-shadow: 0 1px 0 rgba(0,0,0,0.02);
+  --chip-bg: #F2F2F2;
+  --chip-fg: #595959;
+  --chip-border: #E5E5E5;
+  --topbar-bg: #1F1F1F;
+  --topbar-fg: #FAFAFA;
+  --input-bg: #FFFFFF;
+  --input-border: #D4D4D4;
+  --input-fg: #1F1F1F;
+  --hover-bg: #F2F2F2;
+  --kanban-col-bg: #F2F2F2;
+  --section-divider: #F0F0F0;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0F1419;
+  --fg: #E8E8E8;
+  --fg-muted: #8C8C8C;
+  --fg-dim: #A0A0A0;
+  --card-bg: #1A2028;
+  --card-border: #2A3038;
+  --card-shadow: 0 1px 0 rgba(0,0,0,0.4);
+  --chip-bg: #252B33;
+  --chip-fg: #C0C0C0;
+  --chip-border: #2A3038;
+  --topbar-bg: #050810;
+  --topbar-fg: #E8E8E8;
+  --input-bg: #1A2028;
+  --input-border: #3A4048;
+  --input-fg: #E8E8E8;
+  --hover-bg: #252B33;
+  --kanban-col-bg: #1A2028;
+  --section-divider: #2A3038;
+}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
-  background: #FAFAFA; color: #1F1F1F; font-size: 14px; line-height: 1.6;
+  background: var(--bg); color: var(--fg); font-size: 14px; line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s, color 0.2s;
 }
+/* v3.8 dark-mode overrides for common surfaces */
+[data-theme="dark"] .card { background: var(--card-bg); border-color: var(--card-border); color: var(--fg); }
+[data-theme="dark"] .topbar { background: var(--topbar-bg); border-bottom-color: #000; }
+[data-theme="dark"] .kpi { background: var(--card-bg); border-color: var(--card-border); color: var(--fg); }
+[data-theme="dark"] .case-card { background: var(--card-bg); border-color: var(--card-border); color: var(--fg); }
+[data-theme="dark"] .case-card.s-todo { background: var(--card-bg); }
+[data-theme="dark"] .case-card.s-wait { background: #2D2820; border-color: #3A3528; }
+[data-theme="dark"] .case-card.s-doing { background: #1A2333; border-color: #243044; }
+[data-theme="dark"] .case-card.s-review { background: #332D1F; border-color: #44382A; }
+[data-theme="dark"] .case-card.s-review_done { background: #33271F; border-color: #44362A; }
+[data-theme="dark"] .case-card.s-done { background: #1F2D1F; border-color: #2A3D2A; }
+[data-theme="dark"] .case-card.s-closed { background: #1A2D1A; border-color: #2A4D2A; }
+[data-theme="dark"] .case-card.archived-case { background: #15191F; opacity: 0.7; }
+[data-theme="dark"] .kanban .kb-col { background: var(--kanban-col-bg); }
+[data-theme="dark"] .kanban .kb-card { background: var(--card-bg); border-color: var(--card-border); color: var(--fg); }
+[data-theme="dark"] .nav button:hover { background: #2A3038; }
+[data-theme="dark"] .modal { background: var(--card-bg); color: var(--fg); border-color: var(--card-border); }
+[data-theme="dark"] .modal input, [data-theme="dark"] .modal select, [data-theme="dark"] .modal textarea,
+[data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea {
+  background: var(--input-bg); color: var(--input-fg); border-color: var(--input-border);
+}
+[data-theme="dark"] .drawer { background: var(--card-bg); color: var(--fg); }
+[data-theme="dark"] .drawer-head { border-bottom-color: var(--section-divider); }
+[data-theme="dark"] .chip { background: var(--chip-bg); color: var(--chip-fg); border-color: var(--chip-border); }
+[data-theme="dark"] .chip.level-SS, [data-theme="dark"] .chip.level-S { background: #E8E8E8; color: #1F1F1F; border-color: #E8E8E8; }
+[data-theme="dark"] .legend-row { background: var(--card-bg); border-color: var(--card-border); }
+[data-theme="dark"] .filter-bar .pill { background: var(--card-bg); color: var(--fg); border-color: var(--card-border); }
+[data-theme="dark"] .filter-bar .pill.active { background: #FAFAFA; color: #0F1419; }
+[data-theme="dark"] .staff-table { background: var(--card-bg); border-color: var(--card-border); }
+[data-theme="dark"] .staff-row { border-bottom-color: var(--section-divider); }
+[data-theme="dark"] .staff-row.head { background: #252B33; }
+[data-theme="dark"] .staff-table .workload-gauge .bar { background: #252B33; }
+[data-theme="dark"] .bar-list .bar-row .track { background: #252B33; }
+[data-theme="dark"] .bar-list .bar-row .fill { background: linear-gradient(90deg, #5A8AD8, #88AEEA); }
+[data-theme="dark"] .activity-list li { border-bottom-color: var(--section-divider); }
+[data-theme="dark"] .footer-note { color: var(--fg-muted); }
+[data-theme="dark"] .gantt-toolbar { background: var(--card-bg); }
+[data-theme="dark"] .gantt-toolbar button { color: var(--fg); }
+[data-theme="dark"] hr { border-color: var(--section-divider); }
+/* v3.8 theme toggle button */
+.v38-theme-toggle {
+  margin-left: 8px; padding: 6px 10px; background: transparent;
+  color: var(--topbar-fg); border: 1px solid #595959; border-radius: 6px;
+  font-size: 12px; cursor: pointer;
+}
+.v38-theme-toggle:hover { background: rgba(255,255,255,0.08); }
 button { font-family: inherit; cursor: pointer; border: none; background: transparent; color: inherit; }
 h1, h2, h3, h4 { font-weight: 500; }
 .app { display: flex; flex-direction: column; min-height: 100vh; }
@@ -507,7 +596,7 @@ h1, h2, h3, h4 { font-weight: 500; }
 <body>
 <div class="app">
   <div class="topbar">
-    <div class="logo">藝術設計部<span class="dim">· 專案管理系統 prototype v3.2</span></div>
+    <div class="logo">藝術設計部<span class="dim">· 專案管理系統</span></div>
     <div class="nav" id="nav"></div>
     <button class="create-btn" id="create-btn">＋ 建立專案</button>
     <div class="role-switch" id="role-switch">
@@ -4159,45 +4248,64 @@ function v37RenderUpcomingDue() {
 function v37ResizeDonut() {
   const canv = document.getElementById('donut');
   if (!canv) return;
-  const total = CASES.filter(c => !c.archived).length;
-  if (total === 0) return;
-  const size = 180; // bigger than original 120
+  const live = CASES.filter(c => !c.archived);
+  // (v3.8 #1) total counts only what we actually render — fixes the
+  // "16 件 vs slices add to 13" mismatch: legacy 'done' rows were in `live`
+  // but excluded from the chart.
+  const stats = STATUSES.filter(s => s.key !== 'done').map(s => ({s, n: live.filter(c => c.status === s.key).length}));
+  const total = stats.reduce((sum, s) => sum + s.n, 0);
+  const size = 180;
   const ratio = window.devicePixelRatio || 1;
   canv.width = size * ratio; canv.height = size * ratio;
   canv.style.width = size + 'px'; canv.style.height = size + 'px';
   const ctx = canv.getContext('2d');
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, size, size);
-  const live = CASES.filter(c => !c.archived);
-  const stats = STATUSES.filter(s => s.key !== 'done').map(s => ({s, n: live.filter(c => c.status === s.key).length}));
+  // v3.8: 尚未開始 darker (was #E5E5E5 — too close to card background)
   const colors = {
-    todo: '#E5E5E5', wait: '#D9CEBF', doing: '#C9DCF0',
+    todo: '#B5B5B5', wait: '#D9CEBF', doing: '#C9DCF0',
     review: '#EDD79A', review_done: '#F0C49B', closed: '#A5D6A7',
   };
-  let a0 = -Math.PI/2;
-  stats.forEach(({s, n}) => {
-    if (n === 0) return;
-    const ang = n / total * Math.PI * 2;
-    ctx.beginPath(); ctx.moveTo(size/2, size/2);
-    ctx.arc(size/2, size/2, size/2 - 5, a0, a0 + ang);
-    ctx.closePath();
-    ctx.fillStyle = colors[s.key] || '#CCC';
+  if (total === 0) {
+    // Empty placeholder ring
+    ctx.beginPath(); ctx.arc(size/2, size/2, size/2 - 5, 0, Math.PI*2);
+    ctx.fillStyle = '#F0F0F0'; ctx.fill();
+    ctx.beginPath(); ctx.arc(size/2, size/2, size/2 - 50, 0, Math.PI*2);
+    ctx.fillStyle = 'var(--card-bg, #fff)'; ctx.fillStyle = getComputedStyle(canv).getPropertyValue('--card-bg') || '#fff';
     ctx.fill();
-    a0 += ang;
-  });
-  ctx.beginPath(); ctx.arc(size/2, size/2, size/2 - 50, 0, Math.PI*2);
-  ctx.fillStyle = '#fff'; ctx.fill();
-  ctx.fillStyle = '#1F1F1F';
-  ctx.font = '500 26px -apple-system,system-ui,sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(total, size/2, size/2 - 5);
-  ctx.fillStyle = '#8C8C8C'; ctx.font = '11px -apple-system,system-ui,sans-serif';
-  ctx.fillText('件 · 進行中', size/2, size/2 + 18);
+    ctx.fillStyle = '#8C8C8C'; ctx.font = '500 26px -apple-system,system-ui,sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('0', size/2, size/2);
+  } else {
+    let a0 = -Math.PI/2;
+    stats.forEach(({s, n}) => {
+      if (n === 0) return;
+      const ang = n / total * Math.PI * 2;
+      ctx.beginPath(); ctx.moveTo(size/2, size/2);
+      ctx.arc(size/2, size/2, size/2 - 5, a0, a0 + ang);
+      ctx.closePath();
+      ctx.fillStyle = colors[s.key] || '#CCC';
+      ctx.fill();
+      a0 += ang;
+    });
+    // Donut hole — use card-bg so dark mode looks right
+    const cardBg = getComputedStyle(document.documentElement).getPropertyValue('--card-bg').trim() || '#fff';
+    ctx.beginPath(); ctx.arc(size/2, size/2, size/2 - 50, 0, Math.PI*2);
+    ctx.fillStyle = cardBg; ctx.fill();
+    const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim() || '#1F1F1F';
+    ctx.fillStyle = fg;
+    ctx.font = '500 28px -apple-system,system-ui,sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(total, size/2, size/2 - 5);
+    ctx.fillStyle = '#8C8C8C'; ctx.font = '11px -apple-system,system-ui,sans-serif';
+    // v3.8: subtitle 「件 · 進行中」誤導；改成「件 · 未結案」
+    ctx.fillText('件 · 未結案', size/2, size/2 + 18);
+  }
   // legend
   const legend = document.getElementById('donut-legend');
   if (legend) {
     legend.innerHTML = stats.map(({s, n}) =>
-      `<div style="font-size:11px;"><span class="legend-dot" style="background:${colors[s.key] || '#CCC'};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>${s.name} <span style="color:#8C8C8C">${n}</span></div>`
+      `<div style="font-size:11px;"><span class="legend-dot" style="background:${colors[s.key] || '#CCC'};display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;border:1px solid rgba(0,0,0,0.08);vertical-align:middle;"></span>${s.name} <span style="color:#8C8C8C">${n}</span></div>`
     ).join('');
   }
 }
@@ -4506,6 +4614,7 @@ function v37AddAnalyticsStaffSelector() {
 
 function v37FilterAnalyticsToStaff(data, staffId) {
   const board = document.getElementById('v33-leaderboard');
+  const list = document.getElementById('v33-cases-list');
   if (!board) return;
   if (!staffId) {
     renderAnalytics(); // re-render full
@@ -4514,7 +4623,7 @@ function v37FilterAnalyticsToStaff(data, staffId) {
   const s = data.perStaff.find(x => x.staffId === staffId);
   if (!s) {
     board.innerHTML = '<div style="padding:14px;color:#8C8C8C;">本期間此同仁無已結案案件</div>';
-    document.getElementById('v33-cases-list').innerHTML = '';
+    if (list) list.innerHTML = '<div style="padding:14px;color:#8C8C8C;">無資料</div>';
     return;
   }
   const ot = s.onTimeRate == null ? '—' : Math.round(s.onTimeRate * 100) + '%';
@@ -4526,14 +4635,46 @@ function v37FilterAnalyticsToStaff(data, staffId) {
         <span style="margin-left:auto;font-family:'SF Mono','Consolas',monospace;font-weight:600;font-size:22px;">${s.totalScore.toFixed(1)} 分</span>
       </div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;font-size:12px;">
-        <div style="background:#F4F4F4;padding:10px;border-radius:5px;"><div style="color:#8C8C8C;">主負責</div><div style="font-weight:600;font-size:16px;">${s.primary.count} 件 / ${s.primary.score.toFixed(1)}</div></div>
-        <div style="background:#F4F4F4;padding:10px;border-radius:5px;"><div style="color:#8C8C8C;">協作</div><div style="font-weight:600;font-size:16px;">${s.collab.count} 件 / ${s.collab.score.toFixed(1)}</div></div>
-        <div style="background:#E4F3DD;padding:10px;border-radius:5px;"><div style="color:#3A6E2A;">提早完成</div><div style="font-weight:600;font-size:16px;">${s.earlyCount || 0} 件</div></div>
-        <div style="background:#FFE4DD;padding:10px;border-radius:5px;"><div style="color:#8B3A2A;">準時率</div><div style="font-weight:600;font-size:16px;">${ot}</div></div>
+        <div style="background:var(--chip-bg,#F4F4F4);padding:10px;border-radius:5px;"><div style="color:#8C8C8C;">主負責</div><div style="font-weight:600;font-size:16px;">${s.primary.count} 件 / ${s.primary.score.toFixed(1)}</div></div>
+        <div style="background:var(--chip-bg,#F4F4F4);padding:10px;border-radius:5px;"><div style="color:#8C8C8C;">協作</div><div style="font-weight:600;font-size:16px;">${s.collab.count} 件 / ${s.collab.score.toFixed(1)}</div></div>
+        <div style="background:#E4F3DD;padding:10px;border-radius:5px;color:#1F1F1F;"><div style="color:#3A6E2A;">提早完成</div><div style="font-weight:600;font-size:16px;">${s.earlyCount || 0} 件</div></div>
+        <div style="background:#FFE4DD;padding:10px;border-radius:5px;color:#1F1F1F;"><div style="color:#8B3A2A;">準時率</div><div style="font-weight:600;font-size:16px;">${ot}</div></div>
       </div>
       <div style="margin-top:10px;font-size:11px;color:#8C8C8C;">分級分布：SS:${s.byLevel.SS||0} · S:${s.byLevel.S||0} · A:${s.byLevel.A||0} · B:${s.byLevel.B||0} · C:${s.byLevel.C||0} · D:${s.byLevel.D||0}</div>
     </div>
   `;
+  // (v3.8 #2) Filter the cases list to this staff member (主負責 OR 協作)
+  if (list) {
+    const myCases = data.cases.filter(c =>
+      c.designerId === staffId || (c.collaboratorNames || []).includes(s.name)
+    );
+    if (!myCases.length) {
+      list.innerHTML = '<div style="padding:14px;color:#8C8C8C;">本期間此同仁無已結案案件</div>';
+    } else {
+      list.innerHTML = myCases.map(c => {
+        const isPrimary = c.designerId === staffId;
+        const timelyChip = c.timely === 'early'
+          ? '<span style="font-size:10px;padding:1px 6px;background:#D4F0DD;color:#1F6B3A;border-radius:3px;">提早</span>'
+          : c.timely === 'overdue'
+            ? '<span style="font-size:10px;padding:1px 6px;background:#FFF0DD;color:#8B5A2A;border-radius:3px;">逾期</span>'
+            : '<span style="font-size:10px;padding:1px 6px;background:#E4F3DD;color:#3A6E2A;border-radius:3px;">準時</span>';
+        return `
+          <div style="padding:8px 4px;border-bottom:1px solid #F0F0F0;">
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span style="font-family:'SF Mono','Consolas',monospace;font-size:10px;color:#8C8C8C;">${escapeHtml(c.id)}</span>
+              <span class="chip ${c.level==='SS'||c.level==='S'?'high':''}" style="font-size:10px;padding:1px 6px;background:#F0F0F0;border-radius:3px;color:#1F1F1F;">${c.level}</span>
+              ${c.urgent ? '<span style="font-size:10px;padding:1px 6px;background:#FFE4DD;color:#8B3A2A;border-radius:3px;">急</span>' : ''}
+              ${timelyChip}
+              <span style="font-size:10px;padding:1px 6px;background:${isPrimary ? '#1F1F1F' : '#8C8C8C'};color:#fff;border-radius:3px;">${isPrimary ? '主負責' : '協作'}</span>
+              <span style="margin-left:auto;font-family:'SF Mono','Consolas',monospace;font-weight:600;">${c.score.toFixed(1)}</span>
+            </div>
+            <div style="margin-top:3px;font-weight:500;">${escapeHtml(c.title)}</div>
+            <div style="font-size:11px;color:#8C8C8C;margin-top:2px;">${escapeHtml(c.designerName || '')}${(c.collaboratorNames||[]).length?'（協作：'+c.collaboratorNames.map(escapeHtml).join('、')+'）':''} · 結案 ${new Date(c.closedOn).toLocaleDateString('zh-TW')}</div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
 }
 
 function v37PatchAnalyticsFooterText() {
@@ -4662,6 +4803,251 @@ bootstrap = async function() {
   // Load hotels BEFORE original bootstrap so HOTELS array is ready
   await v37LoadHotels();
   await _v37OrigBootstrap();
+};
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v3.8 ENHANCEMENTS — dark mode + mobile + bug fixes ▼▼▼
+// ═══════════════════════════════════════════════════════════════
+
+// (#3) Theme: light / dark / auto. localStorage persists. Auto = sunset-based
+// (after 18:00 or before 06:00) → dark; else light.
+function v38GetSavedTheme() {
+  try { return localStorage.getItem('design-pm-theme') || 'auto'; } catch { return 'auto'; }
+}
+function v38SaveTheme(t) {
+  try { localStorage.setItem('design-pm-theme', t); } catch {}
+}
+function v38ResolveAutoTheme() {
+  // Sunset-ish heuristic without geolocation: 18:00 – 06:00 = dark
+  const h = new Date().getHours();
+  if (h >= 18 || h < 6) return 'dark';
+  // Also honor system preference if set
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+  return 'light';
+}
+function v38ApplyTheme(mode) {
+  const effective = mode === 'auto' ? v38ResolveAutoTheme() : mode;
+  document.documentElement.setAttribute('data-theme', effective);
+  document.body && document.body.setAttribute('data-theme', effective);
+  // Re-render donut so it picks up the new card-bg color
+  if (typeof v37ResizeDonut === 'function' && document.getElementById('donut')) {
+    setTimeout(v37ResizeDonut, 0);
+  }
+  v38UpdateThemeButton(mode);
+}
+function v38UpdateThemeButton(mode) {
+  const btn = document.querySelector('.v38-theme-toggle');
+  if (!btn) return;
+  const labels = { light: '🌞 日間', dark: '🌙 夜間', auto: '🌗 自動' };
+  btn.textContent = labels[mode] || '🌗 自動';
+  btn.title = '點擊切換 日間 → 夜間 → 自動';
+}
+function v38InjectThemeToggle() {
+  const topbar = document.querySelector('.topbar');
+  if (!topbar || topbar.querySelector('.v38-theme-toggle')) return;
+  const btn = document.createElement('button');
+  btn.className = 'v38-theme-toggle';
+  btn.onclick = () => {
+    const cur = v38GetSavedTheme();
+    const next = cur === 'light' ? 'dark' : cur === 'dark' ? 'auto' : 'light';
+    v38SaveTheme(next);
+    v38ApplyTheme(next);
+    showToast(`主題：${next === 'light' ? '日間' : next === 'dark' ? '夜間' : '自動'}`);
+  };
+  // Insert before role-switch / user-menu
+  const rs = document.getElementById('role-switch');
+  if (rs) topbar.insertBefore(btn, rs);
+  else topbar.appendChild(btn);
+}
+// Apply IMMEDIATELY (before bootstrap) so there's no light-flash on dark devices
+v38ApplyTheme(v38GetSavedTheme());
+// Re-evaluate auto theme every minute (handles sunset crossing)
+setInterval(() => {
+  if (v38GetSavedTheme() === 'auto') v38ApplyTheme('auto');
+}, 60 * 1000);
+
+// (#4) Mobile responsive
+const v38MobileCSS = `
+@media (max-width: 768px) {
+  .topbar {
+    flex-wrap: wrap; gap: 8px; padding: 10px 12px;
+  }
+  .topbar .logo { font-size: 13px; }
+  .topbar .logo .dim { display: none; }
+  .topbar .nav {
+    order: 100; width: 100%; overflow-x: auto; padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .topbar .nav::-webkit-scrollbar { height: 3px; }
+  .topbar .nav button { font-size: 11px; padding: 6px 10px; flex-shrink: 0; }
+  .role-switch, .v38-theme-toggle { font-size: 11px; }
+  .role-switch button, .role-switch select { padding: 4px 8px; font-size: 11px; }
+  .create-btn { font-size: 11px; padding: 5px 10px; }
+  #user-badge { font-size: 11px; }
+  .main { padding: 12px 14px; }
+  .kpi-row { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; }
+  .kpi { padding: 10px 12px; }
+  .kpi .value { font-size: 22px; }
+  .kpi .label { font-size: 10px; }
+  .kpi .sub { font-size: 9px; }
+  .card { padding: 12px; }
+  .filter-bar { flex-wrap: wrap; gap: 6px; }
+  .filter-bar .pill { font-size: 11px; padding: 4px 10px; }
+  .case-list, .case-grid { grid-template-columns: 1fr !important; }
+  .case-card { padding: 12px; }
+  .case-card .title { font-size: 14px; }
+  .kanban {
+    grid-template-columns: 1fr !important; gap: 10px;
+  }
+  .kb-col { padding: 10px; }
+  .kb-card { padding: 8px 10px; font-size: 11px; }
+  .gantt-toolbar { flex-wrap: wrap; gap: 6px; }
+  .drawer { width: 100% !important; }
+  .drawer-body { padding: 14px 16px; }
+  .modal { width: 96% !important; max-width: 96% !important; padding: 16px !important; }
+  .staff-table .staff-row {
+    grid-template-columns: 1fr !important; gap: 6px;
+    padding: 12px !important;
+  }
+  .staff-table .staff-row.head { display: none; }
+  .staff-table .staff-row > div { font-size: 11px; }
+  .staff-table .s-actions { flex-wrap: wrap; }
+  /* Dashboard cards stack */
+  .view[data-view="dashboard"] > div[style*="grid-template-columns"],
+  .view[data-view="analytics"] > div[style*="grid-template-columns"],
+  .view[data-view="approval"] > div[style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+  /* Approval queue cards */
+  .view[data-view="approval"] .card > div[style*="display:flex"] {
+    flex-direction: column !important;
+  }
+  .view[data-view="approval"] textarea { width: 100% !important; }
+  /* Donut chart center */
+  #donut, #donut-legend { margin: 0 auto; }
+  /* Long inline forms */
+  .grid-form { grid-template-columns: 1fr !important; }
+  /* Toasts */
+  .toast { font-size: 12px; padding: 8px 14px; bottom: 16px; }
+  /* Hide some non-essential decorations */
+  .v38-theme-toggle { padding: 4px 6px; }
+}
+@media (max-width: 480px) {
+  .topbar { padding: 8px 10px; }
+  .topbar .logo { font-size: 12px; }
+  .kpi-row { grid-template-columns: 1fr !important; }
+  .kpi .value { font-size: 20px; }
+  .role-switch button { padding: 3px 6px; }
+  .role-switch select { max-width: 100px; }
+  .create-btn { padding: 4px 8px; font-size: 10px; }
+  .topbar .nav button { padding: 4px 8px; font-size: 10px; }
+  .main { padding: 8px 10px; }
+}
+`;
+(function injectMobileCSS() {
+  if (document.getElementById('v38-mobile-css')) return;
+  const s = document.createElement('style');
+  s.id = 'v38-mobile-css';
+  s.textContent = v38MobileCSS;
+  document.head.appendChild(s);
+})();
+
+// (#5) Bug audit fixes — issues found while writing v3.8
+// Fix 1: filter Mark/admins out of activeDesigners() everywhere — not just dashboard.
+// (Sunny/Milo etc are designers; Mark is admin. Many widgets pulled Mark by mistake.)
+const _v38OrigActiveDesigners = window.activeDesigners;
+window.activeDesigners = function() {
+  return STAFF.filter(s => s.active && s.role !== 'admin').map(s => s.name);
+};
+// allDesigners may include Mark for legacy uses (kanban filter etc), keep as-is.
+
+// Fix 2: when admin uses "view as" (#5 from v3.6), the personal view should
+// reflect the impersonated user. Patch myCases to use ME_NAME() (already done)
+// and also patch openDrawerById so it resolves missing IDs gracefully.
+const _v38OrigOpenDrawerById = window.openDrawerById;
+window.openDrawerById = function(id) {
+  const c = CASES.find(x => x.id === id);
+  if (!c) {
+    showToast('找不到案件 ' + id, 'err');
+    return;
+  }
+  return openDrawer(c);
+};
+
+// Fix 3: Dashboard hotel-distribution shouldn't show 0 for hotels that
+// were renamed/removed but have legacy cases — ensure stable baseline.
+// Already handled in v3.7 since HOTELS comes from API.
+
+// Fix 4: When designer status select in drawer changes a tracked field,
+// the change-log reason prompt fires. Make sure 'review_done' is treated
+// the same as 'review' (both need archivePath if going to terminal).
+// Server already enforces; just make UI clearer.
+// (No code change needed — server returns 422 with clear message.)
+
+// Fix 5: Replace hardcoded "近 7 天動態" with real case activity.
+const _v38OrigRenderDashboard = window.renderDashboard;
+window.renderDashboard = function() {
+  _v38OrigRenderDashboard();
+  // Build real activity from cases (sorted by most recent open / closed / urgent)
+  const activityEl = document.getElementById('activity');
+  if (activityEl) {
+    const live = CASES.filter(c => !c.archived);
+    const events = [];
+    // Recent closes (within 14 days)
+    const now = TODAY.getTime();
+    const D14 = 14 * 24 * 60 * 60 * 1000;
+    CASES.forEach(c => {
+      if (c.closedOn && now - c.closedOn.getTime() <= D14) {
+        events.push({
+          when: c.closedOn,
+          who: c.designer || '—',
+          text: `「${c.name}」已結案`,
+          kind: 'closed',
+        });
+      }
+    });
+    // Recently opened (within 14 days)
+    live.forEach(c => {
+      if (c.open && now - c.open.getTime() <= D14) {
+        events.push({
+          when: c.open,
+          who: c.designer || '—',
+          text: `「${c.name}」建立（${c.level} 級·${c.hotel || '—'}）`,
+          kind: 'created',
+        });
+      }
+    });
+    // Cases entering review_done (uses status — proxy by status changes)
+    live.filter(c => c.status === 'review_done').forEach(c => {
+      events.push({
+        when: c.dispatch || c.open,
+        who: c.designer,
+        text: `「${c.name}」確稿完成、送 admin 審核`,
+        kind: 'review_done',
+      });
+    });
+    events.sort((a, b) => b.when.getTime() - a.when.getTime());
+    const top = events.slice(0, 7);
+    if (top.length) {
+      activityEl.innerHTML = top.map(e => {
+        const days = Math.round((now - e.when.getTime()) / (24 * 60 * 60 * 1000));
+        const t = days === 0 ? '今天' : days === 1 ? '昨天' : `${days} 天前`;
+        return `<li><span class="time">${t}</span> · <b>${escapeHtml(e.who)}</b> ${escapeHtml(e.text)}</li>`;
+      }).join('');
+    } else {
+      activityEl.innerHTML = '<li style="color:var(--fg-muted);">最近兩週無重大動態</li>';
+    }
+  }
+};
+
+// Wire admin theme toggle in bootstrap
+const _v38OrigBootstrap = bootstrap;
+bootstrap = async function() {
+  await _v38OrigBootstrap();
+  v38InjectThemeToggle();
+  v38ApplyTheme(v38GetSavedTheme());
+  // Re-render dashboard if currently visible
+  if (currentView === 'dashboard') renderDashboard();
 };
 
 // ═══ GO ═══════════════════════════════════════════════════════

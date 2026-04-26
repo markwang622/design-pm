@@ -7,36 +7,74 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { height: 100%; font-family: -apple-system, "Microsoft JhengHei", "PingFang TC", sans-serif; color: #1A1A1A; }
+    :root {
+      --bg-grad: linear-gradient(135deg, #F5F5F5 0%, #EDEDED 100%);
+      --card-bg: #FFFFFF;
+      --fg: #1A1A1A;
+      --fg-sub: #8C8C8C;
+      --fg-muted: #444;
+      --input-bg: #FAFAFA;
+      --input-border: #D4D4D4;
+      --btn-bg: #1A1A1A;
+      --btn-fg: #FFF;
+    }
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg-grad: linear-gradient(135deg, #0F1419 0%, #181D24 100%);
+      --card-bg: #1A2028;
+      --fg: #E8E8E8;
+      --fg-sub: #8C8C8C;
+      --fg-muted: #A0A0A0;
+      --input-bg: #0F1419;
+      --input-border: #3A4048;
+      --btn-bg: #FAFAFA;
+      --btn-fg: #0F1419;
+    }
+    html, body { height: 100%; font-family: -apple-system, "Microsoft JhengHei", "PingFang TC", sans-serif; color: var(--fg); }
     body {
-      background: linear-gradient(135deg, #F5F5F5 0%, #EDEDED 100%);
+      background: var(--bg-grad);
       display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s, color 0.2s;
     }
     .card {
-      background: #FFFFFF; padding: 40px 36px; border-radius: 8px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.08);
-      width: 360px;
+      background: var(--card-bg); padding: 40px 36px; border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.12);
+      width: 360px; max-width: calc(100vw - 32px);
     }
-    h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; color: #1A1A1A; letter-spacing: 0.3px; }
-    .sub { font-size: 12px; color: #8C8C8C; margin-bottom: 28px; }
-    label { display: block; font-size: 12px; color: #444; margin: 12px 0 6px; font-weight: 500; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; color: var(--fg); letter-spacing: 0.3px; }
+    .sub { font-size: 12px; color: var(--fg-sub); margin-bottom: 28px; }
+    label { display: block; font-size: 12px; color: var(--fg-muted); margin: 12px 0 6px; font-weight: 500; }
     input {
-      width: 100%; padding: 10px 12px; border: 1px solid #D4D4D4; border-radius: 4px;
-      font-size: 14px; font-family: inherit; background: #FAFAFA;
+      width: 100%; padding: 10px 12px; border: 1px solid var(--input-border); border-radius: 4px;
+      font-size: 14px; font-family: inherit; background: var(--input-bg); color: var(--fg);
     }
-    input:focus { outline: 2px solid #1A1A1A; outline-offset: -1px; background: #FFF; }
+    input:focus { outline: 2px solid var(--btn-bg); outline-offset: -1px; }
     button {
-      width: 100%; margin-top: 20px; padding: 10px; background: #1A1A1A; color: #FFF;
+      width: 100%; margin-top: 20px; padding: 10px; background: var(--btn-bg); color: var(--btn-fg);
       border: none; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer;
       font-family: inherit;
     }
-    button:hover { background: #333; }
-    button:disabled { background: #999; cursor: not-allowed; }
-    .err { color: #A32D2D; font-size: 12px; margin-top: 12px; display: none; }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .err { color: #D8504F; font-size: 12px; margin-top: 12px; display: none; }
     .err.show { display: block; }
-    .hint { font-size: 11px; color: #8C8C8C; margin-top: 16px; text-align: center; line-height: 1.6; }
+    .hint { font-size: 11px; color: var(--fg-sub); margin-top: 16px; text-align: center; line-height: 1.6; }
     .brand { font-size: 11px; color: #BBB; text-align: center; margin-top: 20px; }
+    @media (max-width: 480px) {
+      .card { padding: 28px 22px; }
+    }
   </style>
+  <script>
+    // Apply saved theme immediately to avoid flash
+    try {
+      const t = localStorage.getItem('design-pm-theme') || 'auto';
+      const eff = t === 'auto'
+        ? ((new Date().getHours() >= 18 || new Date().getHours() < 6) ||
+           (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light')
+        : t;
+      document.documentElement.setAttribute('data-theme', eff);
+    } catch {}
+  </script>
 </head>
 <body>
   <form class="card" id="login-form">
