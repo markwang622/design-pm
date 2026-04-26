@@ -15,8 +15,11 @@ import { prisma } from '../lib/db.js';
 
 export const LEVEL_WEIGHT = { SS: 5, S: 4, A: 3, B: 2, C: 1, D: 1 };
 export const ROLE_COEF = { primary: 1.0, collaborator: 0.4 };
-export const TIMELY_COEF = { onTime: 1.1, overdue: 0.8 };
+// v3.7: timely → 三段（提早完成 / 準時 / 逾期）
+export const TIMELY_COEF = { early: 1.2, onTime: 1.1, overdue: 0.8 };
 export const URGENT_COEF = { urgent: 1.3, normal: 1.0 };
+// "Early" threshold: closedOn ≤ goLiveDate − 1 day
+const EARLY_THRESHOLD_DAYS = 1;
 
 // ─── Period helpers (UTC, natural calendar) ───────────────
 // week: ISO Mon–Sun
@@ -103,11 +106,19 @@ function isoWeekNumber(date) {
 // ─── Per-case scoring ─────────────────────────────────────
 
 function caseTimelyCoef(caseRow) {
-  // On-time iff closedOn <= goLiveDate (date-only)
+  // v3.7: 三段 — 提早完成（closedOn ≤ goLive − 1 日）/ 準時 / 逾期
   if (!caseRow.closedOn || !caseRow.goLiveDate) return TIMELY_COEF.onTime;
   const closed = new Date(caseRow.closedOn).getTime();
   const due = new Date(caseRow.goLiveDate).getTime();
+  const earlyCutoff = due - EARLY_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+  if (closed <= earlyCutoff) return TIMELY_COEF.early;
   return closed <= due ? TIMELY_COEF.onTime : TIMELY_COEF.overdue;
+}
+function caseTimelyLabel(caseRow) {
+  const c = caseTimelyCoef(caseRow);
+  if (c === TIMELY_COEF.early) return 'early';
+  if (c === TIMELY_COEF.onTime) return 'onTime';
+  return 'overdue';
 }
 
 function caseUrgentCoef(caseRow) {
@@ -181,6 +192,7 @@ export async function rollup({ period, offset, staffId }) {
       active: s.active,
       primary: { count: 0, score: 0 },
       collab: { count: 0, score: 0 },
+      earlyCount: 0,
       totalCount: 0,
       totalScore: 0,
       onTimeCount: 0,
@@ -194,13 +206,17 @@ export async function rollup({ period, offset, staffId }) {
   let depTotalScore = 0;
   let depTotalCount = 0;
   let depOnTime = 0;
+  let depEarly = 0;
   const depByLevel = { SS: 0, S: 0, A: 0, B: 0, C: 0, D: 0 };
   const caseList = [];
 
   for (const c of cases) {
-    const onTime = caseTimelyCoef(c) === TIMELY_COEF.onTime;
+    const timelyLabel = caseTimelyLabel(c);
+    const onTime = timelyLabel !== 'overdue';
+    const early = timelyLabel === 'early';
     depTotalCount += 1;
     if (onTime) depOnTime += 1;
+    if (early) depEarly += 1;
     depByLevel[c.level] = (depByLevel[c.level] ?? 0) + 1;
     depTotalScore += scoreCaseForStaff(c, 'primary'); // department total uses primary basis
 
@@ -215,6 +231,7 @@ export async function rollup({ period, offset, staffId }) {
       pBucket.byLevel[c.level] = (pBucket.byLevel[c.level] ?? 0) + 1;
       if (onTime) pBucket.onTimeCount += 1;
       else pBucket.overdueCount += 1;
+      if (early) pBucket.earlyCount = (pBucket.earlyCount || 0) + 1;
       if (c.urgent) pBucket.urgentCount += 1;
     }
 
@@ -242,6 +259,8 @@ export async function rollup({ period, offset, staffId }) {
       designerName: c.designer?.name,
       collaboratorNames: c.collaborators.map((x) => x.name),
       onTime,
+      early,
+      timely: timelyLabel, // 'early' | 'onTime' | 'overdue'
       score: scoreCaseForStaff(c, 'primary'),
     });
   }
@@ -268,6 +287,8 @@ export async function rollup({ period, offset, staffId }) {
       count: depTotalCount,
       score: round2(depTotalScore),
       onTimeRate: depTotalCount === 0 ? null : depOnTime / depTotalCount,
+      earlyCount: depEarly,
+      earlyRate: depTotalCount === 0 ? null : depEarly / depTotalCount,
       byLevel: depByLevel,
     },
     cases: caseList,

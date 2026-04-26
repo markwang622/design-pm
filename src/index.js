@@ -16,6 +16,7 @@ import casesRouter from './routes/cases.js';
 import staffRouter from './routes/staff.js';
 import notifRouter from './routes/notifications.js';
 import analyticsRouter from './routes/analytics.js';
+import hotelsRouter from './routes/hotels.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
@@ -108,6 +109,7 @@ app.use('/api/cases', casesRouter);
 app.use('/api/staff', staffRouter);
 app.use('/api/notifications', notifRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/hotels', hotelsRouter);
 
 // 404 for unknown API paths
 app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
@@ -139,11 +141,35 @@ const sendNoCacheHtml = (res, file) => {
   res.sendFile(file);
 };
 
-// Un-authenticated login page
-app.get('/login', (req, res) => sendNoCacheHtml(res, path.join(PUBLIC_DIR, 'login.html')));
+// (v3.7 #安全) Server-side auth gate for the SPA shell.
+// Before v3.7: index.html was served to anyone, then JS would fetch /me,
+// see 401, and redirect. The user briefly saw the (data-less) main shell.
+// Now: if no valid cookie, send 302 → /login WITHOUT touching index.html.
+import jwt from 'jsonwebtoken';
+const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-prod';
+function isAuthed(req) {
+  const token = req.cookies?.designpm_token;
+  if (!token) return false;
+  try {
+    jwt.verify(token, JWT_SECRET);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-// SPA fallback — everything else goes to the main shell
+// Un-authenticated login page (always accessible)
+app.get('/login', (req, res) => {
+  // If already logged in, send to home
+  if (isAuthed(req)) return res.redirect(302, '/');
+  sendNoCacheHtml(res, path.join(PUBLIC_DIR, 'login.html'));
+});
+
+// SPA shell — gated. /change-password, /reports, etc. all need auth.
 app.get('*', (req, res) => {
+  if (!isAuthed(req)) {
+    return res.redirect(302, '/login');
+  }
   sendNoCacheHtml(res, path.join(PUBLIC_DIR, 'index.html'));
 });
 

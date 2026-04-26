@@ -630,4 +630,81 @@ router.post('/:id/transfer', requireAdmin, async (req, res) => {
   res.json(updated);
 });
 
+// ─── POST /api/cases/:id/clone — 原案重啟 (v3.7) ────────────
+// Creates a NEW case copying most fields from a closed/archived one.
+// New ID, new openDate (today), new status (todo), no closedOn.
+// Optional `reasonForReopen` written into the new case's note.
+const cloneSchema = z.object({
+  reasonForReopen: z.string().optional(),
+  goLiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+router.post('/:id/clone', async (req, res) => {
+  const parsed = cloneSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+
+  const src = await prisma.case.findUnique({
+    where: { id: req.params.id },
+    include: { collaborators: { select: { id: true } } },
+  });
+  if (!src) return res.status(404).json({ error: 'not_found' });
+
+  // Permission: admin OR original case's primary designer (assigned now).
+  const isAdmin = req.user?.role === 'admin';
+  const isDesigner = src.designerId === req.user?.id;
+  if (!isAdmin && !isDesigner) {
+    return res.status(403).json({ error: 'forbidden', message: '只有 admin 或原負責人可以原案重啟' });
+  }
+
+  const today = new Date();
+  const newId = await nextCaseId(src.level, today);
+  const newGoLive = parsed.data.goLiveDate
+    ? new Date(parsed.data.goLiveDate + 'T00:00:00Z')
+    : new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+  const note = [
+    `🔁 原案重啟：來源 ${src.id}「${src.title}」`,
+    parsed.data.reasonForReopen ? `原因：${parsed.data.reasonForReopen}` : null,
+    src.note ? '— 上次紀錄 —' : null,
+    src.note || null,
+  ].filter(Boolean).join('\n');
+
+  const created = await prisma.case.create({
+    data: {
+      id: newId,
+      title: src.title,
+      subTitle: src.subTitle,
+      requester: src.requester,
+      hotel: src.hotel,
+      level: src.level,
+      category: src.category,
+      status: 'todo',
+      urgent: src.urgent,
+      note,
+      openDate: today,
+      dispatchDate: today,
+      copyDate: src.copyDate, // optional reference
+      goLiveDate: newGoLive,
+      designer: { connect: { id: src.designerId } },
+      collaborators: { connect: src.collaborators.map((c) => ({ id: c.id })) },
+      createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
+    },
+    include: caseInclude,
+  });
+
+  // Notify designer of the new case
+  try {
+    await notify({
+      type: 'caseAssigned',
+      recipientId: created.designerId,
+      subject: `🔁 原案重啟：${created.id} · ${created.title}`,
+      body: `案件 ${src.id} 已重新開立為 ${created.id}，請檢視 note 中的歷史紀錄。`,
+      relatedCaseId: created.id,
+    });
+  } catch (e) {
+    console.warn('[clone] notify failed:', e.message);
+  }
+
+  res.status(201).json(created);
+});
+
 export default router;

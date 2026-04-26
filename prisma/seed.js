@@ -11,10 +11,40 @@ const d = (y, m, day) => new Date(Date.UTC(y, m - 1, day));
 const DEFAULT_PASSWORD = process.env.SEED_DEFAULT_PASSWORD || 'design2026!';
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'wasimark0622@gmail.com';
 
+async function seedHotels() {
+  // Hotels seeded idempotently every deploy (so v3.7 can roll out 礁溪館 to existing DBs).
+  const hotels = [
+    { region: '集團', name: '集團本部',     sortOrder: 10 },
+    { region: '新竹', name: '新竹湖濱館',   sortOrder: 20 },
+    { region: '新竹', name: '新竹都會館',   sortOrder: 30 },
+    { region: '台南', name: '台南館',       sortOrder: 40 },
+    { region: '宜蘭', name: '宜蘭館',       sortOrder: 50 },
+    { region: '宜蘭', name: '傳藝館',       sortOrder: 60 },
+    { region: '宜蘭', name: '蘇澳館',       sortOrder: 70 },
+    { region: '宜蘭', name: '礁溪館',       sortOrder: 80 }, // v3.7 new
+    { region: '花蓮', name: '花蓮館',       sortOrder: 90 },
+    { region: '花蓮', name: '花太館',       sortOrder: 100 },
+  ];
+  let n = 0;
+  for (const h of hotels) {
+    await prisma.hotel.upsert({
+      where: { name: h.name },
+      create: h,
+      // Only update sortOrder/region if hotel was inactive; don't fight admin's manual edits
+      update: { },
+    });
+    n++;
+  }
+  console.log(`[seed] Hotels: upserted ${n} rows`);
+}
+
 async function main() {
+  // Hotels run unconditionally — safe for both fresh and existing DBs
+  try { await seedHotels(); } catch (e) { console.warn('[seed] hotels failed:', e.message); }
+
   const existingStaff = await prisma.staff.count();
   if (existingStaff > 0) {
-    console.log(`[seed] Skipped — staff table already has ${existingStaff} row(s).`);
+    console.log(`[seed] Staff seed skipped — already has ${existingStaff} row(s).`);
     return;
   }
 

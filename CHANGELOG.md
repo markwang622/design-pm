@@ -1,5 +1,62 @@
 # Changelog
 
+## v3.7 (2026-04-26) · Dashboard / 甘特 / 歷史 / 貢獻分析 + 安全補強
+
+### 安全（高優先）
+
+- **修閃畫面** — 伺服器端 SPA shell 守門：未登入直接 302 → /login，從不送出 index.html。原本「打開網址 → 看見內頁畫面 → 才跳登入」的洩露窗口完全消失。
+- **/login 已登入時** 自動重導回 / （避免再次登入造成混亂）
+
+### 新增（後端）
+
+- **Hotel CRUD** — 新 model `Hotel(id, region, name, sortOrder, active)`
+  - `GET /api/hotels` （全員）— 拉現役館別
+  - `POST/PATCH /api/hotels`（admin）— 新增、編輯、停用
+  - `DELETE /api/hotels/:id`（admin）— 僅當無案件引用時可刪
+- **新增宜蘭・礁溪館**（seed 自動建）
+- **原案重啟** `POST /api/cases/:id/clone`
+  - admin 或原負責人可重啟已結案／封存案
+  - 沿用原 title/level/hotel/category/collaborators/note，新 ID、新 openDate、status=todo
+  - 新案 note 自動寫入「🔁 原案重啟：來源 XX-XXXX」與舊 note 內容
+- **分析公式 v3.7** — `TIMELY_COEF` 改三段：
+  - 提早完成（closedOn ≤ goLiveDate − 1 日）×1.2
+  - 準時 ×1.1
+  - 逾期 ×0.8
+  - rollup 回傳 `earlyCount`、`earlyRate`、每筆案件 `timely: 'early'|'onTime'|'overdue'`
+
+### 新增（前端）
+
+- **Dashboard 改造**
+  - 開放給 member：dashboard nav 加進 designer 列；內容自動依登入身份個人化
+  - 「設計師工作量」**移除 Mark / 全部 admin**
+  - 「館別分布」改成**全部館別、固定順序、即使 0 件也顯示**（區域・名稱：集團本部、新竹・新竹湖濱館 …、宜蘭・礁溪館 等）
+  - **新區塊「⏰ 即將到期」** — 列出明天就是確稿日的案件，可點開抽屜
+  - 「等待處理」**個人化** — 只顯示登入者主負責或協作的案；admin 看全部
+  - **狀態分布圓餅放大**（120 → 180 px）+ 中央顯示總件數 + 加 review_done 與 closed 的配色
+- **甘特圖修復**
+  - 「今」標記**動態定位** — 根據 ganttStart 與 TODAY 偏移計算 left%
+  - **底圖跳色** — 偶數列灰、奇數列白；分組標題深灰
+  - **member「只看我的」toggle** — 在工具列右側
+- **歷史案件**
+  - 抽屜進歷史案件時**全鎖**，並注入「🔁 原案重啟」按鈕（admin / 原負責人可見）
+  - **排序下拉**：結案日（新→舊／舊→新）／ 分級（高→低／低→高）／ 案件名稱
+  - 搜尋已涵蓋 title（v3.6 已實作）
+- **人員管理**
+  - 自己列的「編輯個人檔案」按鈕**縮短為「編輯」**（避免擠版）
+  - 離職人員「查看歸檔」改成**卡牌列表 modal**，顯示該人所有主負責 + 協作的案件
+- **貢獻分析**
+  - **個人視圖** — 新「全部設計師 / 個人視圖」下拉，選某人後顯示 4 格 KPI：主負責、協作、提早完成件數、準時率，含分級分布
+  - 註腳更新：標明 v3.7 新增的「提早完成 ×1.2」係數
+  - 移除誤入分析頁的 footer-note
+- **館別管理 admin modal**
+  - 「人員」分頁右側新增「🏢 館別管理」按鈕（admin only）
+  - 模態：列出所有館別、可啟用/停用、可新增（區域、名稱、順序）
+
+### 變更
+
+- HOTELS 從 hardcode 改成 bootstrap 時從 `/api/hotels` 拉
+- 預先寫好 v3.7 seed：上線會自動補入礁溪館（既有 DB 不影響其他館別資料）
+
 ## v3.6 (2026-04-26) · Medium 批次（三段式結案 + 審核流 + 歷史 + 安全）
 
 ### 新增（後端）

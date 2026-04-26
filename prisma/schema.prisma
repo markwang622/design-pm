@@ -119,3 +119,15 @@ model Notification {
   @@index([recipientId, readAt])
   @@map("notifications")
 }
+
+// v3.7: 館別字典（admin 可動態新增 / 編輯 / 隱藏）
+model Hotel {
+  id        Int      @id @default(autoincrement())
+  region    String                 // 集團 / 新竹 / 台南 / 宜蘭 / 花蓮 / 嘉義 / 台中…
+  name      String   @unique       // 集團本部 / 新竹湖濱館 / 礁溪館 / …
+  sortOrder Int      @default(0)   // 顯示順序（小→大）
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@map("hotels")
+}

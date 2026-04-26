@@ -911,16 +911,19 @@ function computeKeyDates(goLive) {
 let STAFF = []; // populated by bootstrap() from /api/staff
 const LEVEL_WEIGHT = { SS: 5, S: 4, A: 3, B: 2, C: 1, D: 1 };
 const SENIORITY_LABEL = { senior: '資深', mid: '中階', junior: '初階' };
-const HOTELS = [
-  {region:'集團', name:'集團本部'},
-  {region:'新竹', name:'新竹湖濱館'},
-  {region:'新竹', name:'新竹都會館'},
-  {region:'台南', name:'台南館'},
-  {region:'宜蘭', name:'宜蘭館'},
-  {region:'宜蘭', name:'傳藝館'},
-  {region:'宜蘭', name:'蘇澳館'},
-  {region:'花蓮', name:'花蓮館'},
-  {region:'花蓮', name:'花太館'},
+// v3.7: HOTELS now loaded from /api/hotels at bootstrap. This default is
+// just a fallback if the API call fails.
+let HOTELS = [
+  {region:'集團', name:'集團本部', sortOrder: 10},
+  {region:'新竹', name:'新竹湖濱館', sortOrder: 20},
+  {region:'新竹', name:'新竹都會館', sortOrder: 30},
+  {region:'台南', name:'台南館',     sortOrder: 40},
+  {region:'宜蘭', name:'宜蘭館',     sortOrder: 50},
+  {region:'宜蘭', name:'傳藝館',     sortOrder: 60},
+  {region:'宜蘭', name:'蘇澳館',     sortOrder: 70},
+  {region:'宜蘭', name:'礁溪館',     sortOrder: 80},
+  {region:'花蓮', name:'花蓮館',     sortOrder: 90},
+  {region:'花蓮', name:'花太館',     sortOrder: 100},
 ];
 const REQUEST_UNITS = [
   '餐飲行銷','客房行銷','客務部','餐飲部','採購','工務',
@@ -1058,8 +1061,10 @@ function suggestSuccessor(excludeName, level) {
 }
 
 // ============== Nav ==============
+// v3.7: dashboard 現在也給 designer 看（personalised on render）
 const NAV_DEF = {
   designer: [
+    {key:'dashboard', label:'總覽'},  // v3.7
     {key:'personal', label:'我的任務'},
     {key:'kanban', label:'看板'},
     {key:'gantt', label:'甘特圖'},
@@ -4019,6 +4024,644 @@ bootstrap = async function() {
     // refresh badge every 60s
     setInterval(v36RefreshApprovalBadge, 60000);
   }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v3.7 ENHANCEMENTS — hotels, dashboard, gantt, history+clone, profile, analytics ▼▼▼
+// ═══════════════════════════════════════════════════════════════
+
+// API extensions
+api.hotels = {
+  list:   () => fetchJson('GET', '/api/hotels'),
+  create: (b) => fetchJson('POST', '/api/hotels', b),
+  update: (id, b) => fetchJson('PATCH', `/api/hotels/${id}`, b),
+  delete: (id) => fetchJson('DELETE', `/api/hotels/${id}`),
+};
+api.cases.clone = (id, b) => fetchJson('POST', `/api/cases/${encodeURIComponent(id)}/clone`, b);
+
+// (Hotels) Load from API and rebuild HOTELS in the canonical order.
+async function v37LoadHotels() {
+  try {
+    const rows = await api.hotels.list();
+    if (Array.isArray(rows) && rows.length) {
+      HOTELS.length = 0;
+      rows.forEach(h => HOTELS.push(h));
+    }
+  } catch (e) { console.warn('hotel load failed', e); }
+}
+
+// (#dashboard #4) Patch renderDashboard:
+//   - exclude admins (Mark) from designer workload bar list
+//   - replace "館別分布 (Top 5)" with full ordered list of all hotels
+//   - personalize 等待處理 by current viewer (or view-as)
+//   - add 即將到期 widget below KPI row
+//   - resize donut chart larger
+const _v37OrigRenderDashboard = window.renderDashboard;
+window.renderDashboard = function() {
+  _v37OrigRenderDashboard();
+  // Filter Mark/admins out of workload list
+  const wl = document.getElementById('workload');
+  if (wl) {
+    const adminNames = STAFF.filter(s => s.role === 'admin').map(s => s.name);
+    wl.querySelectorAll('.bar-row').forEach(row => {
+      const nameEl = row.querySelector('.name');
+      if (nameEl && adminNames.includes(nameEl.textContent.trim())) row.remove();
+    });
+  }
+  // Hotel distribution: ALL hotels, fixed sort order, even with 0
+  const byHotelEl = document.getElementById('by-hotel');
+  if (byHotelEl) {
+    const live = CASES.filter(c => !c.archived);
+    const counts = {};
+    HOTELS.forEach(h => counts[h.name] = 0);
+    live.forEach(c => { if (counts.hasOwnProperty(c.hotel)) counts[c.hotel]++; });
+    const ordered = HOTELS.slice().sort((a,b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
+    const max = Math.max(1, ...Object.values(counts));
+    byHotelEl.innerHTML = ordered.map(h => {
+      const n = counts[h.name];
+      const label = h.region === '集團' ? h.name : `${h.region}・${h.name}`;
+      return `<div class="bar-row"><span class="name" style="font-size:11px;">${escapeHtml(label)}</span><div class="track"><div class="fill" style="width:${n/max*100}%"></div></div><span class="count">${n}</span></div>`;
+    }).join('');
+    // Update card title
+    const card = byHotelEl.closest('.card');
+    const title = card?.querySelector('.section-title');
+    if (title) title.textContent = '館別分布';
+  }
+  // Personalize "等待處理": only show items relevant to current viewer (own cases, or all if admin not view-as)
+  const att = document.getElementById('attention');
+  if (att) {
+    const live = CASES.filter(c => !c.archived);
+    const myName = (typeof v36ViewAsName !== 'undefined' && v36ViewAsName) ? v36ViewAsName : ME_NAME();
+    const isAdminView = ME.role === 'admin' && !(typeof v36ViewAsName !== 'undefined' && v36ViewAsName);
+    const mine = isAdminView ? live : live.filter(c => c.designer === myName || (c.collaborators||[]).includes(myName));
+    const reviewing = mine.filter(c => c.status === 'review' || c.status === 'review_done').map(c => ({...c, why:'待簽核中'}));
+    const overdueOnes = mine.filter(c => c.overdue).map(c => ({...c, why:'已逾期'}));
+    const urgent = mine.filter(c => c.urgent && !FINAL_STATUS_KEYS.has(c.status)).map(c => ({...c, why:'急件'}));
+    const pool = [...reviewing, ...overdueOnes, ...urgent]
+      .filter((c,i,arr) => arr.findIndex(x => x.id === c.id) === i).slice(0,8);
+    att.innerHTML = pool.length ? pool.map(c => `
+      <div style="padding:8px 0;border-bottom:1px solid #F2F2F2;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px;" onclick="openDrawerById('${c.id}')">
+        <span class="chip status-${c.status}" style="font-size:10px;">${(STATUSES.find(s=>s.key===c.status)||{name:c.status}).name}</span>
+        <div style="flex:1;">
+          <div style="font-weight:500;">${escapeHtml(c.name)}</div>
+          <div style="color:#8C8C8C;font-size:11px;margin-top:2px;">${escapeHtml(c.designer)} · ${escapeHtml(c.hotel||'—')}</div>
+        </div>
+        <span style="font-size:10px;color:#9A2E2E;">${escapeHtml(c.why)}</span>
+      </div>
+    `).join('') : '<div style="color:#8C8C8C;font-size:12px;padding:12px 0;">🎉 無待處理項目</div>';
+  }
+  // (#7) Add "即將到期（確稿前一天）" widget — uses tomorrow's review date
+  v37RenderUpcomingDue();
+  // Resize donut chart
+  v37ResizeDonut();
+};
+
+function v37RenderUpcomingDue() {
+  // Inject below the KPI row, only for the active dashboard view
+  const dashView = document.querySelector('div.view[data-view="dashboard"].active');
+  if (!dashView) return;
+  let box = document.getElementById('v37-upcoming-due');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'v37-upcoming-due';
+    box.className = 'card';
+    box.style.cssText = 'margin-bottom:16px;border-color:#F0C49B;background:#FFF8E6;';
+    const kpi = dashView.querySelector('.kpi-row');
+    if (kpi) kpi.after(box);
+    else dashView.prepend(box);
+  }
+  const live = CASES.filter(c => !c.archived && !FINAL_STATUS_KEYS.has(c.status));
+  // 確稿前一天 = case where reviewDate is tomorrow (workdays)
+  const tomorrow = new Date(TODAY); tomorrow.setDate(tomorrow.getDate() + 1);
+  const upcoming = live.filter(c => {
+    if (!c.reviewDate) return false;
+    const r = new Date(c.reviewDate); r.setHours(0,0,0,0);
+    const t = new Date(tomorrow); t.setHours(0,0,0,0);
+    return r.getTime() === t.getTime();
+  });
+  box.innerHTML = `
+    <div class="section-title" style="color:#8C6A12;">⏰ 即將到期：明天就是確稿日（${upcoming.length} 件）</div>
+    ${upcoming.length === 0 ? '<div style="font-size:12px;color:#8C8C8C;">明天沒有確稿到期的案件 ✓</div>' :
+      `<div style="display:flex;flex-direction:column;gap:6px;">
+        ${upcoming.map(c => `
+          <div style="display:flex;gap:10px;align-items:center;padding:6px;background:#fff;border-radius:5px;cursor:pointer;font-size:12px;" onclick="openDrawerById('${c.id}')">
+            <span class="chip level-${c.level}" style="font-size:10px;">${c.level}</span>
+            <span style="font-weight:500;">${escapeHtml(c.name)}</span>
+            <span style="color:#595959;">${escapeHtml(c.designer)}</span>
+            <span style="margin-left:auto;color:#8C8C8C;">${md(c.reviewDate)} 確稿</span>
+          </div>
+        `).join('')}
+      </div>`
+    }
+  `;
+}
+
+function v37ResizeDonut() {
+  const canv = document.getElementById('donut');
+  if (!canv) return;
+  const total = CASES.filter(c => !c.archived).length;
+  if (total === 0) return;
+  const size = 180; // bigger than original 120
+  const ratio = window.devicePixelRatio || 1;
+  canv.width = size * ratio; canv.height = size * ratio;
+  canv.style.width = size + 'px'; canv.style.height = size + 'px';
+  const ctx = canv.getContext('2d');
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, size, size);
+  const live = CASES.filter(c => !c.archived);
+  const stats = STATUSES.filter(s => s.key !== 'done').map(s => ({s, n: live.filter(c => c.status === s.key).length}));
+  const colors = {
+    todo: '#E5E5E5', wait: '#D9CEBF', doing: '#C9DCF0',
+    review: '#EDD79A', review_done: '#F0C49B', closed: '#A5D6A7',
+  };
+  let a0 = -Math.PI/2;
+  stats.forEach(({s, n}) => {
+    if (n === 0) return;
+    const ang = n / total * Math.PI * 2;
+    ctx.beginPath(); ctx.moveTo(size/2, size/2);
+    ctx.arc(size/2, size/2, size/2 - 5, a0, a0 + ang);
+    ctx.closePath();
+    ctx.fillStyle = colors[s.key] || '#CCC';
+    ctx.fill();
+    a0 += ang;
+  });
+  ctx.beginPath(); ctx.arc(size/2, size/2, size/2 - 50, 0, Math.PI*2);
+  ctx.fillStyle = '#fff'; ctx.fill();
+  ctx.fillStyle = '#1F1F1F';
+  ctx.font = '500 26px -apple-system,system-ui,sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(total, size/2, size/2 - 5);
+  ctx.fillStyle = '#8C8C8C'; ctx.font = '11px -apple-system,system-ui,sans-serif';
+  ctx.fillText('件 · 進行中', size/2, size/2 + 18);
+  // legend
+  const legend = document.getElementById('donut-legend');
+  if (legend) {
+    legend.innerHTML = stats.map(({s, n}) =>
+      `<div style="font-size:11px;"><span class="legend-dot" style="background:${colors[s.key] || '#CCC'};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>${s.name} <span style="color:#8C8C8C">${n}</span></div>`
+    ).join('');
+  }
+}
+
+// ─── (#甘特 1, 2, 3, 4) Gantt fixes ─────────────────────────
+let v37GanttMineOnly = false;
+const _v37OrigRenderGantt = window.renderGantt;
+window.renderGantt = function() {
+  _v37OrigRenderGantt();
+  // (#1) Fix expand/collapse buttons - locate them in toolbar
+  const toolbar = document.querySelector('.gantt-toolbar');
+  if (toolbar && !toolbar.querySelector('.v37-mine-toggle')) {
+    // Add 'mine only' toggle
+    const mineBtn = document.createElement('button');
+    mineBtn.className = 'v37-mine-toggle';
+    mineBtn.style.cssText = 'margin-left:auto;padding:5px 12px;border:1px solid #D4D4D4;background:#fff;border-radius:5px;font-size:11px;cursor:pointer;';
+    mineBtn.textContent = v37GanttMineOnly ? '👤 只看我的' : '👥 看全部';
+    mineBtn.onclick = () => {
+      v37GanttMineOnly = !v37GanttMineOnly;
+      renderGantt();
+    };
+    toolbar.appendChild(mineBtn);
+  }
+  // (#2) Move "今" indicator into the right column
+  v37FixTodayMarker();
+  // (#3) Alternating row backgrounds
+  const ganttEl = document.getElementById('gantt');
+  if (ganttEl) {
+    ganttEl.querySelectorAll('.g-row, .gantt-row').forEach((row, i) => {
+      row.style.background = i % 2 === 0 ? '#FAFAFA' : '#fff';
+    });
+    ganttEl.querySelectorAll('.g-group, .gantt-group').forEach(grp => {
+      grp.style.background = '#F0F0F0';
+    });
+  }
+  // Filter to mine-only if member chose
+  if (v37GanttMineOnly && ME.role !== 'admin') {
+    const myName = (typeof v36ViewAsName !== 'undefined' && v36ViewAsName) ? v36ViewAsName : ME_NAME();
+    const ganttBars = ganttEl?.querySelectorAll('[data-case-id], .gantt-bar, .g-bar');
+    ganttBars?.forEach(bar => {
+      const id = bar.dataset.caseId;
+      if (!id) return;
+      const c = CASES.find(x => x.id === id);
+      if (!c) return;
+      const isMine = c.designer === myName || (c.collaborators||[]).includes(myName);
+      const row = bar.closest('.g-row, .gantt-row');
+      if (row && !isMine) row.style.display = 'none';
+    });
+  }
+};
+
+function v37FixTodayMarker() {
+  // The original "今" indicator may be statically positioned. Re-position
+  // based on current TODAY relative to ganttStart and scale.
+  const ganttEl = document.getElementById('gantt');
+  if (!ganttEl) return;
+  const marker = ganttEl.querySelector('.today-marker, .g-today, [data-marker="today"]');
+  if (!marker) return;
+  const cfg = SCALE_CFG[ganttScale];
+  if (!cfg) return;
+  const start = new Date(ganttStart);
+  const today = new Date(TODAY);
+  const days = Math.round((today - start) / (24 * 60 * 60 * 1000));
+  if (days < 0 || days > cfg.days) {
+    marker.style.display = 'none';
+    return;
+  }
+  marker.style.display = '';
+  const pct = days / cfg.days * 100;
+  marker.style.left = `calc(${pct}% + 0px)`; // adjust for label column width via stylesheet
+}
+
+// ─── (#歷史 1) History view: readonly drawer + clone button ─
+const _v37OrigRenderHistory = window.renderHistory;
+let v37HistorySort = 'closedDesc';
+window.renderHistory = function() {
+  v36EnsureHistoryView();
+  // Inject sort dropdown next to search if not present
+  const headerCard = document.querySelector('div.view[data-view="history"] .card');
+  if (headerCard && !headerCard.querySelector('#v37-history-sort')) {
+    const wrap = document.createElement('select');
+    wrap.id = 'v37-history-sort';
+    wrap.style.cssText = 'padding:7px 10px;border:1px solid #D4D4D4;border-radius:5px;font-size:12px;';
+    wrap.innerHTML = `
+      <option value="closedDesc">結案日（新→舊）</option>
+      <option value="closedAsc">結案日（舊→新）</option>
+      <option value="levelDesc">分級（高→低）</option>
+      <option value="levelAsc">分級（低→高）</option>
+      <option value="title">案件名稱</option>
+    `;
+    wrap.value = v37HistorySort;
+    wrap.onchange = () => { v37HistorySort = wrap.value; renderHistory(); };
+    const innerRow = headerCard.querySelector('div[style*="display:flex"]');
+    if (innerRow) innerRow.appendChild(wrap);
+  }
+  // Run original first
+  _v37OrigRenderHistory();
+  // Apply sort
+  const wrapList = document.getElementById('v36-history-list');
+  if (wrapList && v37HistorySort !== 'closedDesc') {
+    const cards = Array.from(wrapList.children);
+    const levelOrder = { SS: 6, S: 5, A: 4, B: 3, C: 2, D: 1 };
+    cards.sort((a, b) => {
+      const aTxt = a.textContent;
+      const bTxt = b.textContent;
+      const aId = a.querySelector('.case-id')?.textContent || '';
+      const bId = b.querySelector('.case-id')?.textContent || '';
+      const aCase = CASES.find(c => c.id === aId);
+      const bCase = CASES.find(c => c.id === bId);
+      if (!aCase || !bCase) return 0;
+      switch (v37HistorySort) {
+        case 'closedAsc':
+          return (aCase.closedOn?.getTime() || 0) - (bCase.closedOn?.getTime() || 0);
+        case 'levelDesc':
+          return (levelOrder[bCase.level] || 0) - (levelOrder[aCase.level] || 0);
+        case 'levelAsc':
+          return (levelOrder[aCase.level] || 0) - (levelOrder[bCase.level] || 0);
+        case 'title':
+          return (aCase.name || '').localeCompare(bCase.name || '', 'zh-TW');
+        default: return 0;
+      }
+    });
+    cards.forEach(c => wrapList.appendChild(c));
+  }
+};
+
+// (#歷史) Drawer: when opened on a closed/archived case, show "原案重啟" button
+// and disable all editing controls.
+const _v37OrigOpenDrawer = window.openDrawer;
+window.openDrawer = async function(c) {
+  await _v37OrigOpenDrawer(c);
+  const isHistorical = c.archived || FINAL_STATUS_KEYS.has(c.status);
+  const drawer = document.getElementById('drawer');
+  if (!drawer || !isHistorical) {
+    // Cleanup any previously-injected reopen UI
+    drawer?.querySelector('#v37-reopen-wrap')?.remove();
+    return;
+  }
+  // Inject reopen button at the top of the drawer-body
+  const body = drawer.querySelector('.drawer-body');
+  if (body && !document.getElementById('v37-reopen-wrap')) {
+    const isAdmin = ME.role === 'admin';
+    const isOriginalDesigner = c._designerId === ME.id || c.designer === ME_NAME();
+    const canReopen = isAdmin || isOriginalDesigner;
+    const wrap = document.createElement('div');
+    wrap.id = 'v37-reopen-wrap';
+    wrap.style.cssText = 'margin:0 0 12px;padding:10px 12px;background:#FFF8E6;border:1px solid #EDD79A;border-radius:5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
+    wrap.innerHTML = `
+      <span style="font-size:12px;color:#8C6A12;">📦 此案已結案／封存，僅可瀏覽。${canReopen ? '需要繼續推進？可開新案沿用內容。' : ''}</span>
+      ${canReopen ? `<button id="v37-reopen-btn" style="margin-left:auto;padding:6px 14px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">🔁 原案重啟</button>` : ''}
+    `;
+    body.insertBefore(wrap, body.firstChild);
+    if (canReopen) {
+      document.getElementById('v37-reopen-btn').onclick = () => v37ReopenCase(c);
+    }
+  }
+  // Force read-only on every interactive element regardless of write-permission
+  drawer.querySelectorAll('input, textarea, select, button').forEach(el => {
+    if (el.id === 'drawer-close' || el.id === 'v37-reopen-btn') return;
+    if (el.classList.contains('close')) return;
+    el.disabled = true;
+    el.classList.add('v37-historical-readonly');
+  });
+};
+
+async function v37ReopenCase(c) {
+  const reason = prompt(`請輸入原案重啟的原因（會寫入新案 note）：`, '');
+  if (reason === null) return;
+  const goLive = prompt(`新案的上線日（YYYY-MM-DD）— 留空則用 2 週後：`, '');
+  if (goLive && !/^\d{4}-\d{2}-\d{2}$/.test(goLive)) {
+    showToast('日期格式錯誤，需要 YYYY-MM-DD', 'err');
+    return;
+  }
+  try {
+    const created = await api.cases.clone(c.id, {
+      reasonForReopen: reason || undefined,
+      goLiveDate: goLive || undefined,
+    });
+    const norm = normalizeCase(created);
+    CASES.unshift(norm);
+    decorateCases();
+    refreshAll();
+    showToast(`✓ 已建立新案 ${created.id}（沿用 ${c.id} 的內容）`);
+    // Close history drawer and open new case drawer
+    document.getElementById('drawer')?.classList.remove('open');
+    document.getElementById('drawer-bg')?.classList.remove('open');
+    setTimeout(() => openDrawer(norm), 200);
+  } catch (e) {
+    showToast('原案重啟失敗：' + (e.data?.message || e.message), 'err');
+  }
+}
+
+// ─── (#人員 1) Edit button text shorter on self row ───────
+// Already implemented in v3.4 (renderStaff hook). Just adjust label.
+const _v37OrigRenderStaff = window.renderStaff;
+window.renderStaff = function() {
+  _v37OrigRenderStaff();
+  document.querySelectorAll('#staff-table .v34-edit-btn').forEach(btn => {
+    if (btn.textContent === '編輯個人檔案') btn.textContent = '編輯';
+  });
+  // (#人員 2) Inactive staff: replace 查看歸檔 button with archive-card view
+  document.querySelectorAll('#staff-table .staff-row').forEach(row => {
+    const nameEl = row.querySelector('.s-name .n-primary');
+    if (!nameEl) return;
+    const name = nameEl.textContent.trim();
+    const staff = STAFF.find(s => s.name === name);
+    if (!staff || staff.active) return;
+    const actions = row.querySelector('.s-actions');
+    if (!actions) return;
+    // Replace existing button content
+    actions.innerHTML = `<button onclick="v37ShowDepartureArchive('${name.replace(/'/g, "\\'")}')" style="padding:5px 12px;background:#F0F0F0;border:1px solid #D4D4D4;border-radius:4px;cursor:pointer;font-size:11px;">查看歸檔</button>`;
+  });
+};
+
+function v37ShowDepartureArchive(name) {
+  // Modal showing all archived cases for this departed staff
+  let bg = document.getElementById('v37-depart-bg');
+  if (!bg) {
+    bg = document.createElement('div');
+    bg.id = 'v37-depart-bg';
+    bg.className = 'drawer-bg';
+    bg.style.zIndex = '85';
+    document.body.appendChild(bg);
+  }
+  let modal = document.getElementById('v37-depart-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'v37-depart-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:8px;padding:20px;width:min(880px,94%);max-height:85vh;overflow-y:auto;z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);';
+    document.body.appendChild(modal);
+  }
+  const cases = CASES.filter(c => (c.designer === name || (c.collaborators||[]).includes(name)));
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:16px;">
+      <h3 style="margin:0;font-size:16px;">📦 ${escapeHtml(name)} 的案件歸檔（${cases.length} 件）</h3>
+      <button id="v37-depart-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    <div class="case-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;">
+      ${cases.length === 0 ? '<div style="grid-column:1/-1;padding:30px;text-align:center;color:#8C8C8C;">無案件紀錄</div>' :
+        cases.map(c => `
+          <div class="case-card archived-case" onclick='openDrawer(CASES.find(x=>x.id===${JSON.stringify(c.id)}))'>
+            <div class="row1">
+              <div>
+                <div class="case-id">${escapeHtml(c.id)}</div>
+                <div class="title">${escapeHtml(c.name)}</div>
+                <div class="sub">${escapeHtml(c.sub || '')}</div>
+              </div>
+              <span class="chip status-${c.status}">${(STATUSES.find(s=>s.key===c.status)||{name:c.status}).name}</span>
+            </div>
+            <div class="row2">
+              <span class="chip level-${c.level}">${c.level}</span>
+              <span class="chip">${escapeHtml(c.hotel||'—')}</span>
+            </div>
+            <div class="row3">
+              <span>${c.designer === name ? '主負責' : '協作'}</span>
+              <span>${c.closedOn ? '結案 ' + ymd(c.closedOn) : ''}</span>
+            </div>
+          </div>
+        `).join('')
+      }
+    </div>
+  `;
+  bg.classList.add('open');
+  modal.style.display = 'block';
+  document.getElementById('v37-depart-close').onclick = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
+  bg.onclick = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
+}
+
+// ─── (#貢獻 1, 2, 3) Analytics improvements ────────────────
+// Remove footer-note from analytics view (#1)
+// Add staff selector for individual view (#2)
+// Add "提早完成" weight already handled server-side; just display it (#3)
+const _v37OrigRenderAnalytics = window.renderAnalytics;
+window.renderAnalytics = async function() {
+  await _v37OrigRenderAnalytics();
+  // Remove the .footer-note that shouldn't appear in analytics tab
+  const dashView = document.querySelector('div.view[data-view="analytics"]');
+  if (dashView) {
+    const stray = dashView.querySelector('.footer-note');
+    if (stray) stray.remove();
+  }
+  // Add staff selector
+  v37AddAnalyticsStaffSelector();
+  // Update legend with early multiplier note
+  v37PatchAnalyticsFooterText();
+};
+
+function v37AddAnalyticsStaffSelector() {
+  const dashView = document.querySelector('div.view[data-view="analytics"]');
+  if (!dashView) return;
+  const headRow = dashView.querySelector('#v33-period-buttons')?.parentElement;
+  if (!headRow || dashView.querySelector('#v37-staff-select')) return;
+  const sel = document.createElement('select');
+  sel.id = 'v37-staff-select';
+  sel.style.cssText = 'margin-left:8px;padding:6px 10px;border:1px solid #D4D4D4;border-radius:5px;font-size:12px;background:#fff;';
+  sel.innerHTML = '<option value="">全部設計師</option>' +
+    STAFF.filter(s => s.active && s.role !== 'admin')
+      .map(s => `<option value="${s.id}">${s.name} 個人視圖</option>`).join('');
+  sel.onchange = async () => {
+    const id = sel.value ? Number(sel.value) : null;
+    const data = await api.analytics.get({ period: v33Period, offset: v33Offset, ...(id ? { staffId: id } : {}) });
+    v37FilterAnalyticsToStaff(data, id);
+  };
+  headRow.appendChild(sel);
+}
+
+function v37FilterAnalyticsToStaff(data, staffId) {
+  const board = document.getElementById('v33-leaderboard');
+  if (!board) return;
+  if (!staffId) {
+    renderAnalytics(); // re-render full
+    return;
+  }
+  const s = data.perStaff.find(x => x.staffId === staffId);
+  if (!s) {
+    board.innerHTML = '<div style="padding:14px;color:#8C8C8C;">本期間此同仁無已結案案件</div>';
+    document.getElementById('v33-cases-list').innerHTML = '';
+    return;
+  }
+  const ot = s.onTimeRate == null ? '—' : Math.round(s.onTimeRate * 100) + '%';
+  board.innerHTML = `
+    <div style="padding:14px;">
+      <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;">
+        <h3 style="margin:0;font-size:18px;">${escapeHtml(s.name)}</h3>
+        <span style="color:#8C8C8C;font-size:12px;">${escapeHtml(s.seniority)}</span>
+        <span style="margin-left:auto;font-family:'SF Mono','Consolas',monospace;font-weight:600;font-size:22px;">${s.totalScore.toFixed(1)} 分</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;font-size:12px;">
+        <div style="background:#F4F4F4;padding:10px;border-radius:5px;"><div style="color:#8C8C8C;">主負責</div><div style="font-weight:600;font-size:16px;">${s.primary.count} 件 / ${s.primary.score.toFixed(1)}</div></div>
+        <div style="background:#F4F4F4;padding:10px;border-radius:5px;"><div style="color:#8C8C8C;">協作</div><div style="font-weight:600;font-size:16px;">${s.collab.count} 件 / ${s.collab.score.toFixed(1)}</div></div>
+        <div style="background:#E4F3DD;padding:10px;border-radius:5px;"><div style="color:#3A6E2A;">提早完成</div><div style="font-weight:600;font-size:16px;">${s.earlyCount || 0} 件</div></div>
+        <div style="background:#FFE4DD;padding:10px;border-radius:5px;"><div style="color:#8B3A2A;">準時率</div><div style="font-weight:600;font-size:16px;">${ot}</div></div>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:#8C8C8C;">分級分布：SS:${s.byLevel.SS||0} · S:${s.byLevel.S||0} · A:${s.byLevel.A||0} · B:${s.byLevel.B||0} · C:${s.byLevel.C||0} · D:${s.byLevel.D||0}</div>
+    </div>
+  `;
+}
+
+function v37PatchAnalyticsFooterText() {
+  const dashView = document.querySelector('div.view[data-view="analytics"]');
+  if (!dashView) return;
+  const p = dashView.querySelector('p[style*="font-size:11px"]');
+  if (p && !p.dataset.v37Patched) {
+    p.innerHTML = `
+      <b>計算規則</b>：僅計入狀態 = 已結案 / 已完成 且 closedOn 落在所選期間內的案件。<br>
+      <b>分級權重</b>：SS=5 · S=4 · A=3 · B=2 · C=1 · D=1<br>
+      <b>角色係數</b>：主負責 ×1.0、協作者 ×0.4<br>
+      <b>準時係數</b>：<b>提早完成 ×1.2（v3.7 新）</b>、準時 ×1.1、逾期 ×0.8<br>
+      <b>急件係數</b>：急件 ×1.3、一般 ×1.0
+    `;
+    p.dataset.v37Patched = '1';
+  }
+}
+
+// ─── (#後台) 館別管理 admin modal ────────────────────────
+function v37OpenHotelManager() {
+  let bg = document.getElementById('v37-hotel-bg');
+  if (!bg) {
+    bg = document.createElement('div');
+    bg.id = 'v37-hotel-bg';
+    bg.className = 'drawer-bg';
+    bg.style.zIndex = '85';
+    document.body.appendChild(bg);
+  }
+  let modal = document.getElementById('v37-hotel-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'v37-hotel-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:8px;padding:20px;width:min(640px,94%);max-height:85vh;overflow-y:auto;z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);';
+    document.body.appendChild(modal);
+  }
+  v37RenderHotelManager(modal);
+  bg.classList.add('open');
+  modal.style.display = 'block';
+}
+
+async function v37RenderHotelManager(modal) {
+  const rows = await api.hotels.list().catch(() => []);
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:16px;">🏢 館別管理</h3>
+      <button id="v37-hotel-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    <p style="color:#8C8C8C;font-size:12px;margin:0 0 12px;line-height:1.6;">新增、編輯、停用館別。停用後不再出現於下拉，但歷史案件不受影響。</p>
+    <div style="border:1px solid #E5E5E5;border-radius:6px;overflow:hidden;margin-bottom:14px;">
+      <div style="display:grid;grid-template-columns:80px 1fr 80px 80px 100px;background:#F4F4F4;padding:8px 12px;font-size:11px;font-weight:500;color:#404040;">
+        <span>區域</span><span>館別名</span><span>順序</span><span>狀態</span><span>動作</span>
+      </div>
+      ${rows.map(h => `
+        <div style="display:grid;grid-template-columns:80px 1fr 80px 80px 100px;align-items:center;padding:8px 12px;border-top:1px solid #F0F0F0;font-size:12px;">
+          <span>${escapeHtml(h.region)}</span>
+          <span>${escapeHtml(h.name)}</span>
+          <span>${h.sortOrder}</span>
+          <span style="color:${h.active ? '#1F8A4C' : '#9A2E2E'};">${h.active ? '啟用' : '停用'}</span>
+          <span style="display:flex;gap:4px;">
+            <button onclick="v37HotelToggle(${h.id}, ${!h.active})" style="font-size:10px;padding:3px 8px;background:#fff;border:1px solid #D4D4D4;border-radius:3px;cursor:pointer;">${h.active ? '停用' : '啟用'}</button>
+          </span>
+        </div>
+      `).join('')}
+    </div>
+    <div style="border:1px solid #1F8A4C;border-radius:6px;padding:12px;background:#F4FBF7;">
+      <div style="font-size:13px;font-weight:500;margin-bottom:8px;">＋ 新增館別</div>
+      <div style="display:grid;grid-template-columns:1fr 2fr 80px auto;gap:8px;align-items:end;font-size:12px;">
+        <label>區域<input id="v37-h-region" placeholder="例：嘉義" style="width:100%;padding:6px;border:1px solid #D4D4D4;border-radius:4px;"></label>
+        <label>名稱<input id="v37-h-name" placeholder="例：嘉義館" style="width:100%;padding:6px;border:1px solid #D4D4D4;border-radius:4px;"></label>
+        <label>順序<input id="v37-h-sort" type="number" placeholder="自動" style="width:100%;padding:6px;border:1px solid #D4D4D4;border-radius:4px;"></label>
+        <button id="v37-h-add" style="padding:7px 14px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;">新增</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('v37-hotel-close').onclick = () => v37CloseHotelManager();
+  document.getElementById('v37-hotel-bg').onclick = () => v37CloseHotelManager();
+  document.getElementById('v37-h-add').onclick = async () => {
+    const region = document.getElementById('v37-h-region').value.trim();
+    const name = document.getElementById('v37-h-name').value.trim();
+    const sortOrder = document.getElementById('v37-h-sort').value;
+    if (!region || !name) { showToast('區域跟名稱都要填', 'err'); return; }
+    try {
+      await api.hotels.create({ region, name, ...(sortOrder ? { sortOrder: Number(sortOrder) } : {}) });
+      showToast('✓ 已新增館別 ' + name);
+      await v37LoadHotels();
+      v37RenderHotelManager(modal); // refresh list
+    } catch (e) {
+      if (e.status === 409) showToast('館別名稱重複', 'err');
+      else showToast('新增失敗：' + (e.data?.message || e.message), 'err');
+    }
+  };
+}
+function v37CloseHotelManager() {
+  document.getElementById('v37-hotel-bg')?.classList.remove('open');
+  const m = document.getElementById('v37-hotel-modal');
+  if (m) m.style.display = 'none';
+}
+async function v37HotelToggle(id, makeActive) {
+  try {
+    await api.hotels.update(id, { active: makeActive });
+    showToast(`✓ 館別已${makeActive ? '啟用' : '停用'}`);
+    await v37LoadHotels();
+    v37RenderHotelManager(document.getElementById('v37-hotel-modal'));
+  } catch (e) { showToast('操作失敗：' + e.message, 'err'); }
+}
+
+// Inject 「館別管理」 button into Staff page (admin only)
+const _v37OrigRenderStaffForHotelBtn = window.renderStaff;
+window.renderStaff = function() {
+  _v37OrigRenderStaffForHotelBtn();
+  if (ME.role !== 'admin') return;
+  const header = document.querySelector('div.view[data-view="staff"] .staff-header');
+  if (header && !header.querySelector('.v37-hotel-mgr-btn')) {
+    const btn = document.createElement('button');
+    btn.className = 'v37-hotel-mgr-btn';
+    btn.style.cssText = 'margin-left:8px;padding:8px 14px;background:#fff;color:#1F1F1F;border:1px solid #D4D4D4;border-radius:6px;cursor:pointer;font-size:13px;';
+    btn.textContent = '🏢 館別管理';
+    btn.onclick = v37OpenHotelManager;
+    header.appendChild(btn);
+  }
+};
+
+// Hook bootstrap to load hotels first
+const _v37OrigBootstrap = bootstrap;
+bootstrap = async function() {
+  // Load hotels BEFORE original bootstrap so HOTELS array is ready
+  await v37LoadHotels();
+  await _v37OrigBootstrap();
 };
 
 // ═══ GO ═══════════════════════════════════════════════════════
