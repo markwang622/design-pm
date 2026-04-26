@@ -531,7 +531,7 @@ h1, h2, h3, h4 { font-weight: 500; }
         <button class="pill" data-filter="month">本月</button>
         <button class="pill" data-filter="overdue">逾期</button>
         <button class="pill" data-filter="urgent">急件</button>
-        <button class="pill" data-filter="gate">近確稿</button>
+        <button class="pill" data-filter="gate">確稿中</button>
         <button class="pill" data-filter="collab">協作中</button>
       </div>
       <div class="case-list" id="case-list"></div>
@@ -647,11 +647,11 @@ h1, h2, h3, h4 { font-weight: 500; }
           <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
         </div>
       </div>
-      <div class="notif-group">
-        <h3>管理相關（給 Mark）</h3>
+      <div class="notif-group" id="notif-admin-group">
+        <h3>管理相關（給 Admin）</h3>
         <div class="notif-row" style="border-left: 3px solid #9A2E2E;">
-          <div class="txt"><div class="n-title">卡控 · 確稿日前 3 工作天自動通報</div>
-          <div class="n-desc">上線日回推 3 工作天＝確稿日；系統在「確稿日 − 3 工作天」當天自動寄信給 Mark，並在卡片上顯示紅色卡控橫幅</div></div>
+          <div class="txt"><div class="n-title">待簽核 · 確稿日前 3 工作天自動通報</div>
+          <div class="n-desc">上線日回推 3 工作天＝確稿日；系統在「確稿日 − 3 工作天」當天自動寄信給 Mark，並在卡片上顯示紅色待簽核橫幅</div></div>
           <button class="preview-btn" onclick="showEmail('reviewGate')">預覽</button>
           <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
         </div>
@@ -737,7 +737,7 @@ h1, h2, h3, h4 { font-weight: 500; }
       </select>
     </div>
     <div class="gate-info" id="d-gate">
-      <b>⏰ 卡控觸發中</b>：此案的 <b>確稿日</b> 剩不到 3 個工作天，系統已通知 <b>Mark</b> 安排審核事宜。卡片會以紅色邊條標示，直到設計師提出確稿。
+      <b>⏰ 待簽核觸發中</b>：此案的 <b>確稿日</b> 剩不到 3 個工作天，系統已通知 <b>Mark</b> 安排審核事宜。卡片會以紅色邊條標示，直到設計師提出確稿。
     </div>
   </div>
 </div>
@@ -761,6 +761,7 @@ h1, h2, h3, h4 { font-weight: 500; }
       <label>文案收件日（可選填）<input type="date" id="f-copy"></label>
       <label>上線日 *<input type="date" id="f-golive"></label>
       <label>主類別 *<select id="f-cat"></select></label>
+      <label id="f-cat-other-wrap" style="display:none;">自訂類別項目 *<input type="text" id="f-cat-other" placeholder="例如：影片剪輯、活動規劃…"></label>
       <label class="span2 check"><input type="checkbox" id="f-urgent"> 標記為急件（🔥）</label>
       <label class="span2">
         協作者（可複選，大案可 2–3 人共做）
@@ -907,18 +908,20 @@ const LEVEL_WEIGHT = { SS: 5, S: 4, A: 3, B: 2, C: 1, D: 1 };
 const SENIORITY_LABEL = { senior: '資深', mid: '中階', junior: '初階' };
 const HOTELS = [
   {region:'集團', name:'集團本部'},
-  {region:'宜蘭', name:'新竹湖濱館'},
-  {region:'宜蘭', name:'新竹都會館'},
-  {region:'宜蘭', name:'台南館'},
+  {region:'新竹', name:'新竹湖濱館'},
+  {region:'新竹', name:'新竹都會館'},
+  {region:'台南', name:'台南館'},
   {region:'宜蘭', name:'宜蘭館'},
   {region:'宜蘭', name:'傳藝館'},
   {region:'宜蘭', name:'蘇澳館'},
-  {region:'宜蘭', name:'宜蘭行銷'},
   {region:'花蓮', name:'花蓮館'},
   {region:'花蓮', name:'花太館'},
-  {region:'花蓮', name:'花蓮行銷'},
 ];
-const REQUEST_UNITS = ['餐飲行銷','客房行銷','客務部','餐飲部','採購','工務'];
+const REQUEST_UNITS = [
+  '餐飲行銷','客房行銷','客務部','餐飲部','採購','工務',
+  // v3.5 additions
+  '宜蘭行銷','花蓮行銷','嘉義行銷','台中行銷',
+];
 const STATUSES = [
   {key:'todo', name:'尚未開始'},
   {key:'wait', name:'等待中'},
@@ -1103,11 +1106,11 @@ function renderPersonal() {
     <div class="kpi"><div class="label">本週到期</div><div class="value">${weekDue.length}</div><div class="sub">7 天內（上線日）</div></div>
     <div class="kpi alert"><div class="label">已逾期</div><div class="value">${overdue.length}</div><div class="sub">請優先處理</div></div>
     <div class="kpi urgent"><div class="label">急件</div><div class="value">${urgent.length}</div><div class="sub">標記為 🔥</div></div>
-    <div class="kpi" style="border-color:#EDD79A;"><div class="label">確稿卡控中</div><div class="value" style="color:#8C6A12;">${gate.length}</div><div class="sub">確稿日前 3 工作天內</div></div>
+    <div class="kpi" style="border-color:#EDD79A;"><div class="label">確稿待簽核中</div><div class="value" style="color:#8C6A12;">${gate.length}</div><div class="sub">確稿日前 3 工作天內</div></div>
     <div class="kpi" style="border-color:#C9DCF0;"><div class="label">協作中</div><div class="value" style="color:#1E5A85;">${collab.length}</div><div class="sub">他人主案 · 我協作</div></div>
   `;
   document.getElementById('hello').textContent = `早安，${ME_NAME()}`;
-  document.getElementById('hello-sub').textContent = `今天是 4/23（四）· 你有 ${weekDue.length} 件本週上線、${gate.length} 件進入確稿卡控、${overdue.length} 件逾期`;
+  document.getElementById('hello-sub').textContent = `今天是 4/23（四）· 你有 ${weekDue.length} 件本週上線、${gate.length} 件進入確稿待簽核、${overdue.length} 件逾期`;
   let list = me;
   if (personalFilter === 'week') list = weekDue;
   if (personalFilter === 'month') list = me;
@@ -1147,7 +1150,7 @@ function makeCaseCard(c) {
       <span class="chip">${c.hotel}</span>
       ${c.urgent ? '<span class="chip urgent">🔥 急件</span>' : ''}
       ${c.overdue ? '<span class="chip overdue">⚠ 逾期</span>' : ''}
-      ${c.gateActive ? '<span class="chip gate">⏰ 卡控</span>' : ''}
+      ${c.gateActive ? '<span class="chip gate">⏰ 待簽核</span>' : ''}
       ${(c.collaborators && c.collaborators.length) ? `<span class="chip collab">🤝 ${c.collaborators.length} 位協作</span>` : ''}
     </div>
     <div class="row3">
@@ -1402,7 +1405,7 @@ function renderDashboard() {
     <div class="kpi"><div class="label">已完成</div><div class="value">${done}</div><div class="sub">達成率 ${Math.round(done/total*100)}%</div></div>
     <div class="kpi alert"><div class="label">逾期</div><div class="value">${overdue}</div><div class="sub">需關切</div></div>
     <div class="kpi urgent"><div class="label">急件</div><div class="value">${urgent}</div></div>
-    <div class="kpi" style="border-color:#EDD79A;"><div class="label">確稿卡控中</div><div class="value" style="color:#8C6A12;">${gate}</div><div class="sub">待你審核</div></div>
+    <div class="kpi" style="border-color:#EDD79A;"><div class="label">確稿待簽核中</div><div class="value" style="color:#8C6A12;">${gate}</div><div class="sub">待你審核</div></div>
   `;
   const wl = document.getElementById('workload');
   wl.innerHTML = '';
@@ -1444,14 +1447,14 @@ function renderDashboard() {
   document.getElementById('by-hotel').innerHTML = topH.map(([h,n]) => `<div class="bar-row"><span class="name" style="font-size: 11px;">${h}</span><div class="track"><div class="fill" style="width:${n/maxH*100}%"></div></div><span class="count">${n}</span></div>`).join('');
   const acts = [
     {t:'1h 前', a:'Amanda', n:'「餐廳菜單改版」狀態更新為 進行中'},
-    {t:'3h 前', a:'系統',    n:'SS-2026-04-003「集團年報」距確稿日剩 3 工作天，卡控已觸發並通知 Mark'},
+    {t:'3h 前', a:'系統',    n:'SS-2026-04-003「集團年報」距確稿日剩 3 工作天，待簽核已觸發並通知 Mark'},
     {t:'今早',  a:'Sunny',  n:'A-2026-04-012 提出確稿（已進入確稿中）'},
     {t:'昨日',  a:'Mark',   n:'核准 Milo 將 C-2026-04-061 轉派給 Ruby'},
     {t:'昨日',  a:'Form',   n:'宜蘭行銷送出新需求「5月母親節 EDM」'},
   ];
   document.getElementById('activity').innerHTML = acts.map(x => `<li><span class="time">${x.t}</span> · <b>${x.a}</b> ${x.n}</li>`).join('');
   const reviewing = live.filter(c => c.status === 'review').map(c => ({...c, why:'待你審核'}));
-  const gated = live.filter(c => c.gateActive).map(c => ({...c, why:'卡控中'}));
+  const gated = live.filter(c => c.gateActive).map(c => ({...c, why:'待簽核中'}));
   const att = [...reviewing, ...gated, ...live.filter(c => c.overdue).map(c => ({...c, why:'已逾期'})), ...live.filter(c => c.urgent && c.status !== 'done').map(c => ({...c, why:'急件'}))]
     .filter((c,i,arr) => arr.findIndex(x => x.id === c.id) === i).slice(0,7);
   document.getElementById('attention').innerHTML = att.map(c => `
@@ -1460,7 +1463,7 @@ function renderDashboard() {
       <div style="color: #8C8C8C; font-size: 11px; margin-top: 2px;">
         ${c.designer} · ${c.hotel}
         ${c.why === '待你審核' ? '<span class="chip status-review" style="font-size: 10px; margin-left: 6px;">待審核</span>' : ''}
-        ${c.why === '卡控中'  ? '<span class="chip gate"        style="font-size: 10px; margin-left: 6px;">⏰ 卡控</span>' : ''}
+        ${c.why === '待簽核中'  ? '<span class="chip gate"        style="font-size: 10px; margin-left: 6px;">⏰ 待簽核</span>' : ''}
         ${c.why === '已逾期'  ? '<span class="chip overdue"     style="font-size: 10px; margin-left: 6px;">逾期</span>' : ''}
         ${c.why === '急件'    ? '<span class="chip urgent"      style="font-size: 10px; margin-left: 6px;">急件</span>' : ''}
       </div>
@@ -1530,7 +1533,7 @@ function openDrawer(c) {
     <span class="chip status-${c.status}">${STATUSES.find(s=>s.key===c.status).name}</span>
     ${c.urgent ? '<span class="chip urgent">🔥 急件</span>' : ''}
     ${c.overdue ? '<span class="chip overdue">⚠ 逾期</span>' : ''}
-    ${c.gateActive ? '<span class="chip gate">⏰ 卡控中</span>' : ''}
+    ${c.gateActive ? '<span class="chip gate">⏰ 待簽核中</span>' : ''}
     ${c.archived ? '<span class="chip archived">已封存</span>' : ''}
   `;
   document.getElementById('d-title').textContent = c.name;
@@ -1733,6 +1736,18 @@ function openCreateModal() {
   uSel.innerHTML = REQUEST_UNITS.map(u => `<option value="${u}">${u}</option>`).join('');
   const cSel = document.getElementById('f-cat');
   cSel.innerHTML = CATS.map(c => `<option value="${c}">${c}</option>`).join('');
+  // v3.5 (#7): toggle the "自訂類別項目" input when 其他 is selected
+  const otherWrap = document.getElementById('f-cat-other-wrap');
+  const otherInput = document.getElementById('f-cat-other');
+  if (otherWrap && otherInput) {
+    otherInput.value = '';
+    otherWrap.style.display = 'none';
+    cSel.onchange = () => {
+      const isOther = /其他/.test(cSel.value);
+      otherWrap.style.display = isOther ? '' : 'none';
+      if (!isOther) otherInput.value = '';
+    };
+  }
   const lSel = document.getElementById('f-level');
   lSel.innerHTML = LEVELS.map(l => `<option value="${l}" ${l==='B'?'selected':''}>${l}</option>`).join('');
   const dSel = document.getElementById('f-designer');
@@ -2117,7 +2132,7 @@ const EMAIL_TEMPLATES = {
   proofStart: { from: '設計部專案管理系統 <no-reply@design.company.com>', to: 'sunny@company.com', subject: '✦ 【確稿日 − 3 工作天】請準備進入校稿 · 餐飲季刊', body: `<h4>Hi Sunny，明天開始是校稿日</h4><p>A-2026-04-012 · 校稿起 4/21、確稿 4/23、上線 4/28</p><a class="cta" href="#">打開任務 →</a>` },
   remindNoon: { from: '設計部專案管理系統 <no-reply@design.company.com>', to: 'sunny@company.com', subject: '【明日上線】12:00 提醒 · 餐飲季刊', body: `<h4>Hi Sunny，明天就是上線日</h4><a class="cta" href="#">打開任務 →</a>` },
   overdue: { from: '設計部專案管理系統 <no-reply@design.company.com>', to: 'jhen@company.com', subject: '⚠ 【已逾期】C-2026-04-070', body: `<h4>以下案件已超過上線日</h4><a class="cta" href="#">打開任務 →</a>` },
-  reviewGate: { from: '設計部專案管理系統 <no-reply@design.company.com>', to: 'mark@company.com', subject: '⏰ 【卡控觸發】A-2026-04-012 · 確稿日 3 工作天內 · Sunny', body: `<h4>Mark，有案件進入「確稿卡控」</h4><p>A-2026-04-012 · 餐飲季刊<br>確稿日：2026/04/23（今天）<br>上線日：2026/04/28</p><a class="cta" href="#">打開審核 →</a>` },
+  reviewGate: { from: '設計部專案管理系統 <no-reply@design.company.com>', to: 'mark@company.com', subject: '⏰ 【待簽核觸發】A-2026-04-012 · 確稿日 3 工作天內 · Sunny', body: `<h4>Mark，有案件進入「確稿待簽核」</h4><p>A-2026-04-012 · 餐飲季刊<br>確稿日：2026/04/23（今天）<br>上線日：2026/04/28</p><a class="cta" href="#">打開審核 →</a>` },
   reassignReq: { from: '設計部專案管理系統 <no-reply@design.company.com>', to: 'mark@company.com', subject: '【待審核 · 轉派單】C-2026-04-061 · Milo → Ruby', body: `<h4>Milo 提出轉派單，請你審核</h4><p>原負責人：Milo<br>新負責人：Ruby（工作量 5.4，為目前最低）<br>原因：同週撞期</p><a class="cta" href="#">打開審核 →</a>` },
   closed: { from: '設計部專案管理系統 <no-reply@design.company.com>', to: 'mark@company.com · cc: sunny@company.com', subject: '【結案統計】B-2026-04-041 · 兒童節活動 · 工作天 8d', body: `<h4>案件已結案，結案明細如下</h4><p>實際工作天：8d　需求數：3　設計產出數：12<br>檔案歸檔位置：/設計部共用/2026/Q2/04-兒童節活動_花蓮館</p><a class="cta" href="#">查看完整明細 →</a>` },
   staffAdd: { from: '設計部專案管理系統 <no-reply@design.company.com>', to: '（新成員）· cc: mark@company.com', subject: '【帳號啟用】藝術設計部專案管理系統 · 歡迎加入', body: `<h4>歡迎加入藝術設計部</h4><p>你的帳號已建立。請點下方連結設定密碼並完成第一次登入：</p><a class="cta" href="#">啟用帳號 →</a><p style="margin-top:12px;font-size:12px;color:#8C8C8C;">Mark 已將你加入建立專案／轉派／協作者下拉清單。第一天將有簡短系統導覽。</p>` },
@@ -2339,7 +2354,13 @@ window.submitCreate = async function() {
   const name = document.getElementById('f-name').value.trim();
   const hotel = document.getElementById('f-hotel').value;
   const unit = document.getElementById('f-unit').value;
-  const cat = document.getElementById('f-cat').value;
+  let cat = document.getElementById('f-cat').value;
+  // v3.5 (#7): if 其他, append the user's custom item
+  if (/其他/.test(cat)) {
+    const customLabel = (document.getElementById('f-cat-other')?.value || '').trim();
+    if (!customLabel) { showToast('選了「其他」就要填自訂類別項目', 'err'); return; }
+    cat = `7 其他 — ${customLabel}`;
+  }
   const level = document.getElementById('f-level').value;
   const designerName = self ? ME_NAME() : document.getElementById('f-designer').value;
   const dispatch = document.getElementById('f-dispatch').value;
@@ -3543,6 +3564,70 @@ bootstrap = async function() {
   // Re-render staff to inject Edit buttons if currently on that view
   if (currentView === 'staff') renderStaff();
 };
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v3.5 ENHANCEMENTS — visibility, delete-person ▼▼▼
+// ═══════════════════════════════════════════════════════════════
+
+// (#9) Hide admin notification group from non-admins.
+function v35ApplyRoleVisibility() {
+  const adminGroup = document.getElementById('notif-admin-group');
+  if (!adminGroup) return;
+  adminGroup.style.display = (ME && ME.role === 'admin') ? '' : 'none';
+}
+
+// (#14) Inject "刪除該人員" button next to "離職申請" for admin.
+const _v35OrigRenderStaff = window.renderStaff;
+window.renderStaff = function() {
+  _v35OrigRenderStaff();
+  if (!ME || ME.role !== 'admin') return;
+  document.querySelectorAll('#staff-table .staff-row:not(.head)').forEach(row => {
+    const nameEl = row.querySelector('.s-name .n-primary');
+    if (!nameEl) return;
+    const name = nameEl.textContent.trim();
+    const staff = STAFF.find(s => s.name === name);
+    if (!staff || !staff.active) return; // only for active staff
+    const actions = row.querySelector('.s-actions');
+    if (!actions || actions.querySelector('.v35-delete-btn')) return;
+    const btn = document.createElement('button');
+    btn.className = 'v35-delete-btn danger';
+    btn.style.cssText = 'margin-left:6px;background:#9A2E2E;color:#fff;';
+    btn.textContent = '刪除該人員';
+    btn.onclick = () => {
+      // Reuse the existing departure flow: warns about open cases and
+      // archives done ones in a single transaction.
+      if (typeof openDeparture === 'function') {
+        openDeparture(name);
+        // Tweak the departure modal title so user understands this
+        // performs the same operation as 離職.
+        setTimeout(() => {
+          const head = document.querySelector('#dep-modal .modal-head h3, #dep-modal h3');
+          if (head && !head.dataset.v35Tweaked) {
+            head.dataset.v35Tweaked = '1';
+            head.textContent = `刪除人員：${name}（已完成案件將自動封存、開放案件需指定繼承人）`;
+          }
+        }, 50);
+      } else {
+        showToast('離職／刪除流程未載入', 'err');
+      }
+    };
+    actions.appendChild(btn);
+  });
+};
+
+// Hook bootstrap + role-switch to keep visibility in sync.
+const _v35OrigBootstrap = bootstrap;
+bootstrap = async function() {
+  await _v35OrigBootstrap();
+  v35ApplyRoleVisibility();
+};
+
+// Re-apply on role-switch click (designer ↔ admin)
+document.addEventListener('click', (e) => {
+  if (e.target?.closest?.('.role-switch button')) {
+    setTimeout(v35ApplyRoleVisibility, 0);
+  }
+});
 
 // ═══ GO ═══════════════════════════════════════════════════════
 bootstrap();
