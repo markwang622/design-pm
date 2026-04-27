@@ -115,6 +115,67 @@ body {
 /* 卡片邊條 / 群組標題 — 簡化 */
 [data-theme="dark"] .gantt-group-head { background: #1F242C !important; color: var(--fg); }
 [data-theme="dark"] .legend-row span { color: var(--fg-muted); }
+
+/* v4.0 patch 2: 全面補對比不夠的位置 */
+/* 通知設定頁 */
+[data-theme="dark"] .notif-row { background: var(--card-bg) !important; border-color: var(--card-border) !important; color: var(--fg); }
+[data-theme="dark"] .notif-row .n-title { color: var(--fg) !important; }
+[data-theme="dark"] .notif-row .n-desc { color: var(--fg-muted) !important; }
+[data-theme="dark"] .notif-row button.preview-btn { background: var(--chip-bg) !important; color: var(--fg) !important; border-color: var(--card-border) !important; }
+[data-theme="dark"] .notif-row button.preview-btn:hover { background: var(--hover-bg) !important; }
+[data-theme="dark"] .notif-group h3 { color: var(--fg) !important; }
+[data-theme="dark"] .view[data-view="notif"] h2,
+[data-theme="dark"] .view[data-view="notif"] h3 { color: var(--fg) !important; }
+[data-theme="dark"] .view[data-view="notif"] p { color: var(--fg-muted) !important; }
+/* Email preview card */
+[data-theme="dark"] .email-preview, [data-theme="dark"] #email-preview > div { background: var(--card-bg) !important; color: var(--fg) !important; border-color: var(--card-border) !important; }
+[data-theme="dark"] .email-preview-head, [data-theme="dark"] #email-preview .head { background: #14181F !important; color: var(--fg) !important; }
+[data-theme="dark"] #email-preview .meta { color: var(--fg-muted) !important; }
+/* Drawer detail grid */
+[data-theme="dark"] .detail-grid dt { color: var(--fg-muted) !important; }
+[data-theme="dark"] .detail-grid dd { color: var(--fg) !important; }
+[data-theme="dark"] .drawer-body h3 { color: var(--fg) !important; }
+[data-theme="dark"] .drawer-body, [data-theme="dark"] .drawer-body p { color: var(--fg) !important; }
+/* Kanban card titles */
+[data-theme="dark"] .kb-card .t { color: var(--fg) !important; }
+[data-theme="dark"] .kb-card .t span { color: var(--fg-muted) !important; }
+[data-theme="dark"] .kb-card .meta { color: var(--fg-muted) !important; }
+[data-theme="dark"] .kb-card.s-todo, [data-theme="dark"] .kb-card.s-wait, [data-theme="dark"] .kb-card.s-doing,
+[data-theme="dark"] .kb-card.s-review, [data-theme="dark"] .kb-card.s-done {
+  background: var(--card-bg) !important; border-color: var(--card-border) !important;
+}
+[data-theme="dark"] .kb-card.s-wait { border-left-color: #B89568; }
+[data-theme="dark"] .kb-card.s-doing { border-left-color: #5A8AD8; }
+[data-theme="dark"] .kb-card.s-review { border-left-color: #D8B85A; }
+[data-theme="dark"] .kb-card.s-done { border-left-color: #5AA85A; }
+[data-theme="dark"] .kb-col-head { color: var(--fg) !important; border-bottom-color: var(--section-divider); }
+[data-theme="dark"] .kb-col-head .count { background: var(--chip-bg); color: var(--fg-muted); }
+/* Gantt row labels */
+[data-theme="dark"] .gantt-row .label,
+[data-theme="dark"] .gantt-row .label .p-name { color: var(--fg) !important; }
+[data-theme="dark"] .gantt-row .label .p-avatar { color: var(--fg) !important; background: var(--chip-bg) !important; }
+[data-theme="dark"] .gantt-row.sub-row { background: #14181F !important; }
+[data-theme="dark"] .gantt-row.sub-row .label .p-name { color: var(--fg-muted) !important; }
+[data-theme="dark"] .gantt-row .label .p-name span,
+[data-theme="dark"] .gantt-row.sub-row .label .p-name span { color: var(--fg-muted) !important; }
+/* Gantt date header & ticks */
+[data-theme="dark"] .gantt-head, [data-theme="dark"] .gantt-head > div { color: var(--fg) !important; background: #14181F !important; }
+[data-theme="dark"] .gantt-ticks > div { background: transparent !important; color: var(--fg-muted) !important; }
+[data-theme="dark"] .gantt-ticks > div[style*="background:#FAF1E3"] { background: #2D2820 !important; color: #D8B85A !important; }
+[data-theme="dark"] .gantt-ticks > div[style*="background:#F5F5F5"] { background: #14181F !important; }
+/* Greeting / hello */
+[data-theme="dark"] .greeting h2 { color: var(--fg) !important; }
+[data-theme="dark"] .greeting p { color: var(--fg-muted) !important; }
+/* Tooltips and tip texts that may be hard-coded */
+[data-theme="dark"] [style*="color: #1F1F1F"], [data-theme="dark"] [style*="color:#1F1F1F"] { color: var(--fg) !important; }
+[data-theme="dark"] [style*="color: #1A1A1A"], [data-theme="dark"] [style*="color:#1A1A1A"] { color: var(--fg) !important; }
+/* Modal backgrounds — ensure white modals turn dark */
+[data-theme="dark"] .modal,
+[data-theme="dark"] [class*="modal"] { background: var(--card-bg) !important; color: var(--fg) !important; }
+[data-theme="dark"] .modal h2, [data-theme="dark"] .modal h3 { color: var(--fg) !important; }
+[data-theme="dark"] .modal label { color: var(--fg-muted) !important; }
+/* "尚未開始" status chip in drawer header — should stay readable */
+[data-theme="dark"] .chip.status-todo { background: var(--chip-bg) !important; color: var(--fg) !important; }
 /* v3.8 theme toggle button */
 .v38-theme-toggle {
   margin-left: 8px; padding: 6px 10px; background: transparent;
