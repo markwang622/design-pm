@@ -29,24 +29,25 @@
 }
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0F1419;
-  --fg: #E8E8E8;
-  --fg-muted: #8C8C8C;
-  --fg-dim: #A0A0A0;
-  --card-bg: #1A2028;
-  --card-border: #2A3038;
+  /* v4.0 patch: 提高對比 — fg 從 #E8E8E8 → #F5F5F5；secondary 文字提亮 */
+  --bg: #0E1116;
+  --fg: #F5F5F5;
+  --fg-muted: #B0B0B0;
+  --fg-dim: #C8C8C8;
+  --card-bg: #181D24;
+  --card-border: #2D3540;
   --card-shadow: 0 1px 0 rgba(0,0,0,0.4);
-  --chip-bg: #252B33;
-  --chip-fg: #C0C0C0;
-  --chip-border: #2A3038;
+  --chip-bg: #232932;
+  --chip-fg: #E8E8E8;
+  --chip-border: #2D3540;
   --topbar-bg: #050810;
-  --topbar-fg: #E8E8E8;
-  --input-bg: #1A2028;
+  --topbar-fg: #F5F5F5;
+  --input-bg: #181D24;
   --input-border: #3A4048;
-  --input-fg: #E8E8E8;
-  --hover-bg: #252B33;
-  --kanban-col-bg: #1A2028;
-  --section-divider: #2A3038;
+  --input-fg: #F5F5F5;
+  --hover-bg: #232932;
+  --kanban-col-bg: #14181F;
+  --section-divider: #2D3540;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -60,13 +61,15 @@ body {
 [data-theme="dark"] .topbar { background: var(--topbar-bg); border-bottom-color: #000; }
 [data-theme="dark"] .kpi { background: var(--card-bg); border-color: var(--card-border); color: var(--fg); }
 [data-theme="dark"] .case-card { background: var(--card-bg); border-color: var(--card-border); color: var(--fg); }
-[data-theme="dark"] .case-card.s-todo { background: var(--card-bg); }
-[data-theme="dark"] .case-card.s-wait { background: #2D2820; border-color: #3A3528; }
-[data-theme="dark"] .case-card.s-doing { background: #1A2333; border-color: #243044; }
-[data-theme="dark"] .case-card.s-review { background: #332D1F; border-color: #44382A; }
-[data-theme="dark"] .case-card.s-review_done { background: #33271F; border-color: #44362A; }
-[data-theme="dark"] .case-card.s-done { background: #1F2D1F; border-color: #2A3D2A; }
-[data-theme="dark"] .case-card.s-closed { background: #1A2D1A; border-color: #2A4D2A; }
+/* v4.0 patch: 夜間模式下，case-card 統一用單色 + 細左側色條，避免六種底色雜亂 */
+[data-theme="dark"] .case-card { background: var(--card-bg); border-color: var(--card-border); border-left-width: 3px; border-left-style: solid; }
+[data-theme="dark"] .case-card.s-todo  { border-left-color: #5A5A5A; }
+[data-theme="dark"] .case-card.s-wait  { border-left-color: #B89568; }
+[data-theme="dark"] .case-card.s-doing { border-left-color: #5A8AD8; }
+[data-theme="dark"] .case-card.s-review { border-left-color: #D8B85A; }
+[data-theme="dark"] .case-card.s-review_done { border-left-color: #D88A5A; }
+[data-theme="dark"] .case-card.s-done   { border-left-color: #5AA85A; }
+[data-theme="dark"] .case-card.s-closed { border-left-color: #5AA85A; }
 [data-theme="dark"] .case-card.archived-case { background: #15191F; opacity: 0.7; }
 [data-theme="dark"] .kanban .kb-col { background: var(--kanban-col-bg); }
 [data-theme="dark"] .kanban .kb-card { background: var(--card-bg); border-color: var(--card-border); color: var(--fg); }
@@ -94,6 +97,24 @@ body {
 [data-theme="dark"] .gantt-toolbar { background: var(--card-bg); }
 [data-theme="dark"] .gantt-toolbar button { color: var(--fg); }
 [data-theme="dark"] hr { border-color: var(--section-divider); }
+/* v4.0 patch: 夜間版 secondary 文字一律提亮，避免太多灰看不到 */
+[data-theme="dark"] .footer-note,
+[data-theme="dark"] .activity-list .time,
+[data-theme="dark"] .case-card .case-id,
+[data-theme="dark"] .case-card .sub,
+[data-theme="dark"] .gantt-row .label,
+[data-theme="dark"] .gantt-head { color: var(--fg-muted) !important; }
+[data-theme="dark"] .gantt-row .label .p-name { color: var(--fg) !important; }
+/* 避免被內聯 style="color:#8C8C8C" 強制蓋過 */
+[data-theme="dark"] [style*="color:#8C8C8C"],
+[data-theme="dark"] [style*="color: #8C8C8C"],
+[data-theme="dark"] [style*="color:#595959"],
+[data-theme="dark"] [style*="color: #595959"],
+[data-theme="dark"] [style*="color:#404040"],
+[data-theme="dark"] [style*="color: #404040"] { color: var(--fg-muted) !important; }
+/* 卡片邊條 / 群組標題 — 簡化 */
+[data-theme="dark"] .gantt-group-head { background: #1F242C !important; color: var(--fg); }
+[data-theme="dark"] .legend-row span { color: var(--fg-muted); }
 /* v3.8 theme toggle button */
 .v38-theme-toggle {
   margin-left: 8px; padding: 6px 10px; background: transparent;
@@ -5301,6 +5322,59 @@ window.renderKanban = function() {
   v40RenderKanbanAvailability();
 };
 
+// v4.0 patch: group-level expand/collapse (cases don't have items so the
+// per-case expand was a no-op for most users)
+const v41CollapsedGroups = new Set();
+
+function v41ApplyGroupCollapse() {
+  const ganttEl = document.getElementById('gantt');
+  if (!ganttEl) return;
+  // Walk through children — group heads followed by rows until next group head
+  const children = Array.from(ganttEl.children);
+  let currentGroup = null;
+  let collapsed = false;
+  children.forEach((el) => {
+    if (el.classList.contains('gantt-group-head')) {
+      const labelEl = el.querySelector('.g-label span');
+      currentGroup = labelEl ? labelEl.textContent.trim() : '';
+      collapsed = v41CollapsedGroups.has(currentGroup);
+      // Add toggle indicator + click handler
+      if (!el.querySelector('.v41-group-toggle')) {
+        const toggle = document.createElement('span');
+        toggle.className = 'v41-group-toggle';
+        toggle.style.cssText = 'cursor:pointer;margin-right:8px;font-size:11px;color:var(--fg-muted,#8C8C8C);user-select:none;';
+        toggle.textContent = collapsed ? '▶' : '▼';
+        labelEl?.parentElement?.insertBefore(toggle, labelEl);
+      } else {
+        el.querySelector('.v41-group-toggle').textContent = collapsed ? '▶' : '▼';
+      }
+      el.style.cursor = 'pointer';
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const name = currentGroup;
+        if (v41CollapsedGroups.has(name)) v41CollapsedGroups.delete(name);
+        else v41CollapsedGroups.add(name);
+        v41ApplyGroupCollapse();
+      };
+    } else if (el.classList.contains('gantt-row')) {
+      el.style.display = collapsed ? 'none' : '';
+    }
+  });
+}
+
+function v41ExpandAllGroups() {
+  v41CollapsedGroups.clear();
+  v41ApplyGroupCollapse();
+}
+function v41CollapseAllGroups() {
+  const ganttEl = document.getElementById('gantt');
+  if (!ganttEl) return;
+  ganttEl.querySelectorAll('.gantt-group-head .g-label span').forEach(s => {
+    v41CollapsedGroups.add(s.textContent.trim());
+  });
+  v41ApplyGroupCollapse();
+}
+
 const _v40OrigRenderGantt = window.renderGantt;
 window.renderGantt = function() {
   _v40OrigRenderGantt();
@@ -5311,7 +5385,112 @@ window.renderGantt = function() {
     const lines = ganttEl.querySelectorAll('.today-line');
     lines.forEach((l, i) => l.classList.toggle('no-label', i !== 0));
   }
+  // v4.0 patch: inject vacation/trip rows + apply group collapse
+  v41InjectVacationTripRows();
+  v41ApplyGroupCollapse();
 };
+
+// Override the existing 全部展開/全部收合 buttons to operate on groups
+function v41HookGanttButtons() {
+  const expand = document.getElementById('gantt-expand-all');
+  const collapse = document.getElementById('gantt-collapse-all');
+  if (expand) expand.onclick = v41ExpandAllGroups;
+  if (collapse) collapse.onclick = v41CollapseAllGroups;
+}
+
+// ─── Inject vacation / trip bars into gantt ────────────────
+function v41InjectVacationTripRows() {
+  const ganttEl = document.getElementById('gantt');
+  if (!ganttEl) return;
+  // Compute window from the first today-line or from ganttStart variable
+  const cfg = SCALE_CFG[ganttScale];
+  if (!cfg) return;
+  const windowStart = clampGanttStart(ganttScale);
+  const windowEnd = new Date(windowStart.getTime() + cfg.days * 86400000);
+
+  // Helper to compute bar position
+  const barStyle = (start, end) => {
+    const s = new Date(start); s.setHours(0,0,0,0);
+    const e = new Date(end); e.setHours(0,0,0,0);
+    if (e < windowStart || s > windowEnd) return null;
+    const sp = ((s - windowStart) / 86400000 / cfg.days * 100);
+    const ep = ((e.getTime() + 86400000 - windowStart) / 86400000 / cfg.days * 100); // include end day
+    const cs = Math.max(0, sp);
+    const ce = Math.min(100, ep);
+    return { left: cs, width: Math.max(2, ce - cs) };
+  };
+
+  // Build a map of { staffName: [{vacRow / tripRow}] }
+  const byStaff = {};
+  VACATIONS.forEach(v => {
+    const name = v.staff?.name || '?';
+    (byStaff[name] = byStaff[name] || []).push({ kind: 'vac', data: v });
+  });
+  TRIPS.forEach(t => {
+    const name = t.staff?.name || '?';
+    (byStaff[name] = byStaff[name] || []).push({ kind: 'trip', data: t });
+  });
+
+  // For each gantt-group-head matching a staff name, append rows after the last gantt-row of that group
+  const children = Array.from(ganttEl.children);
+  let i = 0;
+  while (i < children.length) {
+    const el = children[i];
+    if (!el.classList.contains('gantt-group-head')) { i++; continue; }
+    const labelEl = el.querySelector('.g-label span');
+    const groupName = labelEl ? labelEl.textContent.trim() : '';
+    // Skip if not a staff group (e.g. hotel grouping). Recognize staff via STAFF list.
+    const matchesStaff = STAFF.find(s => s.name === groupName);
+    if (!matchesStaff || !byStaff[groupName]) { i++; continue; }
+    // Find the index of the last row in this group
+    let lastRowIdx = i;
+    let j = i + 1;
+    while (j < children.length && !children[j].classList.contains('gantt-group-head')) {
+      if (children[j].classList.contains('gantt-row')) lastRowIdx = j;
+      j++;
+    }
+    // Insert vacation/trip rows after lastRowIdx
+    const items = byStaff[groupName];
+    const fragment = document.createDocumentFragment();
+    items.forEach(({ kind, data }) => {
+      const pos = barStyle(data.startDate, data.endDate);
+      if (!pos) return;
+      const isVac = kind === 'vac';
+      const label = isVac
+        ? `🏖 ${VACATION_TYPE_LABEL[data.type] || data.type}`
+        : `✈ ${data.hotel}`;
+      const tooltip = isVac
+        ? `${data.staff.name} · ${VACATION_TYPE_LABEL[data.type]} · ${data.startDate.slice(0,10)} → ${data.endDate.slice(0,10)}${data.note ? ' · ' + data.note : ''}`
+        : `${data.staff.name} · ${data.hotel} · ${data.task} · ${data.startDate.slice(0,10)} → ${data.endDate.slice(0,10)}`;
+      const row = document.createElement('div');
+      row.className = 'gantt-row v41-avail-row';
+      row.innerHTML = `
+        <div class="label">
+          <span class="expander disabled"></span>
+          <span class="p-avatar" style="background:${isVac ? '#FFE4DD' : '#D6E8F8'};color:${isVac ? '#8B3A2A' : '#1E5A85'};">${isVac ? '🏖' : '✈'}</span>
+          <span class="p-name" title="${escapeHtml(tooltip)}">${escapeHtml(label)}</span>
+        </div>
+        <div class="gantt-track">
+          <div class="gantt-bar v41-avail-bar" style="left:${pos.left}%;width:${pos.width}%;background:${isVac ? '#E89998' : '#7AAEDB'};color:#fff;" title="${escapeHtml(tooltip)}">${pos.width > 8 ? escapeHtml(label) : ''}</div>
+        </div>
+      `;
+      fragment.appendChild(row);
+    });
+    if (children[lastRowIdx].nextSibling) {
+      ganttEl.insertBefore(fragment, children[lastRowIdx].nextSibling);
+    } else {
+      ganttEl.appendChild(fragment);
+    }
+    // Update children since DOM changed
+    const newChildren = Array.from(ganttEl.children);
+    children.length = 0;
+    children.push(...newChildren);
+    // Skip past all newly-inserted rows
+    i = lastRowIdx + 1 + items.length;
+  }
+}
+
+// (bootstrap hook merged into v40 wrapper below)
 
 function v40RenderGanttAvailability() {
   const ganttView = document.querySelector('div.view[data-view="gantt"]');
@@ -5366,6 +5545,8 @@ bootstrap = async function() {
   await _v40OrigBootstrap();
   await v40LoadAvailability();
   v40InjectAvailabilityButton();
+  // v4.0 patch: wire group expand/collapse + render gantt with vacation/trip rows
+  v41HookGanttButtons();
   if (currentView === 'kanban') renderKanban();
   if (currentView === 'gantt') renderGantt();
 };
