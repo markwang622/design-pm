@@ -30,8 +30,45 @@ model Staff {
   collaboratedCases Case[]         @relation("collaborators")
   createdCases      Case[]         @relation("creator")
   notifications     Notification[]
+  vacations         Vacation[]      // v4.0
+  businessTrips     BusinessTrip[]  // v4.0
 
   @@map("staff")
+}
+
+// v4.0: 休假
+model Vacation {
+  id        Int      @id @default(autoincrement())
+  staffId   Int
+  staff     Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  type      String   @default("annual") // annual | sick | personal | other
+  note      String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([staffId])
+  @@index([startDate, endDate])
+  @@map("vacations")
+}
+
+// v4.0: 出差
+model BusinessTrip {
+  id        Int      @id @default(autoincrement())
+  staffId   Int
+  staff     Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  hotel     String   // 出差館別
+  task      String   // 任務說明
+  note      String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([staffId])
+  @@index([startDate, endDate])
+  @@map("business_trips")
 }
 
 model Case {

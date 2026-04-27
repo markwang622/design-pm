@@ -1,16 +1,88 @@
 // ─────────────────────────────────────────────────────────────
-// Notification helpers — writes to DB only (no real SMTP yet).
-// When you add an email provider, swap `deliver` for a real call.
+// Notification helpers
+//
+// Two channels:
+//   1. DB notification (always written) — visible in /api/notifications
+//   2. SMTP email (optional) — sent if env vars set; otherwise dry-run logs
+//
+// SMTP env vars (set in Zeabur Variables to enable):
+//   SMTP_HOST   — e.g. smtp.gmail.com / smtp.sendgrid.net
+//   SMTP_PORT   — 587 (TLS) or 465 (SSL)
+//   SMTP_USER   — login user
+//   SMTP_PASS   — app password / API key
+//   SMTP_FROM   — From: header (e.g. "Design-PM <noreply@…>")
+//   SMTP_SECURE — 'true' for SSL on port 465; default false (STARTTLS on 587)
 // ─────────────────────────────────────────────────────────────
 import { prisma } from '../lib/db.js';
 
+let _transporter = null;
+let _smtpDisabled = false;
+
+async function getTransporter() {
+  if (_smtpDisabled) return null;
+  if (_transporter) return _transporter;
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
+    _smtpDisabled = true;
+    console.log('[notify] SMTP not configured — email delivery disabled (DB notifications still write).');
+    return null;
+  }
+  try {
+    const { default: nodemailer } = await import('nodemailer');
+    _transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: Number(SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+    return _transporter;
+  } catch (e) {
+    console.warn('[notify] SMTP setup failed (nodemailer not installed?):', e.message);
+    _smtpDisabled = true;
+    return null;
+  }
+}
+
+async function deliver(recipientEmail, subject, body) {
+  const t = await getTransporter();
+  if (!t || !recipientEmail) return false;
+  try {
+    await t.sendMail({
+      from: process.env.SMTP_FROM || `Design-PM <${process.env.SMTP_USER}>`,
+      to: recipientEmail,
+      subject,
+      text: body,
+      html: body.replace(/\n/g, '<br>'),
+    });
+    return true;
+  } catch (e) {
+    console.warn('[notify] SMTP send failed for', recipientEmail, ':', e.message);
+    return false;
+  }
+}
+
 export async function notify({ type, recipientId, subject, body, relatedCaseId }) {
-  return prisma.notification.create({
+  // Always write DB notification
+  const row = await prisma.notification.create({
     data: { type, recipientId, subject, body, relatedCaseId: relatedCaseId ?? null },
   });
+  // Then attempt SMTP delivery (best-effort)
+  try {
+    const recipient = await prisma.staff.findUnique({
+      where: { id: recipientId },
+      select: { email: true, active: true },
+    });
+    if (recipient && recipient.active && recipient.email) {
+      await deliver(recipient.email, subject, body);
+    }
+  } catch (e) {
+    console.warn('[notify] email lookup/send error:', e.message);
+  }
+  return row;
 }
 
 export async function notifyMany(items) {
+  // Note: bypasses email delivery (used for batch DB writes only)
   return prisma.notification.createMany({ data: items });
 }
 

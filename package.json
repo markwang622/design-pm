@@ -1,6 +1,6 @@
 {
   "name": "design-pm-zeabur",
-  "version": "3.8.0",
+  "version": "4.0.0",
   "description": "Art/Design Department PM system — full-stack Zeabur deployment",
   "type": "module",
   "main": "src/index.js",
@@ -29,6 +29,7 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "nodemailer": "^6.9.16",
     "zod": "^3.23.8"
   },
   "devDependencies": {

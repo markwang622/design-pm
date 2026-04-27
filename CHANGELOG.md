@@ -1,5 +1,48 @@
 # Changelog
 
+## v4.0 (2026-04-26) · 休假/出差 + 信件通知 + admin 代編
+
+### 新增（後端）
+
+- **`Vacation` model** — 休假申請（任何人填自己的、立即生效）
+  - 欄位：`staffId, startDate, endDate, type (annual/sick/personal/other), note`
+  - 路由：`GET/POST/PATCH/DELETE /api/vacations`（自己 + admin 可改）
+- **`BusinessTrip` model** — 出差登記
+  - 欄位：`staffId, startDate, endDate, hotel, task, note`
+  - 路由：`GET/POST/PATCH/DELETE /api/business-trips`
+- **admin 代編通知** (#1) — `PATCH /api/cases/:id` 當 admin 修改非自己擁有的案件且有 tracked field 變更時，**自動寄通知**給 designer，內容含逐項變更明細與原因
+- **Email 服務框架** (#6) — `notify.js` 加 `deliver()`，支援 SMTP（nodemailer）
+  - 環境變數：`SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM / SMTP_SECURE`
+  - 未設 → dry-run（DB 通知照寫，console 提示），設了 → 真寄
+  - 接 Gmail：app password；接 SendGrid：apikey；接 SES：IAM 用戶
+  - `nodemailer` 加進 dependencies
+
+### 新增（前端）
+
+- **「📅 休假/出差」按鈕**（topbar 右上）
+- **休假/出差 modal** — 新增/列出/刪除自己的休假與出差
+  - 休假類型下拉：特休 / 病假 / 事假 / 其他
+  - 出差欄位：館別（從 Hotel API 拉清單）、任務說明、備註
+- **看板上方顯示**「📅 同仁休假/出差（今日 + 未來 7 天）」橫條
+- **甘特上方顯示**「📅 同仁休假/出差（未來 60 天）」清單
+
+### 設定 SMTP（之後啟用即可）
+
+```
+# Zeabur Variables 加進這幾個 key 就會啟動寄信
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=youraccount@gmail.com
+SMTP_PASS=your-16-char-app-password
+SMTP_FROM=Design-PM <youraccount@gmail.com>
+```
+
+Gmail 必須先去 https://myaccount.google.com/apppasswords 產 app password（不能用一般密碼）。
+
+### 變更
+
+- 版號 → 4.0.0
+
 ## v3.8 (2026-04-26) · 主題切換 + 手機 responsive + bug 收尾
 
 ### 修正

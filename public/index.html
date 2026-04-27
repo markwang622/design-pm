@@ -5050,6 +5050,314 @@ bootstrap = async function() {
   if (currentView === 'dashboard') renderDashboard();
 };
 
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v4.0 ENHANCEMENTS — vacation + business trip ▼▼▼
+// ═══════════════════════════════════════════════════════════════
+
+api.vacations = {
+  list: (q) => fetchJson('GET', '/api/vacations' + (q ? '?' + new URLSearchParams(q) : '')),
+  create: (b) => fetchJson('POST', '/api/vacations', b),
+  update: (id, b) => fetchJson('PATCH', `/api/vacations/${id}`, b),
+  delete: (id) => fetchJson('DELETE', `/api/vacations/${id}`),
+};
+api.businessTrips = {
+  list: (q) => fetchJson('GET', '/api/business-trips' + (q ? '?' + new URLSearchParams(q) : '')),
+  create: (b) => fetchJson('POST', '/api/business-trips', b),
+  update: (id, b) => fetchJson('PATCH', `/api/business-trips/${id}`, b),
+  delete: (id) => fetchJson('DELETE', `/api/business-trips/${id}`),
+};
+
+let VACATIONS = [];
+let TRIPS = [];
+async function v40LoadAvailability() {
+  try {
+    const [v, t] = await Promise.all([api.vacations.list(), api.businessTrips.list()]);
+    VACATIONS = v;
+    TRIPS = t;
+  } catch (e) { console.warn('v4.0 availability load failed', e); }
+}
+const VACATION_TYPE_LABEL = {
+  annual: '特休', sick: '病假', personal: '事假', other: '其他',
+};
+
+function v40OpenAvailabilityModal() {
+  let bg = document.getElementById('v40-avail-bg');
+  if (!bg) {
+    bg = document.createElement('div');
+    bg.id = 'v40-avail-bg';
+    bg.className = 'drawer-bg';
+    bg.style.zIndex = '85';
+    document.body.appendChild(bg);
+  }
+  let modal = document.getElementById('v40-avail-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'v40-avail-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(640px,94%);max-height:85vh;overflow-y:auto;z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);';
+    document.body.appendChild(modal);
+  }
+  v40RenderAvailabilityModal(modal);
+  bg.classList.add('open');
+  modal.style.display = 'block';
+  bg.onclick = () => v40CloseAvailabilityModal();
+}
+function v40CloseAvailabilityModal() {
+  document.getElementById('v40-avail-bg')?.classList.remove('open');
+  const m = document.getElementById('v40-avail-modal');
+  if (m) m.style.display = 'none';
+}
+
+async function v40RenderAvailabilityModal(modal) {
+  await v40LoadAvailability();
+  const myVac = VACATIONS.filter(v => v.staffId === ME.id);
+  const myTrips = TRIPS.filter(t => t.staffId === ME.id);
+  const today = new Date().toISOString().slice(0, 10);
+  const inputStyle = 'width:100%;padding:6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;';
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:16px;">📅 我的休假 / 出差</h3>
+      <button id="v40-avail-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    <div style="border:1px solid var(--card-border,#E5E5E5);border-radius:6px;padding:12px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:500;margin-bottom:8px;">＋ 新增休假</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;align-items:end;">
+        <label>類型<select id="v40-vac-type" style="${inputStyle}">
+          ${Object.entries(VACATION_TYPE_LABEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
+        </select></label>
+        <label>起始日<input id="v40-vac-start" type="date" value="${today}" style="${inputStyle}"></label>
+        <label>結束日<input id="v40-vac-end" type="date" value="${today}" style="${inputStyle}"></label>
+      </div>
+      <input id="v40-vac-note" placeholder="備註（可選）" style="${inputStyle}margin-top:6px;font-size:12px;">
+      <button id="v40-vac-add" style="margin-top:8px;padding:6px 14px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">新增休假</button>
+    </div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:6px;">我的休假（${myVac.length}）</div>
+    <div style="margin-bottom:14px;">
+      ${myVac.length === 0 ? '<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">尚無休假紀錄</div>' :
+        myVac.map(v => `
+          <div style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;">
+            <span style="display:inline-block;padding:2px 8px;background:#FFE4DD;color:#8B3A2A;border-radius:3px;">${VACATION_TYPE_LABEL[v.type] || v.type}</span>
+            <span>${v.startDate.slice(0,10)} → ${v.endDate.slice(0,10)}</span>
+            <span style="color:#8C8C8C;flex:1;">${escapeHtml(v.note || '')}</span>
+            <button onclick="v40DeleteVacation(${v.id})" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">刪除</button>
+          </div>
+        `).join('')
+      }
+    </div>
+    <div style="border:1px solid var(--card-border,#E5E5E5);border-radius:6px;padding:12px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:500;margin-bottom:8px;">＋ 新增出差</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;align-items:end;">
+        <label>起始日<input id="v40-trip-start" type="date" value="${today}" style="${inputStyle}"></label>
+        <label>結束日<input id="v40-trip-end" type="date" value="${today}" style="${inputStyle}"></label>
+        <label>出差館別<select id="v40-trip-hotel" style="${inputStyle}">
+          ${HOTELS.map(h => `<option value="${escapeHtml(h.name)}">${escapeHtml(h.name)}</option>`).join('')}
+        </select></label>
+        <label>任務說明<input id="v40-trip-task" placeholder="例：場勘、開會" style="${inputStyle}"></label>
+      </div>
+      <input id="v40-trip-note" placeholder="備註（可選）" style="${inputStyle}margin-top:6px;font-size:12px;">
+      <button id="v40-trip-add" style="margin-top:8px;padding:6px 14px;background:#1F6FEB;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">新增出差</button>
+    </div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:6px;">我的出差（${myTrips.length}）</div>
+    <div>
+      ${myTrips.length === 0 ? '<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">尚無出差紀錄</div>' :
+        myTrips.map(t => `
+          <div style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;flex-wrap:wrap;">
+            <span style="display:inline-block;padding:2px 8px;background:#D6E8F8;color:#1E5A85;border-radius:3px;">${escapeHtml(t.hotel)}</span>
+            <span>${t.startDate.slice(0,10)} → ${t.endDate.slice(0,10)}</span>
+            <span style="color:#404040;flex:1;">${escapeHtml(t.task)}</span>
+            ${t.note ? `<span style="color:#8C8C8C;">（${escapeHtml(t.note)}）</span>` : ''}
+            <button onclick="v40DeleteTrip(${t.id})" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">刪除</button>
+          </div>
+        `).join('')
+      }
+    </div>
+  `;
+  document.getElementById('v40-avail-close').onclick = () => v40CloseAvailabilityModal();
+  document.getElementById('v40-vac-add').onclick = async () => {
+    const type = document.getElementById('v40-vac-type').value;
+    const startDate = document.getElementById('v40-vac-start').value;
+    const endDate = document.getElementById('v40-vac-end').value;
+    const note = document.getElementById('v40-vac-note').value.trim();
+    if (!startDate || !endDate) { showToast('請填日期', 'err'); return; }
+    if (endDate < startDate) { showToast('結束日不能早於起始日', 'err'); return; }
+    try {
+      await api.vacations.create({ type, startDate, endDate, note });
+      showToast('✓ 休假已記錄');
+      await v40LoadAvailability();
+      v40RenderAvailabilityModal(modal);
+      if (currentView === 'kanban') renderKanban();
+      if (currentView === 'gantt') renderGantt();
+    } catch (e) { showToast('新增失敗：' + (e.data?.message || e.message), 'err'); }
+  };
+  document.getElementById('v40-trip-add').onclick = async () => {
+    const startDate = document.getElementById('v40-trip-start').value;
+    const endDate = document.getElementById('v40-trip-end').value;
+    const hotel = document.getElementById('v40-trip-hotel').value;
+    const task = document.getElementById('v40-trip-task').value.trim();
+    const note = document.getElementById('v40-trip-note').value.trim();
+    if (!startDate || !endDate || !hotel || !task) { showToast('日期、館別、任務說明都要填', 'err'); return; }
+    if (endDate < startDate) { showToast('結束日不能早於起始日', 'err'); return; }
+    try {
+      await api.businessTrips.create({ startDate, endDate, hotel, task, note });
+      showToast('✓ 出差已記錄');
+      await v40LoadAvailability();
+      v40RenderAvailabilityModal(modal);
+      if (currentView === 'kanban') renderKanban();
+      if (currentView === 'gantt') renderGantt();
+    } catch (e) { showToast('新增失敗：' + (e.data?.message || e.message), 'err'); }
+  };
+}
+
+window.v40DeleteVacation = async function(id) {
+  if (!confirm('刪除此筆休假？')) return;
+  try {
+    await api.vacations.delete(id);
+    await v40LoadAvailability();
+    showToast('✓ 已刪除');
+    const modal = document.getElementById('v40-avail-modal');
+    if (modal && modal.style.display !== 'none') v40RenderAvailabilityModal(modal);
+    if (currentView === 'kanban') renderKanban();
+    if (currentView === 'gantt') renderGantt();
+  } catch (e) { showToast('刪除失敗', 'err'); }
+};
+window.v40DeleteTrip = async function(id) {
+  if (!confirm('刪除此筆出差？')) return;
+  try {
+    await api.businessTrips.delete(id);
+    await v40LoadAvailability();
+    showToast('✓ 已刪除');
+    const modal = document.getElementById('v40-avail-modal');
+    if (modal && modal.style.display !== 'none') v40RenderAvailabilityModal(modal);
+    if (currentView === 'kanban') renderKanban();
+    if (currentView === 'gantt') renderGantt();
+  } catch (e) { showToast('刪除失敗', 'err'); }
+};
+
+function v40InjectAvailabilityButton() {
+  const topbar = document.querySelector('.topbar');
+  if (!topbar || topbar.querySelector('.v40-avail-btn')) return;
+  const btn = document.createElement('button');
+  btn.className = 'v40-avail-btn';
+  btn.style.cssText = 'margin-left:8px;padding:6px 12px;background:transparent;color:var(--topbar-fg,#FAFAFA);border:1px solid #595959;border-radius:6px;font-size:12px;cursor:pointer;';
+  btn.textContent = '📅 休假/出差';
+  btn.onclick = v40OpenAvailabilityModal;
+  const themeBtn = topbar.querySelector('.v38-theme-toggle');
+  const rs = document.getElementById('role-switch');
+  if (themeBtn) topbar.insertBefore(btn, themeBtn);
+  else if (rs) topbar.insertBefore(btn, rs);
+  else topbar.appendChild(btn);
+}
+
+function v40RenderKanbanAvailability() {
+  const kanbanView = document.querySelector('div.view[data-view="kanban"]');
+  if (!kanbanView) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const in7days = new Date(today.getTime() + 7 * 24 * 3600 * 1000);
+  const isInRange = (start, end) => {
+    const s = new Date(start); s.setHours(0,0,0,0);
+    const e = new Date(end); e.setHours(0,0,0,0);
+    return s <= in7days && e >= today;
+  };
+  const activeVac = VACATIONS.filter(v => isInRange(v.startDate, v.endDate));
+  const activeTrips = TRIPS.filter(t => isInRange(t.startDate, t.endDate));
+  let strip = document.getElementById('v40-kanban-avail');
+  if (!activeVac.length && !activeTrips.length) {
+    if (strip) strip.remove();
+    return;
+  }
+  if (!strip) {
+    strip = document.createElement('div');
+    strip.id = 'v40-kanban-avail';
+    strip.className = 'card';
+    strip.style.cssText = 'margin-bottom:12px;padding:10px 14px;';
+    const kb = document.getElementById('kanban');
+    if (kb && kb.parentElement) kb.parentElement.insertBefore(strip, kb);
+  }
+  strip.innerHTML = `
+    <div style="font-size:12px;font-weight:500;margin-bottom:6px;color:var(--fg,#1F1F1F);">📅 同仁休假 / 出差（今日 + 未來 7 天）</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px;">
+      ${activeVac.map(v => `
+        <span style="padding:4px 10px;background:#FFE4DD;color:#8B3A2A;border-radius:14px;">
+          🏖 ${escapeHtml(v.staff?.name || '?')} · ${VACATION_TYPE_LABEL[v.type] || v.type} · ${v.startDate.slice(5,10)}–${v.endDate.slice(5,10)}
+        </span>
+      `).join('')}
+      ${activeTrips.map(t => `
+        <span style="padding:4px 10px;background:#D6E8F8;color:#1E5A85;border-radius:14px;">
+          ✈ ${escapeHtml(t.staff?.name || '?')} · ${escapeHtml(t.hotel)} · ${t.startDate.slice(5,10)}–${t.endDate.slice(5,10)}
+        </span>
+      `).join('')}
+    </div>
+  `;
+}
+
+const _v40OrigRenderKanban = window.renderKanban;
+window.renderKanban = function() {
+  _v40OrigRenderKanban();
+  v40RenderKanbanAvailability();
+};
+
+const _v40OrigRenderGantt = window.renderGantt;
+window.renderGantt = function() {
+  _v40OrigRenderGantt();
+  v40RenderGanttAvailability();
+};
+
+function v40RenderGanttAvailability() {
+  const ganttView = document.querySelector('div.view[data-view="gantt"]');
+  if (!ganttView) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const horizon = new Date(today.getTime() + 60 * 24 * 3600 * 1000);
+  const isInRange = (start, end) => {
+    const s = new Date(start); s.setHours(0,0,0,0);
+    const e = new Date(end); e.setHours(0,0,0,0);
+    return s <= horizon && e >= today;
+  };
+  const activeVac = VACATIONS.filter(v => isInRange(v.startDate, v.endDate));
+  const activeTrips = TRIPS.filter(t => isInRange(t.startDate, t.endDate));
+  let strip = document.getElementById('v40-gantt-avail');
+  if (!activeVac.length && !activeTrips.length) {
+    if (strip) strip.remove();
+    return;
+  }
+  if (!strip) {
+    strip = document.createElement('div');
+    strip.id = 'v40-gantt-avail';
+    strip.className = 'card';
+    strip.style.cssText = 'margin-bottom:12px;padding:10px 14px;';
+    const g = document.getElementById('gantt');
+    if (g && g.parentElement) g.parentElement.insertBefore(strip, g);
+  }
+  strip.innerHTML = `
+    <div style="font-size:12px;font-weight:500;margin-bottom:6px;color:var(--fg,#1F1F1F);">📅 同仁休假 / 出差（未來 60 天）</div>
+    <div style="display:flex;flex-direction:column;gap:4px;font-size:11px;">
+      ${activeVac.map(v => `
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span style="padding:2px 8px;background:#FFE4DD;color:#8B3A2A;border-radius:10px;min-width:60px;text-align:center;">🏖 ${VACATION_TYPE_LABEL[v.type] || v.type}</span>
+          <span style="font-weight:500;min-width:60px;">${escapeHtml(v.staff?.name || '?')}</span>
+          <span style="color:var(--fg-dim,#595959);">${v.startDate.slice(0,10)} → ${v.endDate.slice(0,10)}</span>
+          ${v.note ? `<span style="color:#8C8C8C;">（${escapeHtml(v.note)}）</span>` : ''}
+        </div>
+      `).join('')}
+      ${activeTrips.map(t => `
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span style="padding:2px 8px;background:#D6E8F8;color:#1E5A85;border-radius:10px;min-width:60px;text-align:center;">✈ 出差</span>
+          <span style="font-weight:500;min-width:60px;">${escapeHtml(t.staff?.name || '?')}</span>
+          <span style="color:var(--fg-dim,#595959);">${t.startDate.slice(0,10)} → ${t.endDate.slice(0,10)}</span>
+          <span style="color:var(--fg,#404040);">${escapeHtml(t.hotel)} · ${escapeHtml(t.task)}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+const _v40OrigBootstrap = bootstrap;
+bootstrap = async function() {
+  await _v40OrigBootstrap();
+  await v40LoadAvailability();
+  v40InjectAvailabilityButton();
+  if (currentView === 'kanban') renderKanban();
+  if (currentView === 'gantt') renderGantt();
+};
+
 // ═══ GO ═══════════════════════════════════════════════════════
 bootstrap();
 </script>

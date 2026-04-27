@@ -439,6 +439,28 @@ router.patch('/:id', async (req, res) => {
     }
   }
 
+  // (v4.0 #1) Admin proxy edit: when admin edits someone else's case, notify the designer.
+  if (req.user.role === 'admin' && req.user.id !== existing.designerId && changes.length > 0) {
+    try {
+      const fieldLabels = {
+        goLiveDate: '上線日', dispatchDate: '派發日', copyDate: '文案日',
+        designerId: '主負責人', status: '狀態', level: '分級', urgent: '急件',
+      };
+      const detail = changes
+        .map(c => `${fieldLabels[c.field] || c.field}：${c.fromValue || '—'} → ${c.toValue || '—'}`)
+        .join('\n');
+      await notify({
+        type: 'adminProxyEdit',
+        recipientId: existing.designerId,
+        subject: `✏️ 你的案件被 admin 修改：${updated.id} · ${updated.title}`,
+        body: `Admin ${req.user.name} 代為修改了案件 ${updated.id}「${updated.title}」。\n\n變更內容：\n${detail}\n\n原因：${reasonStr || '—'}\n\n請打開系統查看詳情。`,
+        relatedCaseId: updated.id,
+      });
+    } catch (e) {
+      console.warn('[cases.update] proxy-edit notify failed:', e.message);
+    }
+  }
+
   res.json(updated);
 });
 
