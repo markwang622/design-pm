@@ -966,7 +966,8 @@ function d(y, m, dd) { return new Date(y, m-1, dd); }
 function pad(n) { return n.toString().padStart(2,'0'); }
 function ymd(dt) { return `${dt.getFullYear()}/${pad(dt.getMonth()+1)}/${pad(dt.getDate())}`; }
 function md(dt) { return `${pad(dt.getMonth()+1)}/${pad(dt.getDate())}`; }
-const TODAY = new Date(2026, 3, 23);
+// v4.0 fix: TODAY 之前是寫死的 2026/4/23（prototype 時期）—改用真實當日日期
+const TODAY = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
 function daysUntil(dt) { return Math.round((dt - TODAY) / 86400000); }
 const TW_HOLIDAYS_2026 = new Set([
   '2026/01/01',
@@ -1219,7 +1220,10 @@ function renderPersonal() {
     <div class="kpi" style="border-color:#C9DCF0;"><div class="label">協作中</div><div class="value" style="color:#1E5A85;">${collab.length}</div><div class="sub">他人主案 · 我協作</div></div>
   `;
   document.getElementById('hello').textContent = `早安，${ME_NAME()}`;
-  document.getElementById('hello-sub').textContent = `今天是 4/23（四）· 你有 ${weekDue.length} 件本週上線、${gate.length} 件進入確稿待簽核、${overdue.length} 件逾期`;
+  // v4.0 fix: 動態算今日日期（之前寫死 4/23）
+  const _wd = ['日','一','二','三','四','五','六'];
+  const _today = new Date();
+  document.getElementById('hello-sub').textContent = `今天是 ${_today.getMonth()+1}/${_today.getDate()}（${_wd[_today.getDay()]}）· 你有 ${weekDue.length} 件本週上線、${gate.length} 件進入確稿待簽核、${overdue.length} 件逾期`;
   let list = me;
   if (personalFilter === 'week') list = weekDue;
   if (personalFilter === 'month') list = me;
