@@ -19,6 +19,7 @@ import analyticsRouter from './routes/analytics.js';
 import hotelsRouter from './routes/hotels.js';
 import vacationsRouter from './routes/vacations.js';
 import businessTripsRouter from './routes/businessTrips.js';
+import adminRouter from './routes/admin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
@@ -114,6 +115,7 @@ app.use('/api/analytics', analyticsRouter);
 app.use('/api/hotels', hotelsRouter);
 app.use('/api/vacations', vacationsRouter);
 app.use('/api/business-trips', businessTripsRouter);
+app.use('/api/admin', adminRouter);
 
 // 404 for unknown API paths
 app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
