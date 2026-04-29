@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.1 (2026-04-27) · 第一輪 UI/UX 修補
+
+### 修正
+
+- **B1 達成率 NaN%** — Dashboard 在零案件時 `done/total*100` 會 NaN，現在 `total>0` 才算
+- **B2 假數字 +12%** — 「VS 上月 +X」是寫死的 `total*0.12`，已移除改顯示「含進行中與已結案」
+- **B5/B8 唯讀按鈕視覺禁用態** — 抽屜在唯讀模式下，所有 input/button 加 `opacity:0.4` + `cursor:not-allowed` + `pointer-events:none` + `grayscale(0.6)`，再也不會點下去沒反應
+- **B9 離職申請 admin only** — designer 角色看不到「離職申請」按鈕
+
+### 新增
+
+- **U1 view-as 提示橫幅** — admin 切到成員視角時，topbar 下方多一條黃色橫幅：「👁 你目前以 XXX 的身份檢視（admin 模擬視角）」+「↩ 回到 admin 視角」按鈕
+- **U10 審核中心送審時間** — 每筆待審案件 ID 旁加時間標：剛剛送審 / 送審 X 小時前 / 送審 X 天前（顏色：3 天內灰、1–3 天橘、>3 天紅）
+
+### 確認已實作
+
+- B6「協作中」filter pill 在我的任務頁早已存在
+
 ## v4.0 (2026-04-26) · 休假/出差 + 信件通知 + admin 代編
 
 ### 新增（後端）

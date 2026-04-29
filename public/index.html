@@ -176,6 +176,17 @@ body {
 [data-theme="dark"] .modal label { color: var(--fg-muted) !important; }
 /* "尚未開始" status chip in drawer header — should stay readable */
 [data-theme="dark"] .chip.status-todo { background: var(--chip-bg) !important; color: var(--fg) !important; }
+
+/* v4.1 (B5/B8): Read-only buttons get clear visual disabled state */
+.v36-readonly, .v37-historical-readonly,
+button.v36-readonly, button.v37-historical-readonly,
+input.v36-readonly, select.v36-readonly, textarea.v36-readonly {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: grayscale(0.6);
+}
+[data-theme="dark"] .v36-readonly, [data-theme="dark"] .v37-historical-readonly { opacity: 0.35 !important; }
 /* v3.8 theme toggle button */
 .v38-theme-toggle {
   margin-left: 8px; padding: 6px 10px; background: transparent;
@@ -1599,10 +1610,13 @@ function renderDashboard() {
   const overdue = live.filter(c => c.overdue).length;
   const urgent = live.filter(c => c.urgent && !FINAL_STATUS_KEYS.has(c.status)).length;
   const gate = live.filter(c => c.gateActive).length;
+  // v4.1 (B1): guard against zero-division for 達成率
+  const completionRate = total > 0 ? Math.round(done / total * 100) : 0;
+  // v4.1 (B2): 拿掉「VS 上月 +X」假數據（之前是寫死 total*0.12）
   document.getElementById('admin-kpi').innerHTML = `
-    <div class="kpi"><div class="label">本月總件數</div><div class="value">${total}</div><div class="sub">VS 上月 +${Math.round(total*0.12)}</div></div>
+    <div class="kpi"><div class="label">本月總件數</div><div class="value">${total}</div><div class="sub">含進行中與已結案</div></div>
     <div class="kpi"><div class="label">進行中 / 確稿中</div><div class="value">${doing}</div></div>
-    <div class="kpi"><div class="label">已完成</div><div class="value">${done}</div><div class="sub">達成率 ${Math.round(done/total*100)}%</div></div>
+    <div class="kpi"><div class="label">已結案</div><div class="value">${done}</div><div class="sub">${total > 0 ? '達成率 ' + completionRate + '%' : '無資料'}</div></div>
     <div class="kpi alert"><div class="label">逾期</div><div class="value">${overdue}</div><div class="sub">需關切</div></div>
     <div class="kpi urgent"><div class="label">急件</div><div class="value">${urgent}</div></div>
     <div class="kpi" style="border-color:#EDD79A;"><div class="label">確稿待簽核中</div><div class="value" style="color:#8C6A12;">${gate}</div><div class="sub">待你審核</div></div>
@@ -1715,7 +1729,7 @@ function renderStaff() {
         <div>${active ? '<span class="staff-chip-active">現職</span>' : '<span class="staff-chip-inactive">已離職</span>'}</div>
         <div class="s-actions">
           ${active
-            ? `<button onclick="openDeparture('${s.name}')" class="danger">離職申請</button>`
+            ? (currentRole === 'admin' ? `<button onclick="openDeparture('${s.name}')" class="danger">離職申請</button>` : '')
             : `<button onclick="showToast('已離職：${s.name} · 歷史歸檔仍保留')">查看歸檔</button>`}
         </div>
       </div>
@@ -5731,6 +5745,100 @@ bootstrap = async function() {
   v41HookGanttButtons();
   if (currentView === 'kanban') renderKanban();
   if (currentView === 'gantt') renderGantt();
+};
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v4.1 ENHANCEMENTS — view-as banner + approval timing ▼▼▼
+// ═══════════════════════════════════════════════════════════════
+
+// (U1) View-as banner — admin 切到他人視角時顯示明顯橫幅
+function v41UpdateViewAsBanner() {
+  let banner = document.getElementById('v41-viewas-banner');
+  if (!ME || ME.role !== 'admin' || !v36ViewAsName) {
+    if (banner) banner.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'v41-viewas-banner';
+    banner.style.cssText = 'position:sticky;top:0;z-index:60;background:#FFE082;color:#5C4500;padding:8px 16px;font-size:13px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #E5C45A;box-shadow:0 1px 3px rgba(0,0,0,0.08);';
+    const topbar = document.querySelector('.topbar');
+    if (topbar && topbar.nextSibling) topbar.parentNode.insertBefore(banner, topbar.nextSibling);
+    else document.body.insertBefore(banner, document.body.firstChild);
+  }
+  banner.innerHTML = `
+    <span style="font-size:16px;">👁</span>
+    <span>你目前以 <b>${escapeHtml(v36ViewAsName)}</b> 的身份檢視（admin 模擬視角）</span>
+    <button id="v41-viewas-exit" style="margin-left:auto;padding:4px 12px;background:#1F1F1F;color:#FFF;border:none;border-radius:4px;cursor:pointer;font-size:11px;">↩ 回到 admin 視角</button>
+  `;
+  document.getElementById('v41-viewas-exit').onclick = () => {
+    v36ViewAsName = null;
+    currentRole = 'admin';
+    currentView = 'dashboard';
+    if (typeof v36BuildUserMenu === 'function') v36BuildUserMenu();
+    renderNav();
+    switchView(currentView);
+    v41UpdateViewAsBanner();
+  };
+}
+
+// Hook v36BuildUserMenu so when user changes view-as the banner updates
+const _v41OrigBuildUserMenu = window.v36BuildUserMenu;
+if (_v41OrigBuildUserMenu) {
+  window.v36BuildUserMenu = function() {
+    _v41OrigBuildUserMenu();
+    v41UpdateViewAsBanner();
+  };
+}
+
+// (U10) approval queue: show 送審 X 時間
+const _v41OrigRenderApproval = window.renderApproval;
+if (_v41OrigRenderApproval) {
+  window.renderApproval = async function() {
+    await _v41OrigRenderApproval();
+    // After list rendered, prepend 送審時間 to each card title row
+    const wrap = document.getElementById('v36-approval-list');
+    if (!wrap) return;
+    // pull data again to access updatedAt
+    try {
+      const rows = await api.cases.pending();
+      const byId = {};
+      rows.forEach(r => byId[r.id] = r);
+      wrap.querySelectorAll('.card').forEach(card => {
+        const idEl = card.querySelector('div[style*="font-family"]');
+        const id = idEl?.textContent?.trim();
+        if (!id) return;
+        const r = byId[id];
+        if (!r) return;
+        // Use updatedAt as best proxy for "送審時間" (when status changed to review_done)
+        const updated = new Date(r.updatedAt);
+        const diffMs = Date.now() - updated.getTime();
+        const hours = Math.round(diffMs / (60 * 60 * 1000));
+        let label;
+        if (hours < 1) label = '剛剛送審';
+        else if (hours < 24) label = `送審 ${hours} 小時前`;
+        else label = `送審 ${Math.round(hours / 24)} 天前`;
+        // Color: red if > 3 days, orange if > 1 day, gray otherwise
+        const days = hours / 24;
+        const color = days > 3 ? '#C0392B' : days > 1 ? '#C97C2A' : '#8C8C8C';
+        // Inject if not already
+        if (!card.querySelector('.v41-approval-time')) {
+          const span = document.createElement('span');
+          span.className = 'v41-approval-time';
+          span.style.cssText = `display:inline-block;margin-left:8px;padding:2px 8px;background:${color};color:#fff;border-radius:10px;font-size:10px;`;
+          span.textContent = label;
+          // Append next to ID
+          if (idEl && idEl.parentElement) idEl.appendChild(span);
+        }
+      });
+    } catch (e) { console.warn('[approval] timing patch failed', e); }
+  };
+}
+
+const _v41OrigBootstrap2 = bootstrap;
+bootstrap = async function() {
+  await _v41OrigBootstrap2();
+  v41UpdateViewAsBanner();
 };
 
 // ═══ GO ═══════════════════════════════════════════════════════
