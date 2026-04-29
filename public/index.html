@@ -177,6 +177,36 @@ body {
 /* "尚未開始" status chip in drawer header — should stay readable */
 [data-theme="dark"] .chip.status-todo { background: var(--chip-bg) !important; color: var(--fg) !important; }
 
+/* v4.1 patch B: 夜間版下拉選單 (select) — 多處有 inline style="background:#fff"，
+   需要 !important 才能蓋過 */
+[data-theme="dark"] select,
+[data-theme="dark"] input[type="text"],
+[data-theme="dark"] input[type="email"],
+[data-theme="dark"] input[type="password"],
+[data-theme="dark"] input[type="date"],
+[data-theme="dark"] input[type="number"],
+[data-theme="dark"] textarea {
+  background: var(--input-bg) !important;
+  color: var(--input-fg) !important;
+  border-color: var(--input-border) !important;
+}
+/* options need their own background — some browsers honor it */
+[data-theme="dark"] select option,
+[data-theme="dark"] datalist option {
+  background: var(--input-bg) !important;
+  color: var(--input-fg) !important;
+}
+/* placeholder text visibility */
+[data-theme="dark"] ::placeholder { color: #6A7280 !important; opacity: 1; }
+/* Specific elements with inline style="background:#fff" that need to be overridden */
+[data-theme="dark"] #kb-filter-designer, [data-theme="dark"] #kb-filter-hotel,
+[data-theme="dark"] #gantt-scope, [data-theme="dark"] #d-status,
+[data-theme="dark"] .status-change select {
+  background: var(--input-bg) !important;
+  color: var(--input-fg) !important;
+  border-color: var(--input-border) !important;
+}
+
 /* v4.1 patch: Dashboard 夜間版獨立顏色（之前用 var(--fg) 被 .kpi .value 寫死 #1F1F1F 蓋掉）*/
 [data-theme="dark"] .kpi .value { color: var(--fg) !important; }
 [data-theme="dark"] .kpi .label { color: var(--fg-muted) !important; }
