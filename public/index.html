@@ -237,6 +237,32 @@ body {
 /* 兜底：所有 [style*="color: #404040"] / #595959 / #8C8C8C 的內聯 style 在夜間都統一變亮 */
 [data-theme="dark"] [style*="color:#404040"],
 [data-theme="dark"] [style*="color: #404040"] { color: var(--fg) !important; }
+/* 兜底：所有淺色 inline background 在夜間都換成 card-bg */
+[data-theme="dark"] [style*="background:#F8F8F8"],
+[data-theme="dark"] [style*="background: #F8F8F8"],
+[data-theme="dark"] [style*="background:#F4F4F4"],
+[data-theme="dark"] [style*="background: #F4F4F4"],
+[data-theme="dark"] [style*="background:#FAFAFA"],
+[data-theme="dark"] [style*="background: #FAFAFA"],
+[data-theme="dark"] [style*="background:#F2F2F2"],
+[data-theme="dark"] [style*="background: #F2F2F2"],
+[data-theme="dark"] [style*="background:#FFF7F5"],
+[data-theme="dark"] [style*="background:#FFF8E6"],
+[data-theme="dark"] [style*="background:#F4FBF7"],
+[data-theme="dark"] [style*="background:#FAFBFC"] {
+  background: var(--card-bg) !important;
+  color: var(--fg) !important;
+  border-color: var(--card-border) !important;
+}
+/* 但若內聯 bg 是強烈警示色（紅/橘）保留 — 透過 :not() 排除 */
+[data-theme="dark"] [style*="background:#FFE4DD"],
+[data-theme="dark"] [style*="background:#FFE082"],
+[data-theme="dark"] [style*="background:#D6E8F8"],
+[data-theme="dark"] [style*="background:#FFE0CC"] {
+  /* keep these warning/info colors but slightly desaturate for dark mode legibility */
+  filter: brightness(0.85);
+  color: #1F1F1F !important;
+}
 
 /* v4.1 (B5/B8): Read-only buttons get clear visual disabled state */
 .v36-readonly, .v37-historical-readonly,
