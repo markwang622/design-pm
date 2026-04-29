@@ -177,6 +177,37 @@ body {
 /* "尚未開始" status chip in drawer header — should stay readable */
 [data-theme="dark"] .chip.status-todo { background: var(--chip-bg) !important; color: var(--fg) !important; }
 
+/* v4.1 patch: Dashboard 夜間版獨立顏色（之前用 var(--fg) 被 .kpi .value 寫死 #1F1F1F 蓋掉）*/
+[data-theme="dark"] .kpi .value { color: var(--fg) !important; }
+[data-theme="dark"] .kpi .label { color: var(--fg-muted) !important; }
+[data-theme="dark"] .kpi .sub { color: var(--fg-muted) !important; }
+[data-theme="dark"] .kpi.alert .value { color: #FF6B6B !important; }
+[data-theme="dark"] .kpi.urgent .value { color: #FF9966 !important; }
+[data-theme="dark"] .kpi[style*="color:#8C6A12"] .value, /* 確稿待簽核中 inline style */
+[data-theme="dark"] .kpi[style*="color: #8C6A12"] .value { color: #F0C24A !important; }
+/* card section title */
+[data-theme="dark"] .section-title { color: var(--fg) !important; }
+/* bar-list (workload, hotel distribution) */
+[data-theme="dark"] .bar-list .bar-row .name { color: var(--fg) !important; }
+[data-theme="dark"] .bar-list .bar-row .count { color: var(--fg-muted) !important; }
+/* activity list (近 7 天動態) */
+[data-theme="dark"] .activity-list li { color: var(--fg) !important; border-bottom-color: var(--section-divider) !important; }
+[data-theme="dark"] .activity-list li b { color: var(--fg) !important; }
+/* 等待處理 list (in dashboard) */
+[data-theme="dark"] #attention > div { color: var(--fg) !important; }
+[data-theme="dark"] #attention > div [style*="color: #1F1F1F"],
+[data-theme="dark"] #attention > div [style*="color:#1F1F1F"] { color: var(--fg) !important; }
+[data-theme="dark"] #attention > div [style*="color: #8C8C8C"],
+[data-theme="dark"] #attention > div [style*="color:#8C8C8C"] { color: var(--fg-muted) !important; }
+/* 即將到期 widget */
+[data-theme="dark"] #v37-upcoming-due { background: #2D2820 !important; border-color: #3A3528 !important; color: #F0C24A !important; }
+[data-theme="dark"] #v37-upcoming-due > div[style*="display:flex"] > div { background: var(--card-bg) !important; color: var(--fg) !important; }
+[data-theme="dark"] #v37-upcoming-due > div[style*="display:flex"] > div [style*="color:#595959"],
+[data-theme="dark"] #v37-upcoming-due > div[style*="display:flex"] > div [style*="color:#8C8C8C"] { color: var(--fg-muted) !important; }
+/* 兜底：所有 [style*="color: #404040"] / #595959 / #8C8C8C 的內聯 style 在夜間都統一變亮 */
+[data-theme="dark"] [style*="color:#404040"],
+[data-theme="dark"] [style*="color: #404040"] { color: var(--fg) !important; }
+
 /* v4.1 (B5/B8): Read-only buttons get clear visual disabled state */
 .v36-readonly, .v37-historical-readonly,
 button.v36-readonly, button.v37-historical-readonly,
