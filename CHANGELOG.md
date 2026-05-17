@@ -1,5 +1,76 @@
 # Changelog
 
+## v4.3 (2026-04-29) · 子案件完整功能 + 信件去重 + UX 修補
+
+### A 區（UX 修補）
+
+- **A3 甘特圖排除 admin** — 即使有案件 designerId 指向 admin，gantt 也不再為其建一個群組
+- **A5 「已完成（舊）」→「已結案」** — STATUSES 表 done 顯示名統一；視覺與 closed 一致
+- **A6 移除「互動原型 v3.2」假註腳** — 之前 footer-note 是 .main 的兄弟元素、不在 view 內，原本 querySelector 抓不到。改用全頁 querySelectorAll 移除
+- **D9 通知設定頁示意橫幅** — 在頁面頂端加黃色提示，避免使用者誤以為 toggle 真的會生效
+
+### B 區（子案件完整功能）
+
+- **後端**：新 endpoint `PATCH /api/cases/:id/items`
+  - body: `{ items: [{ n, type, assigneeId, start, end, status, owner }], reason? }`
+  - 權限：admin / 主負責人 / 協作者皆可改
+  - 每次改寫一筆 ChangeLog（field=items、from/to 為項目數量）
+  - 每個子案件可有：起訖日、狀態（todo/wait/doing/review/review_done/done）、指派人
+- **前端**：抽屜內新增「📋 子案件」面板
+  - 表格：名稱 / 主類別 / 負責人 / 開始 / 結束 / 狀態 / 刪除
+  - 可新增、可逐欄編輯、可刪除
+  - 儲存前必填名稱、結束日不可早於開始日
+  - 儲存時必填變更原因（寫入 ChangeLog）
+  - 唯讀模式（非 admin / 非主負責 / 非協作者）只顯示「僅可瀏覽」標籤
+- **看板 / 甘特圖**：暫不變動視覺；子案件在抽屜內統一管理
+
+### C 區（信件去重）
+
+- **去重機制**：同 `type + recipientId + relatedCaseId` 在 N 小時內只寄一次 email
+  - DB 通知仍照寫（系統內 timeline 不變）
+  - 視窗預設 6 小時，可用環境變數 `NOTIFY_DEDUPE_HOURS` 改
+  - 沒有 relatedCaseId 的通知不去重（避免一般訊息漏發）
+- **強制重寄 endpoint**：`POST /api/notifications/:id/resend`
+  - 自己的通知 OR admin 可呼叫
+  - 帶 `force: true` 繞過去重，直接觸發 SMTP 寄送
+  - subject 自動加上 `[重寄]` 前綴
+
+### 影響
+
+- 重複連按「轉派」/「改狀態」不會引發重複 Email
+- admin 連續代編多次案件，designer 在 6 小時內只收一次 Email（除非觸發強制重寄）
+- 系統內訊息與 Email 寄出**解耦**：DB 通知頻率不變、Email 寄送有頻率上限
+
+## v4.2 (2026-04-28) · 手機版全面重做
+
+### 修正（手機 ≤ 768px）
+
+- **topbar nav 沒顯示**：`.nav` 有 `flex: 1 1 0%`，會吃掉之前設的 `width: 100%`。改用 `flex: 0 0 100%` + `min-width: 100%` 強制讓 nav 占完整一列、橫向捲動
+- **Dashboard 三欄擠成 130px 寬**：`.grid-2`、`.grid-3` 在桌面是兩/三欄，沒在 @media 裡覆寫。新增 `.grid-2, .grid-3 { grid-template-columns: 1fr !important; }`
+- **建案 modal 兩欄擠**：`.form-grid` 也加 1fr 規則
+- **館別分布、近 7 天動態、等待處理** 三欄被壓到單字一行：因為前項規則修好，現在自動單列堆疊
+- **設計師工作量 row 跑版**：`.bar-list .bar-row` 改成 `80px 1fr 60px`，姓名/進度條/件數對齊
+- **狀態分布圓餅**：強制 160px 大小、置中
+- **抽屜 detail-grid**：手機改 `80px 1fr`（桌面是 `90px 1fr`），文字 12px
+
+### 補強（涵蓋所有 view 手機版）
+
+- **看板**：filter 列 (`設計師 / 館別`) flex-wrap、select 等寬填滿剩餘空間
+- **甘特圖**：工具列 wrap、容器 `overflow-x: auto`，內部 min-width 600px 用橫向捲動避免擠到不可讀
+- **歷史案件**：搜尋框 100% 寬、設計師/分級/排序三個 select flex 等寬
+- **資料匯入**：預覽表格隱藏館別/需求單位/上線日三欄（手機留 title/designer/level/status 主欄）；CSV 範例 pre 加 max-height 200px
+- **審核中心**：每張卡的內容跟按鈕排成上下，textarea 100% 寬
+- **貢獻分析**：期間 buttons flex-wrap，KPI row 兩欄
+- **休假/出差 modal、個人檔案 modal、館別管理 modal、factory-reset modal**：所有 grid 強制 1fr，寬度 96%
+- **view-as 黃色橫幅**：手機字小 + flex-wrap
+- **toast**：max-width 90%
+
+### 補（< 480px）
+
+- KPI 從 2 欄變 1 欄
+- detail-grid 進一步壓縮成 `60px 1fr`
+- 主要操作按鈕字級再縮一點
+
 ## v4.1 (2026-04-27) · 第一輪 UI/UX 修補
 
 ### 修正

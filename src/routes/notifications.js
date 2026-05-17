@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { notify } from '../services/notify.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -50,6 +51,34 @@ router.post('/read-all', async (req, res) => {
     data: { readAt: new Date() },
   });
   res.json({ ok: true, updated: r.count });
+});
+
+// ─── POST /api/notifications/:id/resend — 強制重寄 (v4.3 C) ──
+// 只能對自己收到的通知重寄。繞過去重，直接觸發 SMTP 寄送。
+router.post('/:id/resend', async (req, res) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'invalid_id' });
+  const n = await prisma.notification.findUnique({ where: { id } });
+  if (!n) return res.status(404).json({ error: 'not_found' });
+  // 自己的通知 OR admin 可重寄
+  if (n.recipientId !== req.user.id && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    // 用 force=true 繞過去重，重新寄送
+    await notify({
+      type: n.type,
+      recipientId: n.recipientId,
+      subject: '[重寄] ' + n.subject,
+      body: n.body,
+      relatedCaseId: n.relatedCaseId,
+      force: true,
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[notify] resend failed:', e);
+    res.status(500).json({ error: 'resend_failed', message: e.message });
+  }
 });
 
 export default router;

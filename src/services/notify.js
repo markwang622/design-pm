@@ -61,11 +61,41 @@ async function deliver(recipientEmail, subject, body) {
   }
 }
 
-export async function notify({ type, recipientId, subject, body, relatedCaseId }) {
-  // Always write DB notification
+// v4.3 C: Email dedupe window (in hours). Same (type, recipientId, relatedCaseId)
+// within this window will write DB notification but SKIP the email delivery,
+// unless caller passes `force: true`.
+const DEDUPE_WINDOW_HOURS = Number(process.env.NOTIFY_DEDUPE_HOURS || 6);
+
+async function shouldSendEmail({ type, recipientId, relatedCaseId, force }) {
+  if (force) return true;
+  // Only dedupe when relatedCaseId is meaningful — generic notifications
+  // (no caseId) always send.
+  if (!relatedCaseId) return true;
+  const since = new Date(Date.now() - DEDUPE_WINDOW_HOURS * 60 * 60 * 1000);
+  const recent = await prisma.notification.findFirst({
+    where: { type, recipientId, relatedCaseId, createdAt: { gte: since } },
+    select: { id: true },
+  });
+  // If a similar notification exists in the window, skip email.
+  return !recent;
+}
+
+export async function notify({ type, recipientId, subject, body, relatedCaseId, force }) {
+  // (v4.3) Decide email send BEFORE writing the DB row, otherwise we'd always
+  // see the just-written row and never send.
+  const sendEmail = await shouldSendEmail({ type, recipientId, relatedCaseId, force });
+
+  // Always write DB notification (timeline / unread counter still updates)
   const row = await prisma.notification.create({
     data: { type, recipientId, subject, body, relatedCaseId: relatedCaseId ?? null },
   });
+
+  if (!sendEmail) {
+    // Log so admin can see the suppression in deployment logs
+    console.log(`[notify] dedupe: skip email for type=${type} recipient=${recipientId} case=${relatedCaseId} (similar within ${DEDUPE_WINDOW_HOURS}h)`);
+    return row;
+  }
+
   // Then attempt SMTP delivery (best-effort)
   try {
     const recipient = await prisma.staff.findUnique({

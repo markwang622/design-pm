@@ -652,6 +652,62 @@ router.post('/:id/transfer', requireAdmin, async (req, res) => {
   res.json(updated);
 });
 
+// ─── PATCH /api/cases/:id/items — 子案件編輯 (v4.3 B) ─────
+// Permission: admin OR primary designer OR collaborator can edit.
+// Replaces the whole items array (atomic update). Each item:
+//   { n, type, owner, assigneeId?, start?, end?, status? }
+const itemSchema = z.object({
+  n: z.string().min(1),
+  type: z.string().optional().default(''),
+  owner: z.string().optional().default(''),
+  assigneeId: z.number().int().nullable().optional(),
+  start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'done', 'closed']).optional().default('todo'),
+});
+const itemsPatchSchema = z.object({
+  items: z.array(itemSchema).max(50),
+  reason: z.string().optional(),
+});
+router.patch('/:id/items', async (req, res) => {
+  const parsed = itemsPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues });
+  }
+  const existing = await prisma.case.findUnique({
+    where: { id: req.params.id },
+    include: { collaborators: { select: { id: true } } },
+  });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  // Permission: admin OR primary designer OR collaborator
+  const isAdmin = req.user?.role === 'admin';
+  const isPrimary = existing.designerId === req.user?.id;
+  const isCollab = existing.collaborators.some(c => c.id === req.user?.id);
+  if (!isAdmin && !isPrimary && !isCollab) {
+    return res.status(403).json({
+      error: 'forbidden',
+      message: '只有主負責人、協作者或 admin 可編輯子案件',
+    });
+  }
+  const oldItemsCount = Array.isArray(existing.items) ? existing.items.length : 0;
+  const newItems = parsed.data.items;
+  const updated = await prisma.case.update({
+    where: { id: existing.id },
+    data: { items: newItems },
+    include: caseInclude,
+  });
+  // ChangeLog
+  try {
+    await writeChangeLog(
+      existing.id,
+      [{ field: 'items', fromValue: `${oldItemsCount} 項`, toValue: `${newItems.length} 項` }],
+      parsed.data.reason || '子案件調整',
+      req.user.name,
+    );
+  } catch (e) { console.warn('[items patch] changelog failed:', e.message); }
+  res.json(updated);
+});
+
 // ─── POST /api/cases/:id/clone — 原案重啟 (v3.7) ────────────
 // Creates a NEW case copying most fields from a closed/archived one.
 // New ID, new openDate (today), new status (todo), no closedOn.

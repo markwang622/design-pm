@@ -888,7 +888,13 @@ h1, h2, h3, h4 { font-weight: 500; }
     </div>
     <div class="view" data-view="notif">
       <h2 style="margin-bottom: 8px; font-size: 20px;">Email 通知設定</h2>
-      <p style="color: #8C8C8C; font-size: 13px; margin-bottom: 24px;">所有通知都會寄到 Google Workspace 信箱。每封信都有「一鍵打開案件」連結。</p>
+      <p style="color: #8C8C8C; font-size: 13px; margin-bottom: 12px;">所有通知都會寄到 Google Workspace 信箱。每封信都有「一鍵打開案件」連結。</p>
+      <!-- v4.3 D9: 示意性橫幅 -->
+      <div style="margin-bottom: 24px;padding:10px 14px;background:#FFF8E6;border:1px solid #EDD79A;border-radius:6px;font-size:12px;color:#8C6A12;line-height:1.6;">
+        <b>ℹ 提醒：</b>下方 toggle 目前為示意，實際是否寄送 Email 取決於是否設定 SMTP 環境變數
+        （<code style="background:rgba(0,0,0,0.05);padding:1px 4px;border-radius:3px;">SMTP_HOST / SMTP_USER / SMTP_PASS / SMTP_FROM</code>）。
+        DB 通知（系統內訊息）一律寫入；Email 寄出僅在 SMTP 設定後生效。
+      </div>
       <div class="notif-group">
         <h3>任務相關（給設計師）</h3>
         <div class="notif-row">
@@ -1209,7 +1215,7 @@ const STATUSES = [
   {key:'review', name:'確稿中'},
   {key:'review_done', name:'確稿完成'},   // v3.6: designer marks done, awaits admin
   {key:'closed', name:'已結案'},           // v3.6: admin approved, auto-archived
-  {key:'done', name:'已完成（舊）'},       // legacy / backward compat — hidden from new dropdowns
+  {key:'done', name:'已結案'},             // v4.3: visually identical to closed (legacy data shows up the same)
 ];
 // Subset shown in user-facing pickers (excludes legacy 'done')
 const SELECTABLE_STATUSES = STATUSES.filter(s => s.key !== 'done');
@@ -1582,8 +1588,12 @@ function renderGantt() {
   // v3.6 (#16): designer sees all on gantt; editing limited via drawer.
   const pool = CASES.filter(c => !c.archived);
   const groups = {};
+  // v4.3 A3: build a set of admin names so we can exclude them from designer
+  // grouping (admin should never appear as a designer column on the gantt).
+  const adminNames = new Set(STAFF.filter(s => s.role === 'admin').map(s => s.name));
   pool.forEach(c => {
     const k = ganttScope === 'designer' ? c.designer : c.hotel;
+    if (ganttScope === 'designer' && adminNames.has(k)) return; // v4.3 A3
     if (!groups[k]) groups[k] = [];
     groups[k].push(c);
   });
@@ -3038,6 +3048,9 @@ async function v33InjectDrawerExtras(c) {
   `;
   body.appendChild(editPanel);
   document.getElementById('v33-save-edit').onclick = () => v33SaveEdit(c);
+
+  // ── v4.3 B: 子案件管理面板（主負責人、協作者、admin 都可改）─
+  v43InjectSubItemsPanel(c, body);
 
   // ── ChangeLog timeline ──────────────────────────────────
   const clBox = document.createElement('div');
@@ -4770,15 +4783,10 @@ function v37ShowDepartureArchive(name) {
 const _v37OrigRenderAnalytics = window.renderAnalytics;
 window.renderAnalytics = async function() {
   await _v37OrigRenderAnalytics();
-  // Remove the .footer-note that shouldn't appear in analytics tab
-  const dashView = document.querySelector('div.view[data-view="analytics"]');
-  if (dashView) {
-    const stray = dashView.querySelector('.footer-note');
-    if (stray) stray.remove();
-  }
-  // Add staff selector
+  // v4.3 A6: 移除全部 .footer-note（不只是分析頁內，因為 footer-note 是 .main 直系子元素
+  // 跟分析 view 是「兄弟」關係，原本只查 view 內找不到）
+  document.querySelectorAll('.footer-note').forEach(el => el.remove());
   v37AddAnalyticsStaffSelector();
-  // Update legend with early multiplier note
   v37PatchAnalyticsFooterText();
 };
 
@@ -5058,79 +5066,211 @@ setInterval(() => {
 // (#4) Mobile responsive
 const v38MobileCSS = `
 @media (max-width: 768px) {
+  /* ========== TOPBAR ========== */
   .topbar {
-    flex-wrap: wrap; gap: 8px; padding: 10px 12px;
+    flex-wrap: wrap !important; gap: 6px !important; padding: 8px 10px !important;
+    row-gap: 6px;
   }
-  .topbar .logo { font-size: 13px; }
+  .topbar .logo { font-size: 13px; flex-shrink: 0; }
   .topbar .logo .dim { display: none; }
+  /* NAV: use flex-basis 100% to defeat the base nav { flex: 1 1 0%; } rule */
   .topbar .nav {
-    order: 100; width: 100%; overflow-x: auto; padding-bottom: 4px;
+    order: 100 !important;
+    flex: 0 0 100% !important;
+    min-width: 100% !important;
+    overflow-x: auto !important;
+    padding-bottom: 4px !important;
     -webkit-overflow-scrolling: touch;
+    border-top: 1px solid #2A3038;
+    padding-top: 6px !important;
+    margin-top: 4px;
   }
+  [data-theme="dark"] .topbar .nav { border-top-color: #2A3038; }
   .topbar .nav::-webkit-scrollbar { height: 3px; }
-  .topbar .nav button { font-size: 11px; padding: 6px 10px; flex-shrink: 0; }
-  .role-switch, .v38-theme-toggle { font-size: 11px; }
-  .role-switch button, .role-switch select { padding: 4px 8px; font-size: 11px; }
-  .create-btn { font-size: 11px; padding: 5px 10px; }
+  .topbar .nav button { font-size: 11px !important; padding: 5px 9px !important; flex-shrink: 0; white-space: nowrap !important; }
+  /* Reusable action buttons */
+  .create-btn { font-size: 11px !important; padding: 5px 10px !important; flex-shrink: 0; }
+  .v40-avail-btn { font-size: 11px !important; padding: 5px 10px !important; flex-shrink: 0; }
+  .v38-theme-toggle { font-size: 11px !important; padding: 4px 8px !important; flex-shrink: 0; }
+  /* Role-switch (admin) — let it occupy full width if it's wide */
+  .role-switch { font-size: 11px; flex-wrap: wrap; max-width: 100%; }
+  .role-switch button { padding: 4px 8px !important; font-size: 11px !important; flex-shrink: 0; white-space: nowrap; }
+  .role-switch select { padding: 4px 8px !important; font-size: 11px !important; max-width: 160px; }
   #user-badge { font-size: 11px; }
-  .main { padding: 12px 14px; }
-  .kpi-row { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; }
+
+  /* ========== MAIN CONTAINER ========== */
+  .main { padding: 12px 12px !important; max-width: 100% !important; }
+
+  /* ========== DASHBOARD GRIDS ========== */
+  .kpi-row { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
+  .grid-2, .grid-3 { grid-template-columns: 1fr !important; gap: 12px !important; }
+  .form-grid { grid-template-columns: 1fr !important; }
   .kpi { padding: 10px 12px; }
   .kpi .value { font-size: 22px; }
-  .kpi .label { font-size: 10px; }
-  .kpi .sub { font-size: 9px; }
-  .card { padding: 12px; }
+  .kpi .label { font-size: 11px; }
+  .kpi .sub { font-size: 10px; }
+  .card { padding: 14px 14px !important; overflow: hidden; }
+  .section-title { font-size: 12px !important; flex-wrap: wrap; gap: 6px; }
+  .section-title > span:nth-child(2) { font-size: 10px !important; }
+  /* Donut chart center */
+  #donut { width: 160px !important; height: 160px !important; max-width: 100% !important; display: block; margin: 12px auto !important; }
+  #donut-legend { margin: 12px auto !important; }
+  /* Bar lists (workload, hotel distribution) */
+  .bar-list .bar-row { grid-template-columns: 80px 1fr 60px !important; gap: 8px; align-items: center; }
+  .bar-list .bar-row .name { font-size: 11px; }
+  .bar-list .bar-row .count { font-size: 10px; white-space: nowrap; text-align: right; }
+  /* Activity & attention lists — no longer in cramped 3-col grid */
+  #activity, #attention { padding: 0; }
+  #attention > div { padding: 10px 6px !important; }
+  /* 即將到期 widget */
+  #v37-upcoming-due { padding: 12px !important; }
+  #v37-upcoming-due > div[style*="display:flex"] { flex-direction: column !important; gap: 6px !important; align-items: flex-start !important; }
+
+  /* ========== FILTER BARS ========== */
   .filter-bar { flex-wrap: wrap; gap: 6px; }
   .filter-bar .pill { font-size: 11px; padding: 4px 10px; }
   .case-list, .case-grid { grid-template-columns: 1fr !important; }
   .case-card { padding: 12px; }
   .case-card .title { font-size: 14px; }
-  .kanban {
-    grid-template-columns: 1fr !important; gap: 10px;
-  }
+
+  /* ========== KANBAN ========== */
+  .kanban { grid-template-columns: 1fr !important; gap: 10px; min-height: auto !important; }
   .kb-col { padding: 10px; }
   .kb-card { padding: 8px 10px; font-size: 11px; }
-  .gantt-toolbar { flex-wrap: wrap; gap: 6px; }
-  .drawer { width: 100% !important; }
-  .drawer-body { padding: 14px 16px; }
+  .kb-col-head { font-size: 13px !important; }
+  /* Kanban filter row */
+  .view[data-view="kanban"] > div:first-of-type { flex-wrap: wrap !important; gap: 8px !important; }
+  #kb-filter-designer, #kb-filter-hotel { font-size: 12px !important; flex: 1; min-width: 0; }
+
+  /* ========== GANTT ========== */
+  .gantt-toolbar { flex-wrap: wrap !important; gap: 6px !important; }
+  .gantt-toolbar > * { font-size: 11px !important; flex-shrink: 0; }
+  .gantt-toolbar .scale-switch button { padding: 4px 8px !important; }
+  .gantt { overflow-x: auto !important; }
+  .gantt-head, .gantt-row, .gantt-group-head { min-width: 600px; }
+  .gantt-row .label { font-size: 11px !important; }
+
+  /* ========== DRAWER ========== */
+  .drawer { width: 100% !important; max-width: 100% !important; }
+  .drawer-body { padding: 14px 16px !important; }
+  .drawer-head { padding: 14px 16px !important; flex-wrap: wrap; gap: 8px; }
+  .detail-grid { grid-template-columns: 80px 1fr !important; gap: 6px 10px !important; font-size: 12px !important; }
+  .drawer-actions { flex-wrap: wrap; }
+  .drawer-actions button { font-size: 12px !important; padding: 5px 10px !important; }
+  /* v33 edit panel inside drawer */
+  [id^="v33-"] { font-size: 12px; }
+  .drawer-body input[type="date"], .drawer-body select { font-size: 12px !important; padding: 5px 7px !important; }
+  /* Reason modal */
+  #v33-reason-modal { width: 92% !important; padding: 18px !important; }
+
+  /* ========== MODALS ========== */
   .modal { width: 96% !important; max-width: 96% !important; padding: 16px !important; }
+  .modal h2 { font-size: 16px; }
+  .modal h3 { font-size: 14px; }
+  .modal label { font-size: 12px !important; }
+  .modal input, .modal select, .modal textarea { font-size: 13px !important; padding: 7px 9px !important; }
+  /* v40 availability modal */
+  #v40-avail-modal { width: 96% !important; padding: 16px !important; }
+  #v40-avail-modal > div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+  /* v41 reset modal */
+  #v41-reset-modal { width: 96% !important; padding: 18px !important; }
+  /* v37 hotel manager modal */
+  #v37-hotel-modal { width: 96% !important; padding: 16px !important; }
+  #v37-hotel-modal > div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; gap: 8px !important; }
+  /* v34 profile modal */
+  #v34-profile-modal { width: 96% !important; padding: 18px !important; }
+  #v34-profile-modal > div[style*="grid-template-columns"],
+  #v34-profile-modal #v34-pf-pw-self { grid-template-columns: 1fr !important; }
+
+  /* ========== STAFF TABLE ========== */
   .staff-table .staff-row {
     grid-template-columns: 1fr !important; gap: 6px;
     padding: 12px !important;
   }
   .staff-table .staff-row.head { display: none; }
   .staff-table .staff-row > div { font-size: 11px; }
-  .staff-table .s-actions { flex-wrap: wrap; }
-  /* Dashboard cards stack */
-  .view[data-view="dashboard"] > div[style*="grid-template-columns"],
-  .view[data-view="analytics"] > div[style*="grid-template-columns"],
-  .view[data-view="approval"] > div[style*="grid-template-columns"] {
-    grid-template-columns: 1fr !important;
-  }
-  /* Approval queue cards */
+  .staff-table .s-actions { flex-wrap: wrap; gap: 4px; }
+  .staff-table .s-actions button { font-size: 11px !important; padding: 4px 10px !important; }
+
+  /* ========== APPROVAL QUEUE ========== */
   .view[data-view="approval"] .card > div[style*="display:flex"] {
-    flex-direction: column !important;
+    flex-direction: column !important; align-items: stretch !important;
   }
   .view[data-view="approval"] textarea { width: 100% !important; }
-  /* Donut chart center */
-  #donut, #donut-legend { margin: 0 auto; }
-  /* Long inline forms */
-  .grid-form { grid-template-columns: 1fr !important; }
-  /* Toasts */
-  .toast { font-size: 12px; padding: 8px 14px; bottom: 16px; }
-  /* Hide some non-essential decorations */
-  .v38-theme-toggle { padding: 4px 6px; }
+  .view[data-view="approval"] .card .card,
+  .view[data-view="approval"] > div .card { padding: 14px !important; }
+  /* Approval action buttons stack */
+  .view[data-view="approval"] [style*="display:flex;gap:6px"] { flex-wrap: wrap !important; }
+
+  /* ========== HISTORY (歷史案件) ========== */
+  .view[data-view="history"] .card > div[style*="display:flex"] {
+    flex-wrap: wrap !important;
+  }
+  #v36-history-search { min-width: 100% !important; }
+  #v36-history-designer, #v36-history-level, #v37-history-sort {
+    flex: 1; min-width: 0;
+  }
+
+  /* ========== IMPORT (資料匯入) ========== */
+  .view[data-view="import"] .card > div[style*="display:flex"] {
+    flex-wrap: wrap !important;
+  }
+  #v34-csv-table { font-size: 10px !important; }
+  #v34-csv-table th, #v34-csv-table td { padding: 4px 4px !important; }
+  /* Hide some columns on mobile to keep the table readable */
+  #v34-csv-table th:nth-child(6), #v34-csv-table td:nth-child(6),  /* hotel */
+  #v34-csv-table th:nth-child(7), #v34-csv-table td:nth-child(7),  /* requester */
+  #v34-csv-table th:nth-child(8), #v34-csv-table td:nth-child(8)   /* goLive */
+  { display: none; }
+  .view[data-view="import"] details pre { font-size: 9px; max-height: 200px; overflow: auto; }
+
+  /* ========== ANALYTICS (貢獻分析) ========== */
+  .view[data-view="analytics"] > div:first-child {
+    flex-wrap: wrap !important; gap: 8px !important;
+  }
+  .view[data-view="analytics"] #v33-period-buttons,
+  .view[data-view="analytics"] > div:first-child > div[style*="display:flex"] {
+    flex-wrap: wrap !important;
+  }
+  .view[data-view="analytics"] #v33-analytics-totals.kpi-row { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* ========== VIEW-AS BANNER (v4.1 U1) ========== */
+  #v41-viewas-banner { padding: 6px 10px !important; font-size: 11px !important; gap: 6px !important; flex-wrap: wrap !important; }
+  #v41-viewas-banner button { font-size: 10px !important; padding: 3px 8px !important; }
+
+  /* ========== TOASTS ========== */
+  .toast { font-size: 12px; padding: 8px 14px; bottom: 16px; max-width: 90%; }
+
+  /* ========== FACTORY RESET MODAL (admin) ========== */
+  #v41-reset-modal h3 { font-size: 15px !important; }
+
+  /* ========== TYPOGRAPHY ========== */
+  h2 { font-size: 18px !important; }
+  h3 { font-size: 15px !important; }
+
+  /* ========== VACATION/TRIP STRIPS ========== */
+  #v40-kanban-avail, #v40-gantt-avail { font-size: 11px !important; }
+  #v40-kanban-avail > div[style*="display:flex"] { flex-wrap: wrap !important; }
 }
+
 @media (max-width: 480px) {
-  .topbar { padding: 8px 10px; }
-  .topbar .logo { font-size: 12px; }
+  .topbar { padding: 8px 10px !important; }
+  .topbar .logo { font-size: 12px !important; }
   .kpi-row { grid-template-columns: 1fr !important; }
   .kpi .value { font-size: 20px; }
-  .role-switch button { padding: 3px 6px; }
-  .role-switch select { max-width: 100px; }
-  .create-btn { padding: 4px 8px; font-size: 10px; }
-  .topbar .nav button { padding: 4px 8px; font-size: 10px; }
-  .main { padding: 8px 10px; }
+  .role-switch button { padding: 3px 6px !important; }
+  .role-switch select { max-width: 130px !important; font-size: 10px !important; }
+  .create-btn, .v40-avail-btn { padding: 4px 8px !important; font-size: 10px !important; }
+  .topbar .nav button { padding: 4px 8px !important; font-size: 10px !important; }
+  .main { padding: 8px 10px !important; }
+  .card { padding: 12px !important; }
+  .kpi { padding: 8px 10px !important; }
+  /* Hide secondary action buttons on very narrow screens; user can access via 人員 page or menu */
+  #v41-reset-modal { padding: 14px !important; }
+  /* Drawer chips wrap */
+  .drawer-head { gap: 4px !important; }
+  /* Detail grid even more compact */
+  .detail-grid { grid-template-columns: 60px 1fr !important; font-size: 11px !important; }
 }
 `;
 (function injectMobileCSS() {
@@ -5927,6 +6067,140 @@ bootstrap = async function() {
   await _v41OrigBootstrap2();
   v41UpdateViewAsBanner();
 };
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v4.3 ENHANCEMENTS — 子案件編輯 + 通知重寄 ▼▼▼
+// ═══════════════════════════════════════════════════════════════
+
+api.cases.patchItems = (id, body) => fetchJson('PATCH', `/api/cases/${encodeURIComponent(id)}/items`, body);
+api.notif = api.notif || {};
+api.notif.resend = (id) => fetchJson('POST', `/api/notifications/${id}/resend`);
+
+const V43_ITEM_STATUS = [
+  { key: 'todo', name: '尚未開始', color: '#8C8C8C' },
+  { key: 'wait', name: '等待中', color: '#B89568' },
+  { key: 'doing', name: '進行中', color: '#1F6FEB' },
+  { key: 'review', name: '確稿中', color: '#D8B85A' },
+  { key: 'review_done', name: '確稿完成', color: '#D88A5A' },
+  { key: 'done', name: '已結案', color: '#5AA85A' },
+];
+
+function v43InjectSubItemsPanel(c, body) {
+  if (!body) return;
+  // Decide write-permission for items
+  const isAdmin = ME.role === 'admin';
+  const myName = ME_NAME();
+  const isPrimary = c.designer === myName || c._designerId === ME.id;
+  const isCollab = (c.collaborators || []).includes(myName);
+  const canWrite = isAdmin || isPrimary || isCollab;
+
+  const panel = document.createElement('div');
+  panel.className = 'v33-extra v43-items-panel';
+  panel.style.cssText = 'margin:14px 0;padding:12px;background:#F4FBF7;border:1px solid #BFE0CB;border-radius:6px;';
+  // Build items state (clone)
+  const items = JSON.parse(JSON.stringify(c.items || []));
+  const renderTable = () => {
+    const rows = items.length === 0
+      ? `<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">尚無子案件${canWrite ? '，點下方「＋ 新增子案件」開始' : ''}</div>`
+      : items.map((it, i) => `
+        <div class="v43-item-row" style="display:grid;grid-template-columns:1.4fr 1fr 1.2fr 0.8fr 0.8fr 0.9fr ${canWrite ? '24px' : ''};gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #DDEDE0;font-size:11px;">
+          <input data-i="${i}" data-k="n" value="${escapeHtml(it.n||'')}" placeholder="子案件名稱" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
+          <select data-i="${i}" data-k="type" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
+            ${CATS.map(cat => `<option value="${escapeHtml(cat)}" ${cat===it.type?'selected':''}>${escapeHtml(cat)}</option>`).join('')}
+          </select>
+          <select data-i="${i}" data-k="assigneeId" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
+            <option value="">(同主負責)</option>
+            ${STAFF.filter(s=>s.active).map(s=>`<option value="${s.id}" ${(it.assigneeId===s.id||it.owner===s.name)?'selected':''}>${escapeHtml(s.name)}</option>`).join('')}
+          </select>
+          <input type="date" data-i="${i}" data-k="start" value="${it.start||''}" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
+          <input type="date" data-i="${i}" data-k="end" value="${it.end||''}" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
+          <select data-i="${i}" data-k="status" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
+            ${V43_ITEM_STATUS.map(s=>`<option value="${s.key}" ${(it.status||'todo')===s.key?'selected':''}>${s.name}</option>`).join('')}
+          </select>
+          ${canWrite ? `<button data-act="del" data-i="${i}" style="width:20px;height:20px;padding:0;background:transparent;border:1px solid #D4D4D4;border-radius:3px;cursor:pointer;color:#9A2E2E;font-size:12px;line-height:18px;text-align:center;">×</button>` : ''}
+        </div>
+      `).join('');
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;margin-bottom:8px;">
+        <span style="font-size:13px;font-weight:500;color:var(--fg,#1F1F1F);">📋 子案件（${items.length}）</span>
+        ${canWrite ? '<span style="margin-left:8px;font-size:11px;color:#1F8A4C;">✓ 可編輯</span>' : '<span style="margin-left:8px;font-size:11px;color:#8C8C8C;">僅可瀏覽</span>'}
+      </div>
+      ${items.length > 0 ? `
+        <div style="display:grid;grid-template-columns:1.4fr 1fr 1.2fr 0.8fr 0.8fr 0.9fr ${canWrite ? '24px' : ''};gap:6px;font-size:10px;color:#8C8C8C;padding:4px 0;border-bottom:1px solid #BFE0CB;">
+          <span>名稱</span><span>主類別</span><span>負責人</span><span>開始</span><span>結束</span><span>狀態</span>${canWrite ? '<span></span>' : ''}
+        </div>
+      ` : ''}
+      ${rows}
+      ${canWrite ? `
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
+          <button id="v43-item-add" style="padding:5px 12px;background:#fff;border:1px solid #1F8A4C;color:#1F8A4C;border-radius:4px;cursor:pointer;font-size:12px;">＋ 新增子案件</button>
+          <button id="v43-items-save" style="padding:5px 14px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">💾 儲存子案件</button>
+        </div>
+      ` : ''}
+    `;
+    if (canWrite) {
+      panel.querySelectorAll('input,select').forEach(el => {
+        el.oninput = (e) => {
+          const i = Number(e.target.dataset.i);
+          const k = e.target.dataset.k;
+          let v = e.target.value;
+          if (k === 'assigneeId') v = v ? Number(v) : null;
+          if (k === 'start' || k === 'end') v = v || null;
+          items[i][k] = v;
+          // Mirror assigneeId → owner name for legacy compat
+          if (k === 'assigneeId') {
+            const s = STAFF.find(x => x.id === v);
+            items[i].owner = s ? s.name : '';
+          }
+        };
+      });
+      const addBtn = panel.querySelector('#v43-item-add');
+      if (addBtn) addBtn.onclick = () => {
+        items.push({ n: '', type: CATS[0], owner: '', assigneeId: null, start: null, end: null, status: 'todo' });
+        renderTable();
+      };
+      panel.querySelectorAll('button[data-act="del"]').forEach(btn => {
+        btn.onclick = () => {
+          const i = Number(btn.dataset.i);
+          if (confirm(`刪除子案件「${items[i].n || '(未命名)'}」？`)) {
+            items.splice(i, 1);
+            renderTable();
+          }
+        };
+      });
+      const saveBtn = panel.querySelector('#v43-items-save');
+      if (saveBtn) saveBtn.onclick = async () => {
+        // Validation
+        for (const it of items) {
+          if (!it.n || !it.n.trim()) { showToast('每筆子案件都需要填名稱', 'err'); return; }
+          if (it.start && it.end && it.end < it.start) { showToast(`「${it.n}」結束日不能早於開始日`, 'err'); return; }
+        }
+        const reason = prompt('輸入此次子案件變更的原因（會記錄在 ChangeLog）：', '子案件調整');
+        if (reason === null) return;
+        try {
+          const cleaned = items.map(it => ({
+            n: it.n.trim(),
+            type: it.type || '',
+            owner: it.owner || '',
+            assigneeId: it.assigneeId || null,
+            start: it.start || null,
+            end: it.end || null,
+            status: it.status || 'todo',
+          }));
+          const updated = await api.cases.patchItems(c.id, { items: cleaned, reason });
+          c.items = cleaned;
+          showToast('✓ 子案件已儲存');
+          await reloadCase(c.id);
+          v33RenderChangeLog(c);
+        } catch (e) {
+          showToast('儲存失敗：' + (e.data?.message || e.message), 'err');
+        }
+      };
+    }
+  };
+  body.appendChild(panel);
+  renderTable();
+}
 
 // ═══ GO ═══════════════════════════════════════════════════════
 bootstrap();
