@@ -1554,7 +1554,19 @@ function renderGantt() {
   ganttStart = clampGanttStart(ganttScale);
   const cfg = SCALE_CFG[ganttScale];
   const windowStart = new Date(ganttStart);
-  const windowEnd = new Date(windowStart.getTime() + cfg.days * 86400000);
+  // v4.5: 用日曆邊界算 windowEnd / totalDays，月份大小月正確化
+  let windowEnd;
+  if (ganttScale === 'day') {
+    windowEnd = new Date(windowStart.getFullYear(), windowStart.getMonth() + 1, 1);
+  } else if (ganttScale === 'week') {
+    windowEnd = new Date(windowStart.getTime() + 91 * 86400000); // 13 ISO weeks
+  } else if (ganttScale === 'month') {
+    windowEnd = new Date(windowStart.getFullYear(), windowStart.getMonth() + 6, 1);
+  } else { // quarter
+    windowEnd = new Date(windowStart.getFullYear() + 1, 0, 1);
+  }
+  const totalDays = Math.round((windowEnd - windowStart) / 86400000);
+
   const rangeLabel = document.getElementById('gantt-range');
   if (ganttScale === 'day') {
     rangeLabel.textContent = `${windowStart.getFullYear()}/${pad(windowStart.getMonth()+1)}`;
@@ -1566,24 +1578,33 @@ function renderGantt() {
   }
   const ticks = [];
   if (ganttScale === 'day') {
-    for (let i = 0; i < cfg.days; i++) {
+    for (let i = 0; i < totalDays; i++) {
       const cur = new Date(windowStart.getTime() + i * 86400000);
-      ticks.push({ label: `${cur.getDate()}`, weekend: isWeekend(cur), holiday: isHoliday(cur) });
+      ticks.push({ label: `${cur.getDate()}`, weekend: isWeekend(cur), holiday: isHoliday(cur), days: 1 });
     }
   } else if (ganttScale === 'week') {
     for (let i = 0; i < 13; i++) {
       const cur = new Date(windowStart.getTime() + i * 7 * 86400000);
       const jan1 = new Date(cur.getFullYear(), 0, 1);
       const wn = Math.ceil(((cur - jan1)/86400000 + jan1.getDay() + 1) / 7);
-      ticks.push({ label: `W${wn}` });
+      ticks.push({ label: `W${wn}`, days: 7 });
     }
   } else if (ganttScale === 'month') {
+    // v4.5: 每月按實際天數比例
     for (let i = 0; i < 6; i++) {
-      const m = new Date(windowStart.getFullYear(), windowStart.getMonth() + i, 1);
-      ticks.push({ label: `${m.getMonth()+1}月` });
+      const m1 = new Date(windowStart.getFullYear(), windowStart.getMonth() + i, 1);
+      const m2 = new Date(windowStart.getFullYear(), windowStart.getMonth() + i + 1, 1);
+      const dim = Math.round((m2 - m1) / 86400000);
+      ticks.push({ label: `${m1.getMonth()+1}月`, days: dim });
     }
   } else {
-    for (let i = 0; i < 4; i++) ticks.push({ label: `Q${i+1}` });
+    // v4.5: 各季實際天數（Q1 在閏年是 91 天，其它都是 90/92）
+    for (let i = 0; i < 4; i++) {
+      const q1 = new Date(windowStart.getFullYear(), i * 3, 1);
+      const q2 = new Date(windowStart.getFullYear(), (i + 1) * 3, 1);
+      const qd = Math.round((q2 - q1) / 86400000);
+      ticks.push({ label: `Q${i+1}`, days: qd });
+    }
   }
   // v3.6 (#16): designer sees all on gantt; editing limited via drawer.
   const pool = CASES.filter(c => !c.archived);
@@ -1597,23 +1618,45 @@ function renderGantt() {
     if (!groups[k]) groups[k] = [];
     groups[k].push(c);
   });
-  const gridCols = `repeat(${ticks.length}, 1fr)`;
+  // v4.5: 即使沒主案件，只要該員工在當前視窗有休假/出差，也建一個空群組
+  if (ganttScope === 'designer') {
+    const inWindow = (s, e) => {
+      const ss = new Date(s); ss.setHours(0,0,0,0);
+      const ee = new Date(e); ee.setHours(0,0,0,0);
+      return !(ee < windowStart || ss > windowEnd);
+    };
+    const addEmptyGroup = (name) => {
+      if (!name || adminNames.has(name)) return;
+      if (!groups[name]) groups[name] = [];
+    };
+    (typeof VACATIONS !== 'undefined' ? VACATIONS : []).forEach(v => {
+      if (v.staff?.name && inWindow(v.startDate, v.endDate)) addEmptyGroup(v.staff.name);
+    });
+    (typeof TRIPS !== 'undefined' ? TRIPS : []).forEach(t => {
+      if (t.staff?.name && inWindow(t.startDate, t.endDate)) addEmptyGroup(t.staff.name);
+    });
+  }
+  // v4.5: gridCols 用各 tick 實際天數做比例（fr）
+  const gridCols = ticks.map(t => `${t.days || 1}fr`).join(' ');
   function renderBackground(innerHeight) {
     let bg = '';
     if (ganttScale === 'day') {
-      const cw = 100 / cfg.days;
-      for (let i = 0; i < cfg.days; i++) {
+      const cw = 100 / totalDays;
+      for (let i = 0; i < totalDays; i++) {
         const cur = new Date(windowStart.getTime() + i * 86400000);
         if (isHoliday(cur)) bg += `<div style="position:absolute;left:${i*cw}%;width:${cw}%;top:0;bottom:0;background:#FAF1E3;"></div>`;
         else if (isWeekend(cur)) bg += `<div style="position:absolute;left:${i*cw}%;width:${cw}%;top:0;bottom:0;background:#F5F5F5;"></div>`;
       }
     }
-    const gw = 100 / ticks.length;
-    for (let i = 1; i < ticks.length; i++) {
-      bg += `<div style="position:absolute;left:${i*gw}%;top:0;bottom:0;width:1px;background:#F2F2F2;"></div>`;
+    // v4.5: 分隔線按各 tick 累積天數定位（大小月也對齊）
+    let acc = 0;
+    for (let i = 0; i < ticks.length - 1; i++) {
+      acc += (ticks[i].days || 0);
+      const pct = (acc / totalDays) * 100;
+      bg += `<div style="position:absolute;left:${pct}%;top:0;bottom:0;width:1px;background:#F2F2F2;"></div>`;
     }
     if (TODAY >= windowStart && TODAY <= windowEnd) {
-      const todayPct = ((TODAY - windowStart) / 86400000 / cfg.days * 100);
+      const todayPct = ((TODAY - windowStart) / 86400000 / totalDays * 100);
       bg += `<div class="today-line" style="left:${todayPct}%"></div>`;
     }
     return bg;
@@ -1630,8 +1673,8 @@ function renderGantt() {
     projects.forEach(c => {
       const hasItems = c.items && c.items.length > 0;
       const isExpanded = expandedProjects.has(c.id);
-      const startPct = ((c.open - windowStart) / 86400000 / cfg.days * 100);
-      const endPct = ((c.goLive - windowStart) / 86400000 / cfg.days * 100);
+      const startPct = ((c.open - windowStart) / 86400000 / totalDays * 100);
+      const endPct = ((c.goLive - windowStart) / 86400000 / totalDays * 100);
       const inRange = !(endPct < 0 || startPct > 100);
       const cs = Math.max(0, startPct);
       const ce = Math.min(100, endPct);
@@ -1656,16 +1699,31 @@ function renderGantt() {
       `;
       if (hasItems && isExpanded) {
         c.items.forEach((it, si) => {
+          // v4.4: each sub-item uses its own start/end/status (fallback to parent)
+          const itStart = it.start ? new Date(it.start) : c.open;
+          const itEnd = it.end ? new Date(it.end) : c.goLive;
+          const itSp = ((itStart - windowStart) / 86400000 / totalDays * 100);
+          const itEp = ((itEnd - windowStart) / 86400000 / totalDays * 100);
+          const itInRange = !(itEp < 0 || itSp > 100);
+          const itCs = Math.max(0, itSp);
+          const itCe = Math.min(100, itEp);
+          const itW = Math.max(2, itCe - itCs);
+          const itStatus = it.status || c.status;
+          const _v43list = (typeof V43_ITEM_STATUS !== 'undefined' ? V43_ITEM_STATUS : null);
+          const itStInfo = _v43list ? (_v43list.find(x => x.key === itStatus) || _v43list[0]) : { name: itStatus, color: '#8C8C8C' };
+          const itOwner = it.owner || c.designer;
           html += `
             <div class="gantt-row sub-row">
               <div class="label">
                 <span class="si-bullet"></span>
                 <span class="p-name" title="${it.n}">${si+1}. ${it.n}</span>
-                <span class="chip" style="font-size:9px;padding:0 5px;">${(it.type||'').replace(/^\d+\s/, '')}</span>
+                ${it.type ? `<span class="chip" style="font-size:9px;padding:0 5px;">${(it.type||'').replace(/^\d+\s/, '')}</span>` : ''}
+                <span class="chip" style="font-size:9px;padding:0 5px;background:${itStInfo.color}22;color:${itStInfo.color};border-color:${itStInfo.color}55;">${itStInfo.name}</span>
+                <span class="chip" style="font-size:9px;padding:0 5px;" title="負責 ${itOwner}">${itOwner.slice(0,3)}</span>
               </div>
               <div class="gantt-track">
                 ${renderBackground(28)}
-                ${inRange ? `<div class="gantt-bar sub s-${c.status}" style="left:${cs}%;width:${width}%;" title="${it.n} · ${it.owner || c.designer}" onclick="openDrawerById('${c.id}')">${width > 10 ? it.n : ''}</div>` : ''}
+                ${itInRange ? `<div class="gantt-bar sub s-${itStatus}" style="left:${itCs}%;width:${itW}%;background:${itStInfo.color}AA;border-color:${itStInfo.color};" title="${it.n} · ${itOwner} · ${itStInfo.name} · ${ymd(itStart)} → ${ymd(itEnd)}" onclick="openDrawerById('${c.id}')">${itW > 10 ? it.n : ''}</div>` : ''}
               </div>
             </div>
           `;
@@ -5704,19 +5762,29 @@ function v41HookGanttButtons() {
 function v41InjectVacationTripRows() {
   const ganttEl = document.getElementById('gantt');
   if (!ganttEl) return;
-  // Compute window from the first today-line or from ganttStart variable
+  // v4.5: 用日曆邊界對齊主 renderGantt 的 totalDays
   const cfg = SCALE_CFG[ganttScale];
   if (!cfg) return;
   const windowStart = clampGanttStart(ganttScale);
-  const windowEnd = new Date(windowStart.getTime() + cfg.days * 86400000);
+  let windowEnd;
+  if (ganttScale === 'day') {
+    windowEnd = new Date(windowStart.getFullYear(), windowStart.getMonth() + 1, 1);
+  } else if (ganttScale === 'week') {
+    windowEnd = new Date(windowStart.getTime() + 91 * 86400000);
+  } else if (ganttScale === 'month') {
+    windowEnd = new Date(windowStart.getFullYear(), windowStart.getMonth() + 6, 1);
+  } else {
+    windowEnd = new Date(windowStart.getFullYear() + 1, 0, 1);
+  }
+  const totalDays = Math.round((windowEnd - windowStart) / 86400000);
 
   // Helper to compute bar position
   const barStyle = (start, end) => {
     const s = new Date(start); s.setHours(0,0,0,0);
     const e = new Date(end); e.setHours(0,0,0,0);
     if (e < windowStart || s > windowEnd) return null;
-    const sp = ((s - windowStart) / 86400000 / cfg.days * 100);
-    const ep = ((e.getTime() + 86400000 - windowStart) / 86400000 / cfg.days * 100); // include end day
+    const sp = ((s - windowStart) / 86400000 / totalDays * 100);
+    const ep = ((e.getTime() + 86400000 - windowStart) / 86400000 / totalDays * 100); // include end day
     const cs = Math.max(0, sp);
     const ce = Math.min(100, ep);
     return { left: cs, width: Math.max(2, ce - cs) };
@@ -6284,6 +6352,139 @@ function v43InjectSubItemsPanel(c, body) {
   body.appendChild(panel);
   renderCards();
 }
+
+// ─── v4.4: 子案件納入「我的任務」 ───────────────────────
+// 找出指派給我（assigneeId === ME.id 或 legacy owner === ME_NAME()）的子案件，
+// 在 renderPersonal 跑完後，作為獨立卡片附加到 #case-list。
+function v44CollectMySubItems() {
+  if (!ME || !ME.id) return [];
+  const myName = ME_NAME();
+  const out = [];
+  CASES.forEach(c => {
+    if (c.archived) return;
+    if (!Array.isArray(c.items) || c.items.length === 0) return;
+    c.items.forEach((it, idx) => {
+      // 「我的子案件」= 顯式指派給我；不抓「同主負責」的（那些已在主案件卡片內呈現）
+      const mine = (it.assigneeId && it.assigneeId === ME.id)
+        || (!it.assigneeId && it.owner === myName);
+      if (!mine) return;
+      out.push({ c, it, idx });
+    });
+  });
+  return out;
+}
+
+function v44MakeSubItemCard(c, it, idx) {
+  const stInfo = (V43_ITEM_STATUS.find(x => x.key === (it.status || 'todo')) || V43_ITEM_STATUS[0]);
+  const itStart = it.start ? new Date(it.start) : null;
+  const itEnd = it.end ? new Date(it.end) : null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const isDone = it.status === 'done' || it.status === 'closed';
+  const overdue = !isDone && itEnd && itEnd < today;
+  const daysLeft = itEnd ? Math.round((itEnd - today) / 86400000) : null;
+
+  const el = document.createElement('div');
+  el.className = 'case-card sub-item-card';
+  // 子案件卡用左邊一條粗色 border 標識，且整體稍微縮排
+  el.style.cssText = `border-left:4px solid ${stInfo.color};background:linear-gradient(90deg,${stInfo.color}0A,transparent 40%);`;
+  el.onclick = () => openDrawer(c);
+
+  const subTypeChip = it.type ? `<span class="chip" style="font-size:10px;">${escapeHtml(it.type)}</span>` : '';
+  const dueText = isDone ? '已結案'
+    : (itEnd ? (overdue ? `逾期 ${-daysLeft} 天` : (daysLeft === 0 ? '今日到期' : `剩 ${daysLeft} 天`)) : '未設定到期日');
+
+  el.innerHTML = `
+    <div class="row1">
+      <div>
+        <div class="case-id" style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:10px;padding:1px 6px;background:${stInfo.color}22;color:${stInfo.color};border:1px solid ${stInfo.color}55;border-radius:8px;font-weight:600;">子案件</span>
+          ${c.id} · 第 ${idx+1} 件
+        </div>
+        <div class="title">${escapeHtml(it.n || '(未命名子案件)')}</div>
+        <div class="sub">來自主案 · ${escapeHtml(c.name)} · ${escapeHtml(c.hotel || '')}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span class="avatar" title="主負責：${c.designer}">${c.designer.slice(0,2)}</span>
+      </div>
+    </div>
+    <div class="row2">
+      ${subTypeChip}
+      <span class="chip" style="font-size:10px;background:${stInfo.color}22;color:${stInfo.color};border-color:${stInfo.color}55;">${stInfo.name}</span>
+      ${overdue ? '<span class="chip overdue">⚠ 逾期</span>' : ''}
+    </div>
+    <div class="row3">
+      <span>${itStart ? '開始 ' + md(itStart) : '開始日未設'} · ${itEnd ? '結束 ' + md(itEnd) : '結束日未設'}</span>
+      <span>${dueText}</span>
+    </div>
+  `;
+  return el;
+}
+
+const _v44OrigRenderPersonal = window.renderPersonal;
+window.renderPersonal = function() {
+  _v44OrigRenderPersonal();
+  // 只在 designer 視角（或 admin 的 view-as designer）顯示我的子案件
+  if (currentRole !== 'designer') return;
+  // 不在 collab/overdue 等 filter 下排除子案件——子案件總是出現（除非 filter 是 'overdue' 而它未逾期）
+  const subItems = v44CollectMySubItems();
+  if (subItems.length === 0) return;
+  const listEl = document.getElementById('case-list');
+  if (!listEl) return;
+
+  // 依目前 filter 篩子案件
+  const today = new Date(); today.setHours(0,0,0,0);
+  let visible = subItems;
+  if (personalFilter === 'overdue') {
+    visible = subItems.filter(({it}) => {
+      if (it.status === 'done' || it.status === 'closed') return false;
+      return it.end && new Date(it.end) < today;
+    });
+  } else if (personalFilter === 'week') {
+    visible = subItems.filter(({it}) => {
+      if (!it.end) return false;
+      const end = new Date(it.end);
+      const diff = (end - today) / 86400000;
+      return diff >= 0 && diff <= 7;
+    });
+  } else if (personalFilter === 'collab') {
+    // 顯示「主案不是我但我負責子案件」的情況
+    visible = subItems.filter(({c}) => c.designer !== ME_NAME());
+  } else if (personalFilter === 'urgent' || personalFilter === 'gate') {
+    // 這兩個 filter 是主案件特有概念，不顯示子案件
+    visible = [];
+  }
+  if (visible.length === 0) return;
+
+  // 用一個分隔標題把子案件區分開
+  const divider = document.createElement('div');
+  divider.style.cssText = 'grid-column:1/-1;margin:14px 0 4px;padding:6px 10px;background:rgba(31,138,76,0.08);border-left:3px solid #1F8A4C;border-radius:4px;font-size:12px;font-weight:600;color:#1F5A2F;display:flex;align-items:center;gap:8px;';
+  divider.innerHTML = `📋 我的子案件 <span style="padding:1px 8px;background:#fff;border-radius:8px;font-size:11px;color:#1F8A4C;font-weight:500;">${visible.length}</span>`;
+  listEl.appendChild(divider);
+
+  // 排序：逾期 > 結束日早的 > 沒設日期
+  visible.sort((a,b) => {
+    const aOver = a.it.end && new Date(a.it.end) < today && a.it.status !== 'done';
+    const bOver = b.it.end && new Date(b.it.end) < today && b.it.status !== 'done';
+    if (aOver && !bOver) return -1;
+    if (!aOver && bOver) return 1;
+    const ae = a.it.end ? new Date(a.it.end).getTime() : Infinity;
+    const be = b.it.end ? new Date(b.it.end).getTime() : Infinity;
+    return ae - be;
+  });
+  visible.forEach(({c, it, idx}) => listEl.appendChild(v44MakeSubItemCard(c, it, idx)));
+
+  // 更新 KPI 的「負責中」加上子案件數
+  const kpi = document.getElementById('personal-kpi');
+  if (kpi) {
+    const openSubs = subItems.filter(({it}) => it.status !== 'done' && it.status !== 'closed').length;
+    if (openSubs > 0) {
+      const firstKpi = kpi.querySelector('.kpi:first-child .sub');
+      if (firstKpi && !firstKpi.textContent.includes('子案件')) {
+        firstKpi.textContent += ` · 子案件 ${openSubs}`;
+      }
+    }
+  }
+};
 
 // ═══ GO ═══════════════════════════════════════════════════════
 bootstrap();
