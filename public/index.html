@@ -6102,7 +6102,7 @@ function v43InjectSubItemsPanel(c, body) {
   // Helper: status pill HTML
   const statusPill = (k) => {
     const s = V43_ITEM_STATUS.find(x => x.key === k) || V43_ITEM_STATUS[0];
-    return `<span style="display:inline-block;padding:2px 8px;background:${s.color}22;color:${s.color};border:1px solid ${s.color}55;border-radius:10px;font-size:10px;font-weight:500;">${s.name}</span>`;
+    return `<span class="v43-status-pill" style="display:inline-block;padding:2px 8px;background:${s.color}22;color:${s.color};border:1px solid ${s.color}55;border-radius:10px;font-size:10px;font-weight:500;">${s.name}</span>`;
   };
 
   const inputStyle = 'width:100%;padding:6px 8px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;box-sizing:border-box;';
@@ -6118,8 +6118,8 @@ function v43InjectSubItemsPanel(c, body) {
             <!-- Header row: index, name preview, status, delete -->
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
               <span style="font-size:11px;color:var(--fg-muted,#8C8C8C);font-family:'SF Mono','Consolas',monospace;">#${i+1}</span>
-              <span style="font-weight:500;font-size:13px;color:var(--fg,#1F1F1F);">${escapeHtml(it.n || '(未命名子案件)')}</span>
-              ${assigneeName ? `<span style="font-size:11px;padding:1px 7px;background:rgba(0,0,0,0.06);border-radius:8px;color:var(--fg,#1F1F1F);">👤 ${escapeHtml(assigneeName)}</span>` : ''}
+              <span class="v43-name-preview" style="font-weight:500;font-size:13px;color:var(--fg,#1F1F1F);">${escapeHtml(it.n || '(未命名子案件)')}</span>
+              <span class="v43-assignee-chip" style="font-size:11px;padding:1px 7px;background:rgba(0,0,0,0.06);border-radius:8px;color:var(--fg,#1F1F1F);${assigneeName?'':'display:none;'}">${assigneeName?'👤 '+escapeHtml(assigneeName):''}</span>
               ${statusPill(it.status || 'todo')}
               ${canWrite ? `<button data-act="del" data-i="${i}" title="刪除此子案件" style="margin-left:auto;width:24px;height:24px;padding:0;background:transparent;border:1px solid var(--input-border,#D4D4D4);border-radius:4px;cursor:pointer;color:#9A2E2E;font-size:14px;line-height:1;">×</button>` : ''}
             </div>
@@ -6186,7 +6186,7 @@ function v43InjectSubItemsPanel(c, body) {
     `;
 
     if (canWrite) {
-      // Wire field changes
+      // Wire field changes — in-place header updates only (no re-render, to preserve focus)
       panel.querySelectorAll('input[data-i], select[data-i]').forEach(el => {
         const handler = (e) => {
           const i = Number(e.target.dataset.i);
@@ -6200,11 +6200,33 @@ function v43InjectSubItemsPanel(c, body) {
             const s = STAFF.find(x => x.id === v);
             items[i].owner = s ? s.name : '';
           }
-          // For changes to name / assignee / status, re-render to update header pill
-          if (k === 'n' || k === 'assigneeId' || k === 'status') renderCards();
+          // In-place header updates — DO NOT re-render (would destroy active input and lose focus)
+          const card = e.target.closest('.v43-item-card');
+          if (!card) return;
+          if (k === 'n') {
+            const preview = card.querySelector('.v43-name-preview');
+            if (preview) preview.textContent = v || '(未命名子案件)';
+          } else if (k === 'assigneeId') {
+            const chip = card.querySelector('.v43-assignee-chip');
+            const name = items[i].owner;
+            if (chip) {
+              if (name) { chip.textContent = '👤 ' + name; chip.style.display = ''; }
+              else { chip.textContent = ''; chip.style.display = 'none'; }
+            }
+          } else if (k === 'status') {
+            const pillEl = card.querySelector('.v43-status-pill');
+            if (pillEl) {
+              const s = V43_ITEM_STATUS.find(x => x.key === v) || V43_ITEM_STATUS[0];
+              pillEl.style.background = s.color + '22';
+              pillEl.style.color = s.color;
+              pillEl.style.borderColor = s.color + '55';
+              pillEl.textContent = s.name;
+            }
+          }
         };
-        el.oninput = handler;
-        el.onchange = handler;
+        // 'input' for text/date typing; 'change' for selects
+        if (el.tagName === 'SELECT') el.onchange = handler;
+        else el.oninput = handler;
       });
       // Add button
       const addBtn = panel.querySelector('#v43-item-add');
