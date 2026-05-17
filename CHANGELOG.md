@@ -1,5 +1,29 @@
 # Changelog
 
+## v4.4 (2026-05-18) · 子案件納入甘特 + 我的任務
+
+### 甘特圖（renderGantt 內 sub-row）
+- 展開時，每個子案件 bar 用自己的 `start / end / status` 渲染，未設則 fallback 主案件日期
+- bar 顏色用子案件狀態（V43_ITEM_STATUS 的六色：灰/棕/藍/黃/橘/綠），不再跟主案件同色
+- 子案件列加狀態 chip、負責人 chip（前 3 字）
+- bar tooltip 加上日期區間與負責人
+
+### 我的任務（renderPersonal v4.4 wrap）
+- 收集所有 `assigneeId === ME.id`（或 legacy `owner === ME 名字`）的子案件
+- 在主案件清單下方加分隔列「📋 我的子案件 N」
+- 每筆子案件渲染為獨立卡片：
+  - 左邊有狀態色條 + 微漸層底
+  - 標籤：「子案件」徽章 + 來源主案 ID + 第 N 件
+  - 第三列顯示 開始/結束 日 + 「逾期 X 天 / 剩 X 天 / 今日到期 / 已結案」
+- filter 連動：`overdue` 只顯示逾期子案件、`week` 顯示 7 天內到期、`collab` 顯示主案不是我的子案件
+- 主負責人 KPI 卡 sub 加「· 子案件 N」
+
+### 子案件編輯 UI 修正（連 v4.3 hotfix）
+- 名稱輸入不再丟焦點：取消每按鍵 re-render，改為 in-place 更新頂部預覽
+- select 綁 onchange、input 綁 oninput，避免雙觸發
+
+---
+
 ## v4.3 (2026-04-29) · 子案件完整功能 + 信件去重 + UX 修補
 
 ### A 區（UX 修補）
