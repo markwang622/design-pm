@@ -6087,7 +6087,6 @@ const V43_ITEM_STATUS = [
 
 function v43InjectSubItemsPanel(c, body) {
   if (!body) return;
-  // Decide write-permission for items
   const isAdmin = ME.role === 'admin';
   const myName = ME_NAME();
   const isPrimary = c.designer === myName || c._designerId === ME.id;
@@ -6096,81 +6095,142 @@ function v43InjectSubItemsPanel(c, body) {
 
   const panel = document.createElement('div');
   panel.className = 'v33-extra v43-items-panel';
-  panel.style.cssText = 'margin:14px 0;padding:12px;background:#F4FBF7;border:1px solid #BFE0CB;border-radius:6px;';
-  // Build items state (clone)
+  panel.style.cssText = 'margin:14px 0;padding:14px;background:#F4FBF7;border:1px solid #BFE0CB;border-radius:8px;';
+
   const items = JSON.parse(JSON.stringify(c.items || []));
-  const renderTable = () => {
-    const rows = items.length === 0
-      ? `<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">尚無子案件${canWrite ? '，點下方「＋ 新增子案件」開始' : ''}</div>`
-      : items.map((it, i) => `
-        <div class="v43-item-row" style="display:grid;grid-template-columns:1.4fr 1fr 1.2fr 0.8fr 0.8fr 0.9fr ${canWrite ? '24px' : ''};gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #DDEDE0;font-size:11px;">
-          <input data-i="${i}" data-k="n" value="${escapeHtml(it.n||'')}" placeholder="子案件名稱" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
-          <select data-i="${i}" data-k="type" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
-            ${CATS.map(cat => `<option value="${escapeHtml(cat)}" ${cat===it.type?'selected':''}>${escapeHtml(cat)}</option>`).join('')}
-          </select>
-          <select data-i="${i}" data-k="assigneeId" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
-            <option value="">(同主負責)</option>
-            ${STAFF.filter(s=>s.active).map(s=>`<option value="${s.id}" ${(it.assigneeId===s.id||it.owner===s.name)?'selected':''}>${escapeHtml(s.name)}</option>`).join('')}
-          </select>
-          <input type="date" data-i="${i}" data-k="start" value="${it.start||''}" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
-          <input type="date" data-i="${i}" data-k="end" value="${it.end||''}" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
-          <select data-i="${i}" data-k="status" ${canWrite?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:3px;font-size:11px;">
-            ${V43_ITEM_STATUS.map(s=>`<option value="${s.key}" ${(it.status||'todo')===s.key?'selected':''}>${s.name}</option>`).join('')}
-          </select>
-          ${canWrite ? `<button data-act="del" data-i="${i}" style="width:20px;height:20px;padding:0;background:transparent;border:1px solid #D4D4D4;border-radius:3px;cursor:pointer;color:#9A2E2E;font-size:12px;line-height:18px;text-align:center;">×</button>` : ''}
-        </div>
-      `).join('');
+
+  // Helper: status pill HTML
+  const statusPill = (k) => {
+    const s = V43_ITEM_STATUS.find(x => x.key === k) || V43_ITEM_STATUS[0];
+    return `<span style="display:inline-block;padding:2px 8px;background:${s.color}22;color:${s.color};border:1px solid ${s.color}55;border-radius:10px;font-size:10px;font-weight:500;">${s.name}</span>`;
+  };
+
+  const inputStyle = 'width:100%;padding:6px 8px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;box-sizing:border-box;';
+  const labelStyle = 'display:block;font-size:10px;color:var(--fg-muted,#8C8C8C);margin-bottom:3px;font-weight:500;letter-spacing:0.2px;';
+
+  const renderCards = () => {
+    const cards = items.length === 0
+      ? `<div style="color:var(--fg-muted,#8C8C8C);font-size:12px;padding:14px;text-align:center;background:rgba(255,255,255,0.5);border-radius:6px;border:1px dashed #BFE0CB;">尚無子案件${canWrite ? '，點下方「＋ 新增子案件」開始' : ''}</div>`
+      : items.map((it, i) => {
+        const assigneeName = it.assigneeId ? (STAFF.find(s => s.id === it.assigneeId)?.name || it.owner) : (it.owner || '');
+        return `
+          <div class="v43-item-card" data-idx="${i}" style="background:var(--card-bg,#fff);border:1px solid #DDEDE0;border-radius:6px;padding:12px;margin-bottom:8px;">
+            <!-- Header row: index, name preview, status, delete -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+              <span style="font-size:11px;color:var(--fg-muted,#8C8C8C);font-family:'SF Mono','Consolas',monospace;">#${i+1}</span>
+              <span style="font-weight:500;font-size:13px;color:var(--fg,#1F1F1F);">${escapeHtml(it.n || '(未命名子案件)')}</span>
+              ${assigneeName ? `<span style="font-size:11px;padding:1px 7px;background:rgba(0,0,0,0.06);border-radius:8px;color:var(--fg,#1F1F1F);">👤 ${escapeHtml(assigneeName)}</span>` : ''}
+              ${statusPill(it.status || 'todo')}
+              ${canWrite ? `<button data-act="del" data-i="${i}" title="刪除此子案件" style="margin-left:auto;width:24px;height:24px;padding:0;background:transparent;border:1px solid var(--input-border,#D4D4D4);border-radius:4px;cursor:pointer;color:#9A2E2E;font-size:14px;line-height:1;">×</button>` : ''}
+            </div>
+
+            <!-- Row 1: name (full width) -->
+            <div style="margin-bottom:10px;">
+              <label style="${labelStyle}">子案件名稱 *</label>
+              <input data-i="${i}" data-k="n" value="${escapeHtml(it.n||'')}" placeholder="例：主視覺、首圖、文案調整…" ${canWrite?'':'disabled'} style="${inputStyle}">
+            </div>
+
+            <!-- Row 2: type + assignee -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+              <div>
+                <label style="${labelStyle}">主類別</label>
+                <select data-i="${i}" data-k="type" ${canWrite?'':'disabled'} style="${inputStyle}">
+                  ${CATS.map(cat => `<option value="${escapeHtml(cat)}" ${cat===it.type?'selected':''}>${escapeHtml(cat)}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label style="${labelStyle}">負責人</label>
+                <select data-i="${i}" data-k="assigneeId" ${canWrite?'':'disabled'} style="${inputStyle}">
+                  <option value="">（同主負責）</option>
+                  ${STAFF.filter(s=>s.active && s.role !== 'admin').map(s=>`<option value="${s.id}" ${(it.assigneeId===s.id||(!it.assigneeId&&it.owner===s.name))?'selected':''}>${escapeHtml(s.name)}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+
+            <!-- Row 3: start + end + status -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+              <div>
+                <label style="${labelStyle}">開始日</label>
+                <input type="date" data-i="${i}" data-k="start" value="${it.start||''}" ${canWrite?'':'disabled'} style="${inputStyle}">
+              </div>
+              <div>
+                <label style="${labelStyle}">結束日</label>
+                <input type="date" data-i="${i}" data-k="end" value="${it.end||''}" ${canWrite?'':'disabled'} style="${inputStyle}">
+              </div>
+              <div>
+                <label style="${labelStyle}">狀態</label>
+                <select data-i="${i}" data-k="status" ${canWrite?'':'disabled'} style="${inputStyle}">
+                  ${V43_ITEM_STATUS.map(s=>`<option value="${s.key}" ${(it.status||'todo')===s.key?'selected':''}>${s.name}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
     panel.innerHTML = `
-      <div style="display:flex;align-items:center;margin-bottom:8px;">
-        <span style="font-size:13px;font-weight:500;color:var(--fg,#1F1F1F);">📋 子案件（${items.length}）</span>
-        ${canWrite ? '<span style="margin-left:8px;font-size:11px;color:#1F8A4C;">✓ 可編輯</span>' : '<span style="margin-left:8px;font-size:11px;color:#8C8C8C;">僅可瀏覽</span>'}
+      <div style="display:flex;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:14px;font-weight:600;color:var(--fg,#1F1F1F);">📋 子案件</span>
+        <span style="padding:1px 8px;background:rgba(0,0,0,0.08);border-radius:10px;font-size:11px;color:var(--fg,#1F1F1F);">${items.length}</span>
+        ${canWrite
+          ? '<span style="margin-left:auto;font-size:11px;color:#1F8A4C;">✓ 可編輯</span>'
+          : '<span style="margin-left:auto;font-size:11px;color:var(--fg-muted,#8C8C8C);">僅可瀏覽</span>'}
       </div>
-      ${items.length > 0 ? `
-        <div style="display:grid;grid-template-columns:1.4fr 1fr 1.2fr 0.8fr 0.8fr 0.9fr ${canWrite ? '24px' : ''};gap:6px;font-size:10px;color:#8C8C8C;padding:4px 0;border-bottom:1px solid #BFE0CB;">
-          <span>名稱</span><span>主類別</span><span>負責人</span><span>開始</span><span>結束</span><span>狀態</span>${canWrite ? '<span></span>' : ''}
-        </div>
-      ` : ''}
-      ${rows}
+      <div id="v43-items-container">${cards}</div>
       ${canWrite ? `
-        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
-          <button id="v43-item-add" style="padding:5px 12px;background:#fff;border:1px solid #1F8A4C;color:#1F8A4C;border-radius:4px;cursor:pointer;font-size:12px;">＋ 新增子案件</button>
-          <button id="v43-items-save" style="padding:5px 14px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">💾 儲存子案件</button>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button id="v43-item-add" style="padding:7px 14px;background:#fff;border:1px solid #1F8A4C;color:#1F8A4C;border-radius:5px;cursor:pointer;font-size:12px;font-weight:500;">＋ 新增子案件</button>
+          <button id="v43-items-save" style="padding:7px 18px;background:#1F8A4C;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:500;margin-left:auto;">💾 儲存子案件</button>
         </div>
       ` : ''}
     `;
+
     if (canWrite) {
-      panel.querySelectorAll('input,select').forEach(el => {
-        el.oninput = (e) => {
+      // Wire field changes
+      panel.querySelectorAll('input[data-i], select[data-i]').forEach(el => {
+        const handler = (e) => {
           const i = Number(e.target.dataset.i);
           const k = e.target.dataset.k;
           let v = e.target.value;
           if (k === 'assigneeId') v = v ? Number(v) : null;
           if (k === 'start' || k === 'end') v = v || null;
           items[i][k] = v;
-          // Mirror assigneeId → owner name for legacy compat
+          // Mirror assigneeId → owner name (legacy)
           if (k === 'assigneeId') {
             const s = STAFF.find(x => x.id === v);
             items[i].owner = s ? s.name : '';
           }
+          // For changes to name / assignee / status, re-render to update header pill
+          if (k === 'n' || k === 'assigneeId' || k === 'status') renderCards();
         };
+        el.oninput = handler;
+        el.onchange = handler;
       });
+      // Add button
       const addBtn = panel.querySelector('#v43-item-add');
       if (addBtn) addBtn.onclick = () => {
         items.push({ n: '', type: CATS[0], owner: '', assigneeId: null, start: null, end: null, status: 'todo' });
-        renderTable();
+        renderCards();
+        // Scroll to and focus new card's name input
+        setTimeout(() => {
+          const last = panel.querySelector(`.v43-item-card[data-idx="${items.length-1}"]`);
+          last?.scrollIntoView({block: 'center', behavior: 'smooth'});
+          last?.querySelector('input[data-k="n"]')?.focus();
+        }, 50);
       };
+      // Delete buttons
       panel.querySelectorAll('button[data-act="del"]').forEach(btn => {
         btn.onclick = () => {
           const i = Number(btn.dataset.i);
           if (confirm(`刪除子案件「${items[i].n || '(未命名)'}」？`)) {
             items.splice(i, 1);
-            renderTable();
+            renderCards();
           }
         };
       });
+      // Save button
       const saveBtn = panel.querySelector('#v43-items-save');
       if (saveBtn) saveBtn.onclick = async () => {
-        // Validation
         for (const it of items) {
           if (!it.n || !it.n.trim()) { showToast('每筆子案件都需要填名稱', 'err'); return; }
           if (it.start && it.end && it.end < it.start) { showToast(`「${it.n}」結束日不能早於開始日`, 'err'); return; }
@@ -6187,7 +6247,7 @@ function v43InjectSubItemsPanel(c, body) {
             end: it.end || null,
             status: it.status || 'todo',
           }));
-          const updated = await api.cases.patchItems(c.id, { items: cleaned, reason });
+          await api.cases.patchItems(c.id, { items: cleaned, reason });
           c.items = cleaned;
           showToast('✓ 子案件已儲存');
           await reloadCase(c.id);
@@ -6198,8 +6258,9 @@ function v43InjectSubItemsPanel(c, body) {
       };
     }
   };
+
   body.appendChild(panel);
-  renderTable();
+  renderCards();
 }
 
 // ═══ GO ═══════════════════════════════════════════════════════
