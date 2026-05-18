@@ -2647,58 +2647,80 @@ function findStaffId(name) {
 }
 
 // ─── Bootstrap: load me + staff + cases, then render ─────────
-async function bootstrap() {
-  // 1. auth
-  try {
-    const me = await api.me();
-    ME = {
-      id: me.id, name: me.name, email: me.email,
-      role: me.role, seniority: me.seniority || 'mid',
-    };
-  } catch (e) {
-    location.replace('/login');
-    return;
+// v4.6 hotfix: wrap each step independently so a single failure can't lock
+// the loading overlay on screen forever. overlay 一定會在最後被拿掉。
+function _v46HideLoader() {
+  const o = document.getElementById('app-loading-overlay');
+  if (o) o.remove();
+  const m = document.querySelector('.main');
+  if (m) m.style.visibility = '';
+}
+// Safety net: 即使 bootstrap 中途 throw 沒進 finally，8 秒後強制拿掉 overlay
+setTimeout(() => {
+  if (document.getElementById('app-loading-overlay')) {
+    console.warn('[bootstrap] safety-net removed loading overlay after 8s');
+    _v46HideLoader();
   }
-  // 2. hydrate
-  try {
-    const [rawStaff, rawCases] = await Promise.all([api.staff.list(), api.cases.list()]);
-    STAFF = rawStaff.map(normalizeStaff);
-    CASES = rawCases.map(normalizeCase);
-    decorateCases();
-  } catch (e) {
-    showToast('載入資料失敗：' + (e.message || '連線錯誤'), 'err');
-    STAFF = []; CASES = [];
-  }
-  // 3. set default role + view from login
-  currentRole = ME.role === 'admin' ? 'admin' : 'designer';
-  currentView = currentRole === 'admin' ? 'dashboard' : 'personal';
-  // 4. wire header identity + logout
-  const hdr = document.querySelector('header .sub') || document.querySelector('header');
-  if (hdr && !document.getElementById('user-badge')) {
-    const badge = document.createElement('span');
-    badge.id = 'user-badge';
-    badge.style.cssText = 'margin-left:12px;font-size:12px;color:#6B6B6B;';
-    badge.innerHTML = `👤 ${ME.name} · ${ME.role === 'admin' ? '管理員' : '設計師'} <button id="logout-btn" style="margin-left:8px;padding:3px 8px;font-size:11px;background:#F5F5F5;border:1px solid #D4D4D4;border-radius:4px;cursor:pointer;">登出</button>`;
-    hdr.appendChild(badge);
-    document.getElementById('logout-btn').onclick = async () => {
-      try { await api.logout(); } catch {}
-      location.replace('/login');
-    };
-  }
-  // 5. activate correct role button
-  document.querySelectorAll('.role-switch button').forEach(b => {
-    b.classList.toggle('active', b.dataset.role === currentRole);
-  });
-  // 6. initial render
-  renderNav();
-  switchView(currentView);
-  showEmail('reviewGate');
+}, 8000);
 
-  // 7. v4.6: 把 loading overlay 拿掉、main 顯示出來（避免登入後閃 "Sunny" 預設值）
-  const _v46Overlay = document.getElementById('app-loading-overlay');
-  if (_v46Overlay) _v46Overlay.remove();
-  const _v46Main = document.querySelector('.main');
-  if (_v46Main) _v46Main.style.visibility = '';
+async function bootstrap() {
+  try {
+    // 1. auth
+    try {
+      const me = await api.me();
+      ME = {
+        id: me.id, name: me.name, email: me.email,
+        role: me.role, seniority: me.seniority || 'mid',
+      };
+    } catch (e) {
+      location.replace('/login');
+      return;
+    }
+    // 2. hydrate
+    try {
+      const [rawStaff, rawCases] = await Promise.all([api.staff.list(), api.cases.list()]);
+      STAFF = rawStaff.map(normalizeStaff);
+      CASES = rawCases.map(normalizeCase);
+      try { decorateCases(); } catch (e) { console.warn('decorateCases failed', e); }
+    } catch (e) {
+      showToast('載入資料失敗：' + (e.message || '連線錯誤'), 'err');
+      STAFF = []; CASES = [];
+    }
+    // 3. set default role + view from login
+    currentRole = ME.role === 'admin' ? 'admin' : 'designer';
+    currentView = currentRole === 'admin' ? 'dashboard' : 'personal';
+    // 4. wire header identity + logout
+    try {
+      const hdr = document.querySelector('header .sub') || document.querySelector('header');
+      if (hdr && !document.getElementById('user-badge')) {
+        const badge = document.createElement('span');
+        badge.id = 'user-badge';
+        badge.style.cssText = 'margin-left:12px;font-size:12px;color:#6B6B6B;';
+        badge.innerHTML = `👤 ${ME.name} · ${ME.role === 'admin' ? '管理員' : '設計師'} <button id="logout-btn" style="margin-left:8px;padding:3px 8px;font-size:11px;background:#F5F5F5;border:1px solid #D4D4D4;border-radius:4px;cursor:pointer;">登出</button>`;
+        hdr.appendChild(badge);
+        document.getElementById('logout-btn').onclick = async () => {
+          try { await api.logout(); } catch {}
+          location.replace('/login');
+        };
+      }
+    } catch (e) { console.warn('header wire failed', e); }
+    // 5. activate correct role button
+    try {
+      document.querySelectorAll('.role-switch button').forEach(b => {
+        b.classList.toggle('active', b.dataset.role === currentRole);
+      });
+    } catch (e) { console.warn('role-switch toggle failed', e); }
+    // 6. initial render — each protected so any one failure doesn't hide loader
+    try { renderNav(); } catch (e) { console.warn('renderNav failed', e); }
+    try { switchView(currentView); } catch (e) { console.warn('switchView failed', e); }
+    try { showEmail('reviewGate'); } catch (e) { console.warn('showEmail failed', e); }
+  } catch (e) {
+    console.error('[bootstrap] unexpected error', e);
+    showToast('啟動失敗：' + (e?.message || '未知錯誤'), 'err');
+  } finally {
+    // 7. v4.6: 不論成功失敗都要拿掉 loading overlay，避免畫面卡住
+    _v46HideLoader();
+  }
 }
 
 // ═══ Mutation hooks — persist to API then reconcile ═══════════
