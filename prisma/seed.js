@@ -38,9 +38,37 @@ async function seedHotels() {
   console.log(`[seed] Hotels: upserted ${n} rows`);
 }
 
+// v4.7: 需求單位字典（同 hotels 邏輯 — 每次部署 upsert，不覆蓋 admin 手動編輯）
+async function seedRequestUnits() {
+  const units = [
+    { name: '集團執辦', sortOrder: 10 },
+    { name: '餐飲行銷', sortOrder: 20 },
+    { name: '客房行銷', sortOrder: 30 },
+    { name: '客務部',   sortOrder: 40 },
+    { name: '餐飲部',   sortOrder: 50 },
+    { name: '採購',     sortOrder: 60 },
+    { name: '工務',     sortOrder: 70 },
+    { name: '宜蘭行銷', sortOrder: 80 },
+    { name: '花蓮行銷', sortOrder: 90 },
+    { name: '嘉義行銷', sortOrder: 100 },
+    { name: '台中行銷', sortOrder: 110 },
+  ];
+  let n = 0;
+  for (const u of units) {
+    await prisma.requestUnit.upsert({
+      where: { name: u.name },
+      create: u,
+      update: { },
+    });
+    n++;
+  }
+  console.log(`[seed] RequestUnits: upserted ${n} rows`);
+}
+
 async function main() {
   // Hotels run unconditionally — safe for both fresh and existing DBs
   try { await seedHotels(); } catch (e) { console.warn('[seed] hotels failed:', e.message); }
+  try { await seedRequestUnits(); } catch (e) { console.warn('[seed] units failed:', e.message); }
 
   const existingStaff = await prisma.staff.count();
   if (existingStaff > 0) {

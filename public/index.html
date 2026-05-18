@@ -1208,9 +1208,9 @@ let HOTELS = [
   {region:'花蓮', name:'花蓮館',     sortOrder: 90},
   {region:'花蓮', name:'花太館',     sortOrder: 100},
 ];
-const REQUEST_UNITS = [
-  '餐飲行銷','客房行銷','客務部','餐飲部','採購','工務',
-  // v3.5 additions
+// v4.7: REQUEST_UNITS 現在由 /api/units 載入；保留預設值供 SPA 在 API 還沒回來前顯示
+let REQUEST_UNITS = [
+  '集團執辦','餐飲行銷','客房行銷','客務部','餐飲部','採購','工務',
   '宜蘭行銷','花蓮行銷','嘉義行銷','台中行銷',
 ];
 const STATUSES = [
@@ -4439,6 +4439,13 @@ api.hotels = {
   update: (id, b) => fetchJson('PATCH', `/api/hotels/${id}`, b),
   delete: (id) => fetchJson('DELETE', `/api/hotels/${id}`),
 };
+// v4.7: 需求單位 CRUD
+api.units = {
+  list:   () => fetchJson('GET', '/api/units'),
+  create: (b) => fetchJson('POST', '/api/units', b),
+  update: (id, b) => fetchJson('PATCH', `/api/units/${id}`, b),
+  delete: (id) => fetchJson('DELETE', `/api/units/${id}`),
+};
 api.cases.clone = (id, b) => fetchJson('POST', `/api/cases/${encodeURIComponent(id)}/clone`, b);
 
 // (Hotels) Load from API and rebuild HOTELS in the canonical order.
@@ -4450,6 +4457,23 @@ async function v37LoadHotels() {
       rows.forEach(h => HOTELS.push(h));
     }
   } catch (e) { console.warn('hotel load failed', e); }
+}
+
+// v4.7: REQUEST_UNITS 由 API 載入，並重新填案件建立表單下拉
+async function v47LoadUnits() {
+  try {
+    const rows = await api.units.list();
+    if (Array.isArray(rows) && rows.length) {
+      REQUEST_UNITS = rows.map(u => u.name);
+    }
+  } catch (e) { console.warn('units load failed', e); }
+  // 重新填「需求單位」<select>，這樣建案表單會同步
+  const uSel = document.getElementById('f-unit');
+  if (uSel) {
+    const cur = uSel.value;
+    uSel.innerHTML = REQUEST_UNITS.map(u => `<option value="${u}">${u}</option>`).join('');
+    if (cur && REQUEST_UNITS.includes(cur)) uSel.value = cur;
+  }
 }
 
 // (#dashboard #4) Patch renderDashboard:
@@ -5103,13 +5127,123 @@ window.renderStaff = function() {
     btn.onclick = v37OpenHotelManager;
     header.appendChild(btn);
   }
+  // v4.7: 需求單位管理按鈕
+  if (header && !header.querySelector('.v47-unit-mgr-btn')) {
+    const btn = document.createElement('button');
+    btn.className = 'v47-unit-mgr-btn';
+    btn.style.cssText = 'margin-left:8px;padding:8px 14px;background:#fff;color:#1F1F1F;border:1px solid #D4D4D4;border-radius:6px;cursor:pointer;font-size:13px;';
+    btn.textContent = '📋 需求單位管理';
+    btn.onclick = v47OpenUnitManager;
+    header.appendChild(btn);
+  }
 };
+
+// ─── v4.7 需求單位管理 admin modal（仿 v37 館別管理）────────
+function v47OpenUnitManager() {
+  let bg = document.getElementById('v47-unit-bg');
+  if (!bg) {
+    bg = document.createElement('div');
+    bg.id = 'v47-unit-bg';
+    bg.className = 'drawer-bg';
+    bg.style.zIndex = '85';
+    document.body.appendChild(bg);
+  }
+  let modal = document.getElementById('v47-unit-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'v47-unit-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:8px;padding:20px;width:min(560px,94%);max-height:85vh;overflow-y:auto;z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);';
+    document.body.appendChild(modal);
+  }
+  v47RenderUnitManager(modal);
+  bg.classList.add('open');
+  modal.style.display = 'block';
+}
+
+async function v47RenderUnitManager(modal) {
+  const rows = await api.units.list({ }).catch(() => []);
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:16px;">📋 需求單位管理</h3>
+      <button id="v47-unit-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    <p style="color:#8C8C8C;font-size:12px;margin:0 0 12px;line-height:1.6;">新增、停用需求單位。停用後不再出現於下拉，但歷史案件不受影響。已被案件引用的單位無法刪除，請改為停用。</p>
+    <div style="border:1px solid #E5E5E5;border-radius:6px;overflow:hidden;margin-bottom:14px;">
+      <div style="display:grid;grid-template-columns:1fr 80px 80px 120px;background:#F4F4F4;padding:8px 12px;font-size:11px;font-weight:500;color:#404040;">
+        <span>名稱</span><span>順序</span><span>狀態</span><span>動作</span>
+      </div>
+      ${rows.map(u => `
+        <div style="display:grid;grid-template-columns:1fr 80px 80px 120px;align-items:center;padding:8px 12px;border-top:1px solid #F0F0F0;font-size:12px;">
+          <span>${escapeHtml(u.name)}</span>
+          <span>${u.sortOrder}</span>
+          <span style="color:${u.active ? '#1F8A4C' : '#9A2E2E'};">${u.active ? '啟用' : '停用'}</span>
+          <span style="display:flex;gap:4px;">
+            <button onclick="v47UnitToggle(${u.id}, ${!u.active})" style="font-size:10px;padding:3px 8px;background:#fff;border:1px solid #D4D4D4;border-radius:3px;cursor:pointer;">${u.active ? '停用' : '啟用'}</button>
+            <button onclick="v47UnitDelete(${u.id})" style="font-size:10px;padding:3px 8px;background:#fff;border:1px solid #D4D4D4;border-radius:3px;cursor:pointer;color:#9A2E2E;">刪除</button>
+          </span>
+        </div>
+      `).join('')}
+    </div>
+    <div style="border:1px solid #1F8A4C;border-radius:6px;padding:12px;background:#F4FBF7;">
+      <div style="font-size:13px;font-weight:500;margin-bottom:8px;">＋ 新增需求單位</div>
+      <div style="display:grid;grid-template-columns:1fr 80px auto;gap:8px;align-items:end;font-size:12px;">
+        <label>名稱<input id="v47-u-name" placeholder="例：嘉義行銷" style="width:100%;padding:6px;border:1px solid #D4D4D4;border-radius:4px;"></label>
+        <label>順序<input id="v47-u-sort" type="number" placeholder="自動" style="width:100%;padding:6px;border:1px solid #D4D4D4;border-radius:4px;"></label>
+        <button id="v47-u-add" style="padding:7px 14px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;">新增</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('v47-unit-close').onclick = () => v47CloseUnitManager();
+  document.getElementById('v47-unit-bg').onclick = () => v47CloseUnitManager();
+  document.getElementById('v47-u-add').onclick = async () => {
+    const name = document.getElementById('v47-u-name').value.trim();
+    const sortOrder = document.getElementById('v47-u-sort').value;
+    if (!name) { showToast('請填名稱', 'err'); return; }
+    try {
+      await api.units.create({ name, ...(sortOrder ? { sortOrder: Number(sortOrder) } : {}) });
+      showToast('✓ 已新增需求單位 ' + name);
+      await v47LoadUnits();
+      v47RenderUnitManager(modal);
+    } catch (e) {
+      if (e.status === 409) showToast('需求單位名稱重複', 'err');
+      else showToast('新增失敗：' + (e.data?.message || e.message), 'err');
+    }
+  };
+}
+function v47CloseUnitManager() {
+  document.getElementById('v47-unit-bg')?.classList.remove('open');
+  const m = document.getElementById('v47-unit-modal');
+  if (m) m.style.display = 'none';
+}
+async function v47UnitToggle(id, makeActive) {
+  try {
+    await api.units.update(id, { active: makeActive });
+    showToast(`✓ 需求單位已${makeActive ? '啟用' : '停用'}`);
+    await v47LoadUnits();
+    v47RenderUnitManager(document.getElementById('v47-unit-modal'));
+  } catch (e) { showToast('操作失敗：' + e.message, 'err'); }
+}
+async function v47UnitDelete(id) {
+  if (!confirm('確定要刪除此需求單位？已被案件引用的單位無法刪除，請改用停用。')) return;
+  try {
+    await api.units.delete(id);
+    showToast('✓ 已刪除');
+    await v47LoadUnits();
+    v47RenderUnitManager(document.getElementById('v47-unit-modal'));
+  } catch (e) {
+    if (e.status === 409) showToast(e.data?.message || '此單位仍有案件使用，請改為停用', 'err');
+    else showToast('刪除失敗：' + e.message, 'err');
+  }
+}
 
 // Hook bootstrap to load hotels first
 const _v37OrigBootstrap = bootstrap;
 bootstrap = async function() {
-  // Load hotels BEFORE original bootstrap so HOTELS array is ready
-  await v37LoadHotels();
+  // Load hotels + units BEFORE original bootstrap so HOTELS / REQUEST_UNITS arrays are ready
+  await Promise.all([
+    v37LoadHotels(),
+    v47LoadUnits(), // v4.7
+  ]);
   await _v37OrigBootstrap();
 };
 

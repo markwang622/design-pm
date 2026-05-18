@@ -17,6 +17,7 @@ import staffRouter from './routes/staff.js';
 import notifRouter from './routes/notifications.js';
 import analyticsRouter from './routes/analytics.js';
 import hotelsRouter from './routes/hotels.js';
+import unitsRouter from './routes/units.js'; // v4.7
 import vacationsRouter from './routes/vacations.js';
 import businessTripsRouter from './routes/businessTrips.js';
 import adminRouter from './routes/admin.js';
@@ -113,6 +114,7 @@ app.use('/api/staff', staffRouter);
 app.use('/api/notifications', notifRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/hotels', hotelsRouter);
+app.use('/api/units', unitsRouter); // v4.7
 app.use('/api/vacations', vacationsRouter);
 app.use('/api/business-trips', businessTripsRouter);
 app.use('/api/admin', adminRouter);

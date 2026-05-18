@@ -1,5 +1,28 @@
 # Changelog
 
+## v4.7 (2026-05-18) · 需求單位後台動態管理
+
+### 新增 RequestUnit 字典
+- 新 Prisma model `RequestUnit`（name 唯一、sortOrder、active），對應資料表 `request_units`
+- Zeabur 用 `prisma db push` 自動同步 schema，不需手動 migration
+- seed.js 加 `seedRequestUnits()`，每次部署 upsert 11 個預設單位（集團執辦 / 餐飲行銷 / 客房行銷 / 客務部 / 餐飲部 / 採購 / 工務 / 宜蘭行銷 / 花蓮行銷 / 嘉義行銷 / 台中行銷）
+
+### 後端
+- 新 route `src/routes/units.js`，仿 hotels：
+  - `GET /api/units` — 所有人可呼叫（建案下拉用），可加 `?includeInactive=1`
+  - `POST /api/units` — admin 新增（name 必填、sortOrder 可省略自動 +10）
+  - `PATCH /api/units/:id` — admin 改名 / 改順序 / 停啟用
+  - `DELETE /api/units/:id` — admin 刪除；若仍有案件 requester 對應此單位則回 409 `in_use`
+- `src/index.js` 註冊 `/api/units`
+
+### 前端
+- `REQUEST_UNITS` 改為 `let`，bootstrap 時 `v47LoadUnits()` 拉 `/api/units` 取代預設值
+- 建案彈窗的「需求單位」下拉動態套用，admin 改完即時更新
+- Staff 頁加「📋 需求單位管理」按鈕（admin only），開啟同 v37 館別管理風格的 modal
+- 功能：新增 / 停啟用 / 刪除（被引用會出 409 警示請改停用）
+
+---
+
 ## v4.6 (2026-05-18) · 修密碼強度檢查 + 修登入後身分閃現
 
 ### 新增/重設密碼修正

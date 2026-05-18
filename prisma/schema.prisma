@@ -168,3 +168,14 @@ model Hotel {
   updatedAt DateTime @updatedAt
   @@map("hotels")
 }
+
+// v4.7: 需求單位字典（admin 可動態新增 / 編輯 / 隱藏）
+model RequestUnit {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique       // 餐飲行銷 / 客房行銷 / 集團執辦 / 工務 / ...
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@map("request_units")
+}
