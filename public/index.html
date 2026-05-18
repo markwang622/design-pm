@@ -1412,7 +1412,17 @@ function renderPersonal() {
     <div class="kpi" style="border-color:#EDD79A;"><div class="label">確稿待簽核中</div><div class="value" style="color:#8C6A12;">${gate.length}</div><div class="sub">確稿日前 3 工作天內</div></div>
     <div class="kpi" style="border-color:#C9DCF0;"><div class="label">協作中</div><div class="value" style="color:#1E5A85;">${collab.length}</div><div class="sub">他人主案 · 我協作</div></div>
   `;
-  document.getElementById('hello').textContent = `早安，${ME_NAME()}`;
+  // v4.7: 招呼語依本機時間切換（英文友善版）
+  //   04:00–10:59 → Morning, Name
+  //   11:00–17:59 → Hi Name
+  //   18:00–03:59 → Evening, Name
+  const _h = new Date().getHours();
+  const _name = ME_NAME();
+  let _greet;
+  if (_h >= 4 && _h < 11)       _greet = `Morning, ${_name}`;
+  else if (_h >= 11 && _h < 18) _greet = `Hi ${_name}`;
+  else                          _greet = `Evening, ${_name}`;
+  document.getElementById('hello').textContent = _greet;
   // v4.0 fix: 動態算今日日期（之前寫死 4/23）
   const _wd = ['日','一','二','三','四','五','六'];
   const _today = new Date();
