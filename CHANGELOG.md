@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.6 (2026-05-18) · 修密碼強度檢查 + 修登入後身分閃現
+
+### 新增/重設密碼修正
+- **問題**：前端只擋「< 8 字元」，但後端 `validatePasswordStrength` 要求至少 10 字、含大小寫英文、含數字、且不在 banned 清單（password / 12345678 / design2026! / qwertyuiop / admin1234）。所以新增人員後再重設密碼幾乎都會被後端 422 weak_password 退件，使用者只看到「儲存失敗」訊息，誤以為功能壞掉。
+- **修正**：
+  - 前端 `v34SaveProfile` 改用與後端完全一致的強度規則
+  - 編輯表單裡顯示完整密碼規則提示 + 範例 `Welcome2026`
+  - 加 `weak_password` / `password_reset_forbidden` 兩種 toast 處理，會把後端訊息原封不動顯示
+
+### 登入後 "Sunny" 閃現修正
+- **問題**：HTML 寫死 `<h2>早安，Sunny</h2>` 與 role-switch 「Sunny (設計師)」「Mark (Admin)」，加上 `let ME = { name: 'Sunny' }` 預設值。Bootstrap 拉 `/api/auth/me` 之前頁面已 paint，所以登入後會閃約 1 秒「Sunny」/「Mark」的假身分。
+- **修正**：
+  - HTML placeholder 清空：`<h2 id="hello"></h2>`、role-switch 改為「設計師 / 管理員」
+  - `let ME` 初始 `name: ''`，`ME_NAME()` 回空字串
+  - 加 `#app-loading-overlay` 全螢幕 spinner，main 一開始 `visibility:hidden`，bootstrap 跑完才拿掉 overlay 並顯示 main
+
+---
+
 ## v4.5 (2026-05-18) · 甘特圖大小月正確化 + 休假/出差也進個人甘特
 
 ### 甘特圖月份按實際天數渲染

@@ -782,15 +782,20 @@ h1, h2, h3, h4 { font-weight: 500; }
     <div class="nav" id="nav"></div>
     <button class="create-btn" id="create-btn">＋ 建立專案</button>
     <div class="role-switch" id="role-switch">
-      <button data-role="designer" class="active">Sunny (設計師)</button>
-      <button data-role="admin">Mark (Admin)</button>
+      <button data-role="designer" class="active">設計師</button>
+      <button data-role="admin">管理員</button>
     </div>
   </div>
-  <div class="main">
+  <div id="app-loading-overlay" style="position:fixed;inset:0;background:var(--bg,#fff);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;font-family:'PingFang TC','Noto Sans TC',sans-serif;">
+    <div style="width:32px;height:32px;border:3px solid #E5E5E5;border-top-color:#1F8A4C;border-radius:50%;animation:appspin 0.9s linear infinite;"></div>
+    <div style="font-size:13px;color:#8C8C8C;">載入中…</div>
+    <style>@keyframes appspin { to { transform: rotate(360deg); } }</style>
+  </div>
+  <div class="main" style="visibility:hidden;">
     <div class="view active" data-view="personal">
       <div class="greeting">
-        <h2 id="hello">早安，Sunny</h2>
-        <p id="hello-sub">今天是 4/23（四）</p>
+        <h2 id="hello"></h2>
+        <p id="hello-sub"></p>
       </div>
       <div class="kpi-row" id="personal-kpi"></div>
       <div class="legend-row">
@@ -1286,9 +1291,11 @@ function decorateCases() {
 }
 
 // ============== Identity & State ==============
-// ME is hydrated by bootstrap() from /api/auth/me. Defaults kept for in-editor previews.
-let ME = { id: 0, name: 'Sunny', email: '', role: 'member', seniority: 'mid' };
-function ME_NAME() { return ME?.name || 'Sunny'; }
+// ME is hydrated by bootstrap() from /api/auth/me. Defaults intentionally blank;
+// bootstrap() shows a loading overlay until /api/auth/me resolves to avoid flashing
+// stale identity (v4.6 fix).
+let ME = { id: 0, name: '', email: '', role: 'member', seniority: 'mid' };
+function ME_NAME() { return ME?.name || ''; }
 function ADMIN_NAME() { return 'Mark'; }
 let currentRole = 'designer';
 let currentView = 'personal';
@@ -2686,6 +2693,12 @@ async function bootstrap() {
   renderNav();
   switchView(currentView);
   showEmail('reviewGate');
+
+  // 7. v4.6: 把 loading overlay 拿掉、main 顯示出來（避免登入後閃 "Sunny" 預設值）
+  const _v46Overlay = document.getElementById('app-loading-overlay');
+  if (_v46Overlay) _v46Overlay.remove();
+  const _v46Main = document.querySelector('.main');
+  if (_v46Main) _v46Main.style.visibility = '';
 }
 
 // ═══ Mutation hooks — persist to API then reconcile ═══════════
@@ -3424,12 +3437,14 @@ function v34EnsureProfileModal() {
         <div style="font-weight:500;font-size:13px;margin-bottom:8px;color:#404040;" id="v34-pf-pwtitle">修改密碼</div>
         <div id="v34-pf-pw-self" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;">
           <label style="grid-column:span 2;">舊密碼 <input id="v34-pf-pw-current" type="password" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;"></label>
-          <label>新密碼（≥ 8 字元）<input id="v34-pf-pw-new" type="password" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;"></label>
+          <label>新密碼 <input id="v34-pf-pw-new" type="password" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;"></label>
           <label>再次輸入 <input id="v34-pf-pw-new2" type="password" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;"></label>
+          <p style="grid-column:span 2;margin:0;color:#8C8C8C;font-size:11px;line-height:1.5;">密碼規則：至少 10 字、含大小寫英文、含至少 1 個數字，且不可包含「password / 12345678 / design2026! / qwertyuiop / admin1234」等常見字串。</p>
         </div>
         <div id="v34-pf-pw-admin" style="display:none;font-size:12px;">
           <p style="color:#8C8C8C;margin:0 0 6px;">為此成員設定新密碼（直接覆蓋，他下次登入即用新密碼）</p>
-          <label>新密碼（≥ 8 字元）<input id="v34-pf-pw-reset" type="text" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;font-family:'SF Mono','Consolas',monospace;"></label>
+          <label>新密碼 <input id="v34-pf-pw-reset" type="text" style="width:100%;padding:6px 8px;border:1px solid #D4D4D4;border-radius:5px;font-family:'SF Mono','Consolas',monospace;"></label>
+          <p style="margin:6px 0 0;color:#8C8C8C;font-size:11px;line-height:1.5;">密碼規則：至少 10 字、含大小寫英文、含至少 1 個數字，且不可包含「password / 12345678 / design2026! / qwertyuiop / admin1234」等常見字串。<br>例：<code style="background:#F4F4F4;padding:1px 4px;border-radius:3px;">Welcome2026</code></p>
         </div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
@@ -3511,10 +3526,23 @@ async function v34SaveProfile() {
   if (isAdmin && newSeniority !== t.seniority) body.seniority = newSeniority;
   if (isAdmin && !isSelf && newRole !== t.role) body.role = newRole;
 
+  // v4.6: 與後端 validatePasswordStrength 一致：≥10 字、含大小寫、含數字、不在 banned 清單
+  const _v46PwStrength = (pw) => {
+    if (typeof pw !== 'string') return '密碼格式錯誤';
+    if (pw.length < 10) return '密碼至少 10 字元';
+    if (!/[a-z]/.test(pw)) return '密碼必須含小寫英文字母';
+    if (!/[A-Z]/.test(pw)) return '密碼必須含大寫英文字母';
+    if (!/\d/.test(pw))    return '密碼必須含至少一個數字';
+    const banned = ['password', '12345678', 'design2026!', 'qwertyuiop', 'admin1234'];
+    if (banned.some(b => pw.toLowerCase().includes(b.toLowerCase()))) return '此密碼太常見，請換一個';
+    return null;
+  };
+
   if (isAdmin && !isSelf) {
     const resetPw = document.getElementById('v34-pf-pw-reset').value;
     if (resetPw) {
-      if (resetPw.length < 8) { showToast('新密碼至少 8 字元', 'err'); return; }
+      const err = _v46PwStrength(resetPw);
+      if (err) { showToast(err, 'err'); return; }
       body.resetPassword = resetPw;
     }
   }
@@ -3528,7 +3556,8 @@ async function v34SaveProfile() {
     if (cur || nw || nw2) {
       if (!cur || !nw || !nw2) { showToast('修改密碼三欄都要填', 'err'); return; }
       if (nw !== nw2) { showToast('兩次新密碼不一致', 'err'); return; }
-      if (nw.length < 8) { showToast('新密碼至少 8 字元', 'err'); return; }
+      const err = _v46PwStrength(nw);
+      if (err) { showToast(err, 'err'); return; }
       pwChange = { currentPassword: cur, newPassword: nw };
     }
   }
@@ -3562,7 +3591,9 @@ async function v34SaveProfile() {
   } catch (e) {
     if (e.status === 409) showToast('Email 重複，請換一個', 'err');
     else if (e.data?.error === 'wrong_current_password') showToast('舊密碼不正確', 'err');
-    else showToast('儲存失敗：' + (e.data?.message || e.message), 'err');
+    else if (e.data?.error === 'weak_password') showToast('密碼不夠強：' + (e.data.message || '至少 10 字、含大小寫與數字'), 'err');
+    else if (e.data?.error === 'password_reset_forbidden') showToast(e.data.message || '無權限重設此用戶密碼', 'err');
+    else showToast('儲存失敗：' + (e.data?.message || e.data?.error || e.message), 'err');
   }
 }
 
