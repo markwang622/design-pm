@@ -1,5 +1,26 @@
 # Changelog
 
+## v4.8 (2026-05-18) · 個人代表色 + 分級顏色語意化
+
+### Staff.color 個人色（12 色預設盤）
+- Prisma：`Staff.color String?`（nullable），存 palette key
+- 後端 `staff.js`：create / update schema 接受 `color`，校驗只能是 12 種 key 之一
+- 12 色：teal 湖綠 / sea 海藍 / lavender 霧紫 / copper 銅棕 / rose 玫紅 / mustard 芥黃 / forest 深綠 / indigo 靛 / brick 磚紅 / olive 橄欖 / slate 青灰 / plum 莓紫
+- 「編輯個人檔案」彈窗加色彩 picker，本人 + admin 都能改
+- 套用位置：
+  - 「我的任務」招呼語前的 10px 圓點（Morning, Mark · 前面就是個人色）
+  - 案件卡左側 4px 邊框
+  - 案件卡頭像（avatar）的背景色 + 文字色
+  - 甘特圖主案件 bar 改用個人色（先前是狀態色），label 右補上小灰底 status chip 補回狀態資訊
+  - 子案件卡保留 v44 狀態色，不打架
+
+### 分級顏色語意化
+- 統一處理所有 `class*="level-XX"` 的 chip：
+  - SS 金香檳 / S 緋紅 / A 琥珀 / B 藍 / C 中性灰 / D 米
+- renderPersonal / renderDashboard / renderKanban / renderHistory / renderGantt 後自動套用 `v48ApplyLevelChips()`
+
+---
+
 ## v4.7 (2026-05-18) · 需求單位後台動態管理
 
 ### 新增 RequestUnit 字典
