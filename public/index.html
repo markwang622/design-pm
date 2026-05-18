@@ -4441,7 +4441,7 @@ api.hotels = {
 };
 // v4.7: 需求單位 CRUD
 api.units = {
-  list:   () => fetchJson('GET', '/api/units'),
+  list:   (opts) => fetchJson('GET', '/api/units' + (opts?.includeInactive ? '?includeInactive=1' : '')),
   create: (b) => fetchJson('POST', '/api/units', b),
   update: (id, b) => fetchJson('PATCH', `/api/units/${id}`, b),
   delete: (id) => fetchJson('DELETE', `/api/units/${id}`),
@@ -4462,8 +4462,9 @@ async function v37LoadHotels() {
 // v4.7: REQUEST_UNITS 由 API 載入，並重新填案件建立表單下拉
 async function v47LoadUnits() {
   try {
-    const rows = await api.units.list();
-    if (Array.isArray(rows) && rows.length) {
+    const rows = await api.units.list(); // active only
+    if (Array.isArray(rows)) {
+      // 即使是空陣列也要套用（避免 admin 全部停用後 dropdown 仍顯示舊預設值）
       REQUEST_UNITS = rows.map(u => u.name);
     }
   } catch (e) { console.warn('units load failed', e); }
@@ -4475,6 +4476,20 @@ async function v47LoadUnits() {
     if (cur && REQUEST_UNITS.includes(cur)) uSel.value = cur;
   }
 }
+
+// v4.7 fix: 開啟建立專案彈窗前，先 refetch hotels + units，確保跟管理頁一致
+const _v47OrigOpenCreate = openCreateModal;
+openCreateModal = async function() {
+  // 先重新拉最新的 hotels + units（管理頁可能剛改過）
+  try { await Promise.all([
+    typeof v37LoadHotels === 'function' ? v37LoadHotels() : Promise.resolve(),
+    v47LoadUnits(),
+  ]); } catch (e) { console.warn('pre-create refresh failed', e); }
+  _v47OrigOpenCreate();
+};
+// 重新綁定按鈕，否則 onclick 還是指向舊的 openCreateModal
+const _v47CreateBtn = document.getElementById('create-btn');
+if (_v47CreateBtn) _v47CreateBtn.onclick = openCreateModal;
 
 // (#dashboard #4) Patch renderDashboard:
 //   - exclude admins (Mark) from designer workload bar list
@@ -5161,7 +5176,8 @@ function v47OpenUnitManager() {
 }
 
 async function v47RenderUnitManager(modal) {
-  const rows = await api.units.list({ }).catch(() => []);
+  // v4.7 fix: 抓全部單位（含 inactive），admin 才能看到停用單位並重新啟用
+  const rows = await api.units.list({ includeInactive: true }).catch(() => []);
   modal.innerHTML = `
     <div style="display:flex;align-items:center;margin-bottom:14px;">
       <h3 style="margin:0;font-size:16px;">📋 需求單位管理</h3>
