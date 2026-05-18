@@ -23,6 +23,7 @@ model Staff {
   departedOn DateTime? @db.Date
   seniority  String // 'senior' | 'mid' | 'junior'
   roleTitle  String    @default("設計師")
+  color      String?   // v4.8: 個人代表色 palette key (e.g. 'teal' | 'sea' | …)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 

@@ -11,6 +11,15 @@ router.use(requireAuth);
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).transform((s) => new Date(s + 'T00:00:00Z'));
 
+// v4.8: 個人代表色固定 palette key（前後端一致）
+const STAFF_COLOR_KEYS = new Set([
+  'teal', 'sea', 'lavender', 'copper', 'rose', 'mustard',
+  'forest', 'indigo', 'brick', 'olive', 'slate', 'plum',
+]);
+const colorSchema = z.string().refine((v) => STAFF_COLOR_KEYS.has(v), {
+  message: 'invalid_color (must be one of palette keys)',
+});
+
 // ─── GET /api/staff — list with workload scores ──────────
 router.get('/', async (req, res) => {
   const includeInactive = req.query.includeInactive === '1';
@@ -18,7 +27,7 @@ router.get('/', async (req, res) => {
     where: includeInactive ? {} : { active: true },
     select: {
       id: true, name: true, email: true, active: true, joined: true, departedOn: true,
-      seniority: true, roleTitle: true, role: true,
+      seniority: true, roleTitle: true, role: true, color: true, // v4.8
     },
     orderBy: [{ active: 'desc' }, { id: 'asc' }],
   });
@@ -43,6 +52,7 @@ const createSchema = z.object({
   seniority: z.enum(['senior', 'mid', 'junior']),
   roleTitle: z.string().optional(),
   role: z.enum(['admin', 'member']).default('member'),
+  color: colorSchema.optional(), // v4.8
 });
 
 router.post('/', requireAdmin, async (req, res) => {
@@ -70,6 +80,7 @@ router.post('/', requireAdmin, async (req, res) => {
         seniority: body.seniority,
         roleTitle: body.roleTitle || '設計師',
         role: body.role,
+        color: body.color || null, // v4.8
       },
     });
 
@@ -101,6 +112,8 @@ const updateSchema = z.object({
   role: z.enum(['admin', 'member']).optional(),
   // v3.4: admin-only password reset for OTHER users
   resetPassword: z.string().min(8).optional(),
+  // v4.8: 個人色 palette key（或 null 清空）
+  color: z.union([colorSchema, z.null()]).optional(),
 });
 
 router.patch('/:id', async (req, res) => {

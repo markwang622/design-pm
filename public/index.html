@@ -82,7 +82,13 @@ body {
 [data-theme="dark"] .drawer { background: var(--card-bg); color: var(--fg); }
 [data-theme="dark"] .drawer-head { border-bottom-color: var(--section-divider); }
 [data-theme="dark"] .chip { background: var(--chip-bg); color: var(--chip-fg); border-color: var(--chip-border); }
-[data-theme="dark"] .chip.level-SS, [data-theme="dark"] .chip.level-S { background: #E8E8E8; color: #1F1F1F; border-color: #E8E8E8; }
+/* v4.8: 分級色暗黑版（保留語意色但加深底） */
+[data-theme="dark"] .chip.level-SS { background: #5A4A1A !important; color: #F4E4B8 !important; border-color: #D4A53F !important; }
+[data-theme="dark"] .chip.level-S  { background: #5A1A1A !important; color: #F4D4D4 !important; border-color: #C84F4F !important; }
+[data-theme="dark"] .chip.level-A  { background: #5A3A1A !important; color: #F4DCC4 !important; border-color: #D8843F !important; }
+[data-theme="dark"] .chip.level-B  { background: #1A2A4F !important; color: #D4E4F4 !important; border-color: #4F7AC8 !important; }
+[data-theme="dark"] .chip.level-C  { background: #3A3A3A !important; color: #C8C8C8 !important; border-color: #5A5A5A !important; }
+[data-theme="dark"] .chip.level-D  { background: #3A3530 !important; color: #C8BFB0 !important; border-color: #6B6055 !important; }
 [data-theme="dark"] .legend-row { background: var(--card-bg); border-color: var(--card-border); }
 [data-theme="dark"] .filter-bar .pill { background: var(--card-bg); color: var(--fg); border-color: var(--card-border); }
 [data-theme="dark"] .filter-bar .pill.active { background: #FAFAFA; color: #0F1419; }
@@ -318,10 +324,13 @@ h1, h2, h3, h4 { font-weight: 500; }
 .view.active { display: block; }
 .card { background: #fff; border: 1px solid #E5E5E5; border-radius: 10px; padding: 16px 18px; }
 .chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; background: #F2F2F2; color: #595959; border: 1px solid #E5E5E5; }
-.chip.level-SS, .chip.level-S { background: #1F1F1F; color: #fff; border-color: #1F1F1F; }
-.chip.level-A { background: #595959; color: #fff; border-color: #595959; }
-.chip.level-B { background: #BFBFBF; color: #1F1F1F; border-color: #BFBFBF; }
-.chip.level-C, .chip.level-D { background: #F2F2F2; color: #595959; }
+/* v4.8: 分級顏色語意化 — SS 金 / S 紅 / A 橘 / B 藍 / C 灰 / D 米 */
+.chip.level-SS { background: #F4E4B8 !important; color: #6B4F1A !important; border-color: #D4A53F !important; }
+.chip.level-S  { background: #F4D4D4 !important; color: #7A1F1F !important; border-color: #C84F4F !important; }
+.chip.level-A  { background: #F4DCC4 !important; color: #7A3F1A !important; border-color: #D8843F !important; }
+.chip.level-B  { background: #D4E4F4 !important; color: #1F3A6B !important; border-color: #4F7AC8 !important; }
+.chip.level-C  { background: #E8E8E8 !important; color: #5A5A5A !important; border-color: #B8B0A8 !important; }
+.chip.level-D  { background: #F4F0E8 !important; color: #7A7066 !important; border-color: #C8BFB0 !important; }
 .chip.urgent { background: #FFE5D9; color: #D14343; border-color: #F5C4B3; }
 .chip.overdue { background: #FCEBEB; color: #A32D2D; border-color: #F09595; }
 .chip.status-todo { background: #F2F2F2; color: #595959; }
@@ -2614,6 +2623,7 @@ function normalizeStaff(b) {
     roleTitle: b.roleTitle || '設計師',
     role: b.role || 'member',
     workload: typeof b.workload === 'number' ? b.workload : 0,
+    color: b.color || null, // v4.8
   };
 }
 function normalizeCase(b) {
@@ -3465,6 +3475,26 @@ function v34EnsureProfileModal() {
           </select>
         </label>
       </div>
+      <!-- v4.8: 個人代表色 picker（按鈕直接寫死於 template，JS 只負責標記當前選取與綁 click） -->
+      <div id="v48-color-section" style="margin-top:18px;padding-top:14px;border-top:1px solid #E5E5E5;">
+        <div style="font-weight:500;font-size:13px;margin-bottom:8px;color:#404040;">個人代表色</div>
+        <div id="v48-color-grid" style="display:flex;flex-wrap:wrap;gap:8px;">
+          <button type="button" data-color-key="" title="不指定（預設灰）" style="width:32px;height:32px;border-radius:50%;border:2px solid #D4D4D4;background:#fff;cursor:pointer;font-size:18px;color:#8C8C8C;display:flex;align-items:center;justify-content:center;line-height:1;padding:0;">∅</button>
+          <button type="button" data-color-key="teal"     title="湖綠" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#1F8A8A;cursor:pointer;padding:0;"></button>
+          <button type="button" data-color-key="sea"      title="海藍" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#1F6FEB;cursor:pointer;padding:0;"></button>
+          <button type="button" data-color-key="lavender" title="霧紫" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#7E6BB8;cursor:pointer;padding:0;"></button>
+          <button type="button" data-color-key="copper"   title="銅棕" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#B89568;cursor:pointer;padding:0;"></button>
+          <button type="button" data-color-key="rose"     title="玫紅" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#C84F6B;cursor:pointer;padding:0;"></button>
+          <button type="button" data-color-key="mustard"  title="芥黃" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#C8A23F;cursor:pointer;padding:0;"></button>
+          <button type="button" data-color-key="forest"   title="深綠" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#3F7A4A;cursor:pointer;padding:0;"></button>
+          <button type="button" data-color-key="indigo"   title="靛"   style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#3F4D9A;cursor:pointer;padding:0;"></button>
+          <button type="button" data-color-key="brick"    title="磚紅" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#9A4A2E;cursor:pointer;padding:0;"></button>
+          <button type="button" data-color-key="olive"    title="橄欖" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#7A8A3F;cursor:pointer;padding:0;"></button>
+          <button type="button" data-color-key="slate"    title="青灰" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#5A6E7E;cursor:pointer;padding:0;"></button>
+          <button type="button" data-color-key="plum"     title="莓紫" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(0,0,0,0.12);background:#7E3A6E;cursor:pointer;padding:0;"></button>
+        </div>
+        <p style="margin:8px 0 0;color:#8C8C8C;font-size:11px;line-height:1.5;">會用在案件卡左側邊框、頭像、甘特 bar 與「我的任務」招呼語前。</p>
+      </div>
       <div id="v34-pf-pwsection" style="margin-top:18px;padding-top:14px;border-top:1px solid #E5E5E5;">
         <div style="font-weight:500;font-size:13px;margin-bottom:8px;color:#404040;" id="v34-pf-pwtitle">修改密碼</div>
         <div id="v34-pf-pw-self" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;">
@@ -3527,6 +3557,9 @@ function openProfileEdit(staffOrSelf) {
     document.getElementById('v34-pf-pwsection').style.display = 'none';
   }
 
+  // v4.8: 填入個人色 picker
+  if (typeof v48InitColorPicker === 'function') v48InitColorPicker(target);
+
   document.getElementById('v34-profile-bg').classList.add('open');
   document.getElementById('v34-profile-modal').style.display = 'block';
 }
@@ -3557,6 +3590,11 @@ async function v34SaveProfile() {
   if (newRoleTitle !== (t.roleTitle || '設計師')) body.roleTitle = newRoleTitle;
   if (isAdmin && newSeniority !== t.seniority) body.seniority = newSeniority;
   if (isAdmin && !isSelf && newRole !== t.role) body.role = newRole;
+  // v4.8: 個人代表色（_pendingColor 由 v48InitColorPicker 寫入 target）
+  if (Object.prototype.hasOwnProperty.call(t, '_pendingColor')) {
+    if (t._pendingColor !== (t.color || null)) body.color = t._pendingColor;
+    delete t._pendingColor;
+  }
 
   // v4.6: 與後端 validatePasswordStrength 一致：≥10 字、含大小寫、含數字、不在 banned 清單
   const _v46PwStrength = (pw) => {
@@ -6698,6 +6736,175 @@ window.renderPersonal = function() {
     }
   }
 };
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v4.8 — 個人色 palette + 分級顏色語意化 ▼▼▼
+// ═══════════════════════════════════════════════════════════════
+
+// 12 色預設盤（前後端 key 一致；後端 staff.js 也有同樣 STAFF_COLOR_KEYS）
+const STAFF_COLORS = [
+  { key: 'teal',     name: '湖綠', hex: '#1F8A8A' },
+  { key: 'sea',      name: '海藍', hex: '#1F6FEB' },
+  { key: 'lavender', name: '霧紫', hex: '#7E6BB8' },
+  { key: 'copper',   name: '銅棕', hex: '#B89568' },
+  { key: 'rose',     name: '玫紅', hex: '#C84F6B' },
+  { key: 'mustard',  name: '芥黃', hex: '#C8A23F' },
+  { key: 'forest',   name: '深綠', hex: '#3F7A4A' },
+  { key: 'indigo',   name: '靛',   hex: '#3F4D9A' },
+  { key: 'brick',    name: '磚紅', hex: '#9A4A2E' },
+  { key: 'olive',    name: '橄欖', hex: '#7A8A3F' },
+  { key: 'slate',    name: '青灰', hex: '#5A6E7E' },
+  { key: 'plum',     name: '莓紫', hex: '#7E3A6E' },
+];
+const V48_DEFAULT_COLOR = '#9A9A9A'; // 沒指定色的灰
+
+// 依員工姓名取顏色 hex；無 color 或找不到 → 預設灰
+function v48StaffColor(name) {
+  if (!name) return V48_DEFAULT_COLOR;
+  const s = STAFF.find(x => x.name === name);
+  if (!s || !s.color) return V48_DEFAULT_COLOR;
+  const c = STAFF_COLORS.find(x => x.key === s.color);
+  return c ? c.hex : V48_DEFAULT_COLOR;
+}
+
+// 分級顏色（語意化）
+const V48_LEVEL_STYLES = {
+  SS: { bg: '#F4E4B8', fg: '#6B4F1A', border: '#D4A53F' }, // 金 / 香檳
+  S:  { bg: '#F4D4D4', fg: '#7A1F1F', border: '#C84F4F' }, // 緋紅
+  A:  { bg: '#F4DCC4', fg: '#7A3F1A', border: '#D8843F' }, // 琥珀
+  B:  { bg: '#D4E4F4', fg: '#1F3A6B', border: '#4F7AC8' }, // 藍
+  C:  { bg: '#E8E8E8', fg: '#5A5A5A', border: '#B8B0A8' }, // 中性灰
+  D:  { bg: '#F4F0E8', fg: '#7A7066', border: '#C8BFB0' }, // 米
+};
+function v48LevelStyle(lv) {
+  return V48_LEVEL_STYLES[lv] || V48_LEVEL_STYLES.C;
+}
+
+// ─── 套用：「我的任務」招呼語前加個人色點 ──────────────
+const _v48OrigRenderPersonal = window.renderPersonal;
+window.renderPersonal = function() {
+  _v48OrigRenderPersonal();
+  const hello = document.getElementById('hello');
+  if (!hello) return;
+  // 移除上次注入的色點
+  const oldDot = hello.querySelector('.v48-name-dot');
+  if (oldDot) oldDot.remove();
+  // 加新色點
+  const hex = v48StaffColor(ME_NAME());
+  const dot = document.createElement('span');
+  dot.className = 'v48-name-dot';
+  dot.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:50%;background:${hex};margin-right:8px;vertical-align:middle;`;
+  hello.insertBefore(dot, hello.firstChild);
+
+  // 卡片左側細邊框 + avatar 染色
+  document.querySelectorAll('#case-list .case-card').forEach(card => {
+    if (card.classList.contains('sub-item-card')) return; // 子案件已有自己的色條
+    // 從卡內標題嘗試找出 designer name —— 透過 avatar title
+    const av = card.querySelector('.avatar[title^="主負責"]');
+    if (!av) return;
+    const designerName = av.getAttribute('title')?.replace(/^主負責：/, '');
+    if (!designerName) return;
+    const c = v48StaffColor(designerName);
+    card.style.borderLeft = `4px solid ${c}`;
+    // 把 avatar 染色（保留原本的 collaborator 頭像，不染）
+    av.style.background = c + '22';
+    av.style.color = c;
+    av.style.borderColor = c + '55';
+  });
+};
+
+// ─── 套用：makeCaseCard 後手動 patch left border ────────
+//   (renderPersonal wrap 已涵蓋；其他地方 list 也包一層保險)
+const _v48OrigMakeCard = window.makeCaseCard;
+if (typeof _v48OrigMakeCard === 'function') {
+  window.makeCaseCard = function(c) {
+    const el = _v48OrigMakeCard(c);
+    const hex = v48StaffColor(c.designer);
+    el.style.borderLeft = `4px solid ${hex}`;
+    const av = el.querySelector('.avatar[title^="主負責"]');
+    if (av) {
+      av.style.background = hex + '22';
+      av.style.color = hex;
+      av.style.borderColor = hex + '55';
+    }
+    return el;
+  };
+}
+
+// ─── 套用：甘特圖 bar 改個人色（保留狀態 chip 在 label）──
+const _v48OrigRenderGantt = window.renderGantt;
+window.renderGantt = function() {
+  _v48OrigRenderGantt();
+  const ganttEl = document.getElementById('gantt');
+  if (!ganttEl) return;
+  // 1. 主案件 bar 改個人色（保留 status border 細節）
+  ganttEl.querySelectorAll('.gantt-row').forEach(row => {
+    if (row.classList.contains('sub-row')) return; // 子案件保留 V43 狀態色
+    const av = row.querySelector('.p-avatar');
+    if (!av) return;
+    const designerName = av.getAttribute('title');
+    if (!designerName) return;
+    const hex = v48StaffColor(designerName);
+    const bar = row.querySelector('.gantt-bar:not(.sub)');
+    if (bar) {
+      bar.style.background = hex + 'CC';
+      bar.style.borderColor = hex;
+      bar.style.color = '#fff';
+    }
+    // avatar 染色
+    av.style.background = hex + '22';
+    av.style.color = hex;
+    av.style.borderColor = hex + '55';
+    // label 右側補一個小狀態 chip（避免 bar 顏色蓋掉狀態資訊）
+    if (!row.querySelector('.v48-status-mini')) {
+      // 從 bar class 找 s-<status>
+      const cls = bar?.className || '';
+      const m = cls.match(/s-([a-z_]+)/);
+      const sk = m ? m[1] : null;
+      if (sk) {
+        const sObj = STATUSES.find(s => s.key === sk);
+        if (sObj) {
+          const chip = document.createElement('span');
+          chip.className = 'v48-status-mini';
+          chip.style.cssText = 'font-size:9px;padding:1px 6px;background:rgba(0,0,0,0.06);border-radius:8px;margin-left:6px;color:var(--fg,#404040);';
+          chip.textContent = sObj.name;
+          const pName = row.querySelector('.p-name');
+          if (pName) pName.appendChild(chip);
+        }
+      }
+    }
+  });
+};
+
+// v4.8: 分級 chip 顏色已透過 CSS `!important` 規則套用（見 <style> 區），不再需要 JS post-render hook。
+
+// ─── profile edit modal：標記目前色 + 綁 click（按鈕已寫死於 template）─────
+function v48InitColorPicker(target) {
+  const grid = document.getElementById('v48-color-grid');
+  if (!grid) return;
+  const current = target?.color || '';
+  if (target && !Object.prototype.hasOwnProperty.call(target, '_pendingColor')) {
+    target._pendingColor = current || null;
+  }
+  // 把所有按鈕的邊框重設、再把當前選中的標記成黑邊
+  const setSelected = (key) => {
+    grid.querySelectorAll('button[data-color-key]').forEach(b => {
+      const isMe = (b.dataset.colorKey || '') === (key || '');
+      b.style.borderColor = isMe ? '#1F1F1F'
+        : (b.dataset.colorKey === '' ? '#D4D4D4' : 'rgba(0,0,0,0.12)');
+      b.style.borderWidth = '2px';
+    });
+  };
+  setSelected(current);
+  grid.querySelectorAll('button[data-color-key]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      const key = btn.dataset.colorKey || null;
+      target._pendingColor = key;
+      setSelected(key);
+    };
+  });
+}
 
 // ═══ GO ═══════════════════════════════════════════════════════
 bootstrap();
