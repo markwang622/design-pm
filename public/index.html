@@ -5,6 +5,20 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>藝術設計部 · 專案管理系統</title>
 <style>
+/* ===== LINE Seed Sans (Latin/數字) — 中文落 Noto Sans TC ===== */
+/* 純拉丁 OTF，無 CJK glyph，中文自動 fallback；jsDelivr CDN ~43KB/字重 */
+@font-face {
+  font-family: 'LINE Seed Sans';
+  src: url('https://cdn.jsdelivr.net/npm/@fontpkg/line-seed-sans@1.1.1/LINESeedSans_Rg.otf') format('opentype');
+  font-weight: 100 400; font-style: normal; font-display: swap;
+  unicode-range: U+0020-024F, U+2000-206F, U+2070-209F, U+20A0-20BF, U+2122, U+2190-21FF, U+2200-22FF, U+25A0-25FF, U+2600-27BF;
+}
+@font-face {
+  font-family: 'LINE Seed Sans';
+  src: url('https://cdn.jsdelivr.net/npm/@fontpkg/line-seed-sans@1.1.1/LINESeedSans_Bd.otf') format('opentype');
+  font-weight: 401 800; font-style: normal; font-display: swap;
+  unicode-range: U+0020-024F, U+2000-206F, U+2070-209F, U+20A0-20BF, U+2122, U+2190-21FF, U+2200-22FF, U+25A0-25FF, U+2600-27BF;
+}
 :root {
   color-scheme: light;
   /* v3.8 theme variables — light defaults */
@@ -51,7 +65,7 @@
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+  font-family: "LINE Seed Sans", -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
   background: var(--bg); color: var(--fg); font-size: 14px; line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.2s, color 0.2s;
@@ -794,6 +808,146 @@ h1, h2, h3, h4 { font-weight: 500; }
 .footer-note { text-align: center; color: #8C8C8C; font-size: 11px; margin: 32px 0 16px; }
 .legend-row { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: #595959; margin-bottom: 8px; padding: 8px 12px; background: #fff; border: 1px solid #EEE; border-radius: 8px; }
 .legend-row .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: middle; border: 1px solid rgba(0,0,0,0.1); }
+
+/* ═══════════════════════════════════════════════════════════════
+   v5.0  Glassmorphism × 四季主題
+   - 玻璃材質依「日夜」決定（文字承載面維持中性 → 確保易讀）
+   - 季節色（背景漸層／光暈／accent）依「四季」決定
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ---- 玻璃材質（日 / 夜） ---- */
+:root {
+  --glass-bg: rgba(255,255,255,0.58);
+  --glass-bg-strong: rgba(255,255,255,0.84);
+  --glass-border: rgba(255,255,255,0.75);
+  --glass-shadow: 0 6px 26px rgba(31,41,61,0.10);
+  --glass-blur: blur(14px) saturate(1.35);
+  --topbar-glass: rgba(26,28,36,0.72);
+  --kb-col-glass: rgba(255,255,255,0.34);
+  --glass-alert: rgba(200,60,60,0.13);
+  --glass-urgent: rgba(216,120,48,0.13);
+  --glass-gate: rgba(190,150,30,0.16);
+  --glass-collab: rgba(50,120,190,0.12);
+}
+[data-theme="dark"] {
+  --glass-bg: rgba(26,32,43,0.55);
+  --glass-bg-strong: rgba(24,29,38,0.90);
+  --glass-border: rgba(255,255,255,0.10);
+  --glass-shadow: 0 6px 26px rgba(0,0,0,0.42);
+  --glass-blur: blur(14px) saturate(1.2);
+  --topbar-glass: rgba(8,11,18,0.68);
+  --kb-col-glass: rgba(255,255,255,0.04);
+  --glass-alert: rgba(255,90,90,0.15);
+  --glass-urgent: rgba(255,150,90,0.14);
+  --glass-gate: rgba(240,200,70,0.14);
+  --glass-collab: rgba(120,170,235,0.14);
+}
+
+/* ---- 季節色（春 / 夏 / 秋 / 冬，各含日夜） ---- */
+[data-season="spring"] { --season-grad: linear-gradient(135deg,#FCEAF0 0%,#F4F7EC 50%,#E9F5F0 100%);
+  --blob1: rgba(232,131,158,0.30); --blob2: rgba(123,179,137,0.26); --accent:#C9577C; --accent-ink:#fff; }
+[data-season="spring"][data-theme="dark"] { --season-grad: linear-gradient(135deg,#1A1117 0%,#14130F 55%,#101512 100%);
+  --blob1: rgba(217,107,146,0.22); --blob2: rgba(110,160,120,0.18); --accent:#E27EA0; --accent-ink:#1A1117; }
+
+[data-season="summer"] { --season-grad: linear-gradient(135deg,#E6F4FB 0%,#E9F0FF 50%,#E4FAF5 100%);
+  --blob1: rgba(31,168,199,0.28); --blob2: rgba(99,140,235,0.22); --accent:#1A93B0; --accent-ink:#fff; }
+[data-season="summer"][data-theme="dark"] { --season-grad: linear-gradient(135deg,#0B1820 0%,#0C1119 55%,#0A1518 100%);
+  --blob1: rgba(43,168,196,0.22); --blob2: rgba(99,140,235,0.18); --accent:#38C0DC; --accent-ink:#07171C; }
+
+[data-season="autumn"] { --season-grad: linear-gradient(135deg,#FCEEDE 0%,#FBE6D6 50%,#F7EAD7 100%);
+  --blob1: rgba(215,122,43,0.28); --blob2: rgba(192,86,59,0.22); --accent:#C26A22; --accent-ink:#fff; }
+[data-season="autumn"][data-theme="dark"] { --season-grad: linear-gradient(135deg,#1E1610 0%,#17110C 55%,#1A130D 100%);
+  --blob1: rgba(225,162,78,0.20); --blob2: rgba(200,100,60,0.18); --accent:#DD9148; --accent-ink:#1A130D; }
+
+[data-season="winter"] { --season-grad: linear-gradient(135deg,#EDF2F9 0%,#F0F1FA 50%,#E9F1F6 100%);
+  --blob1: rgba(91,131,184,0.26); --blob2: rgba(126,143,192,0.22); --accent:#4A6FA5; --accent-ink:#fff; }
+[data-season="winter"][data-theme="dark"] { --season-grad: linear-gradient(135deg,#0D131C 0%,#0B0F16 55%,#0C1118 100%);
+  --blob1: rgba(110,151,207,0.20); --blob2: rgba(126,143,192,0.18); --accent:#7FA8D8; --accent-ink:#0B0F16; }
+
+/* ---- 背景：季節漸層 + 固定光暈（玻璃面透出底色） ---- */
+body {
+  background: var(--season-grad, var(--bg)) !important;
+  background-attachment: fixed !important;
+}
+body::before {
+  content:''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(42% 52% at 14% 16%, var(--blob1, transparent) 0%, transparent 70%),
+    radial-gradient(48% 58% at 86% 86%, var(--blob2, transparent) 0%, transparent 72%);
+}
+
+/* ---- 玻璃表面 ---- */
+.card, .kpi, .gantt-wrap, .staff-table, .legend-row {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow) !important;
+}
+.kpi { transition: background-color 0.4s ease, border-color 0.4s ease; }
+/* KPI 語意色 → 半透明 glass tint（保留含義、維持易讀） */
+.kpi.alert  { background: var(--glass-alert) !important; }
+.kpi.urgent { background: var(--glass-urgent) !important; }
+.kpi.gate   { background: var(--glass-gate) !important; }
+.kpi.collab { background: var(--glass-collab) !important; }
+/* 覆蓋先前 dark KPI 實心底（specificity 較高且帶 !important），改回玻璃 tint */
+[data-theme="dark"] .kpi.alert  { background: var(--glass-alert) !important;  border-color: var(--glass-border) !important; }
+[data-theme="dark"] .kpi.urgent { background: var(--glass-urgent) !important; border-color: var(--glass-border) !important; }
+[data-theme="dark"] .kpi.gate   { background: var(--glass-gate) !important;   border-color: var(--glass-border) !important; }
+[data-theme="dark"] .kpi.collab { background: var(--glass-collab) !important; border-color: var(--glass-border) !important; }
+
+/* 案件卡 / 看板卡：玻璃面 + 左側狀態色條（亮暗一致） */
+.case-card, .kb-card {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-left: 3px solid var(--cc-status, transparent) !important;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+.case-card.s-todo,  .kb-card.s-todo  { --cc-status:#9AA0A6; }
+.case-card.s-wait,  .kb-card.s-wait  { --cc-status:#B89568; }
+.case-card.s-doing, .kb-card.s-doing { --cc-status:#3F7BB6; }
+.case-card.s-review,.kb-card.s-review{ --cc-status:#C79B25; }
+.case-card.s-review_done             { --cc-status:#D88A5A; }
+.case-card.s-done,  .kb-card.s-done  { --cc-status:#5AA85A; }
+.case-card.s-closed                  { --cc-status:#5AA85A; }
+.case-card.urgent,  .kb-card.urgent  { --cc-status:#D85A30; }
+.case-card.overdue                   { --cc-status:#A32D2D; }
+.case-card.archived-case { opacity: 0.5; }
+
+/* 看板欄位：更淡的玻璃 */
+.kb-col {
+  background: var(--kb-col-glass) !important;
+  border: 1px solid var(--glass-border) !important;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* Topbar：深色玻璃 */
+.topbar {
+  background: var(--topbar-glass) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: blur(20px) saturate(1.4);
+  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+  transition: background-color 0.4s ease;
+}
+
+/* ---- accent 套用至互動元件 ---- */
+.nav button.active        { background: var(--accent) !important; color: var(--accent-ink) !important; }
+.create-btn               { background: var(--accent) !important; color: var(--accent-ink) !important; }
+.create-btn:hover         { filter: brightness(1.08); }
+.filter-bar .pill.active  { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+.role-switch button.active{ background: var(--accent) !important; color: var(--accent-ink) !important; }
+.scale-switch button.active { background: var(--accent) !important; color: #fff !important; }
+.gantt-group-head         { background: var(--accent) !important; color: var(--accent-ink) !important; }
+.gantt-group-head .g-count{ color: var(--accent-ink) !important; }
+input:focus, select:focus, textarea:focus { outline-color: var(--accent) !important; }
+
+/* ---- 易讀性保險 ---- */
+.card, .kpi, .case-card, .kb-card, .gantt-wrap, .staff-table, .legend-row { color: var(--fg); }
+@media (prefers-reduced-motion: reduce) {
+  body, .card, .kpi, .case-card, .kb-card, .topbar { transition: none !important; }
+}
 </style>
 </head>
 <body>
@@ -5356,6 +5510,7 @@ function v38ApplyTheme(mode) {
     setTimeout(v37ResizeDonut, 0);
   }
   v38UpdateThemeButton(mode);
+  if (typeof v50ApplySeason === 'function') v50ApplySeason();
 }
 function v38UpdateThemeButton(mode) {
   const btn = document.querySelector('.v38-theme-toggle');
@@ -5381,8 +5536,69 @@ function v38InjectThemeToggle() {
   if (rs) topbar.insertBefore(btn, rs);
   else topbar.appendChild(btn);
 }
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v5.0 四季主題（Glassmorphism）— 依月份自動，可手動預覽 ▼▼▼
+// ═══════════════════════════════════════════════════════════════
+function v50GetSeasonPref() {
+  try { return localStorage.getItem('design-pm-season') || 'auto'; } catch { return 'auto'; }
+}
+function v50SaveSeasonPref(s) {
+  try { localStorage.setItem('design-pm-season', s); } catch {}
+}
+function v50DetectSeason() {
+  const m = new Date().getMonth(); // 0=Jan
+  if (m >= 2 && m <= 4) return 'spring';   // 3–5 月
+  if (m >= 5 && m <= 7) return 'summer';   // 6–8 月
+  if (m >= 8 && m <= 10) return 'autumn';  // 9–11 月
+  return 'winter';                          // 12–2 月
+}
+function v50ResolveSeason() {
+  const pref = v50GetSeasonPref();
+  return pref === 'auto' ? v50DetectSeason() : pref;
+}
+function v50ApplySeason() {
+  const s = v50ResolveSeason();
+  document.documentElement.setAttribute('data-season', s);
+  document.body && document.body.setAttribute('data-season', s);
+  v50UpdateSeasonButton();
+  if (typeof v37ResizeDonut === 'function' && document.getElementById('donut')) {
+    setTimeout(v37ResizeDonut, 0);
+  }
+}
+const V50_SEASON_CH = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
+const V50_SEASON_EMOJI = { spring: '🌸', summer: '🌊', autumn: '🍁', winter: '❄️' };
+function v50UpdateSeasonButton() {
+  const btn = document.querySelector('.v50-season-toggle');
+  if (!btn) return;
+  const pref = v50GetSeasonPref();
+  const cur = v50ResolveSeason();
+  btn.textContent = pref === 'auto'
+    ? `${V50_SEASON_EMOJI[cur]} ${V50_SEASON_CH[cur]}·自動`
+    : `${V50_SEASON_EMOJI[pref]} ${V50_SEASON_CH[pref]}`;
+  btn.title = '點擊預覽季節：自動 → 春 → 夏 → 秋 → 冬';
+}
+function v50InjectSeasonToggle() {
+  const topbar = document.querySelector('.topbar');
+  if (!topbar || topbar.querySelector('.v50-season-toggle')) return;
+  const btn = document.createElement('button');
+  btn.className = 'v50-season-toggle v38-theme-toggle'; // 沿用日夜按鈕樣式
+  btn.onclick = () => {
+    const order = ['auto', 'spring', 'summer', 'autumn', 'winter'];
+    const cur = v50GetSeasonPref();
+    const next = order[(order.indexOf(cur) + 1) % order.length];
+    v50SaveSeasonPref(next);
+    v50ApplySeason();
+    showToast(`季節：${next === 'auto' ? '自動（依月份）' : V50_SEASON_EMOJI[next] + ' ' + V50_SEASON_CH[next]}`);
+  };
+  const themeBtn = topbar.querySelector('.v38-theme-toggle');
+  if (themeBtn) topbar.insertBefore(btn, themeBtn);
+  else { const rs = document.getElementById('role-switch'); rs ? topbar.insertBefore(btn, rs) : topbar.appendChild(btn); }
+  v50UpdateSeasonButton();
+}
+
 // Apply IMMEDIATELY (before bootstrap) so there's no light-flash on dark devices
 v38ApplyTheme(v38GetSavedTheme());
+v50ApplySeason();
 // Re-evaluate auto theme every minute (handles sunset crossing)
 setInterval(() => {
   if (v38GetSavedTheme() === 'auto') v38ApplyTheme('auto');
@@ -5699,7 +5915,9 @@ const _v38OrigBootstrap = bootstrap;
 bootstrap = async function() {
   await _v38OrigBootstrap();
   v38InjectThemeToggle();
+  v50InjectSeasonToggle();
   v38ApplyTheme(v38GetSavedTheme());
+  v50ApplySeason();
   // Re-render dashboard if currently visible
   if (currentView === 'dashboard') renderDashboard();
 };
