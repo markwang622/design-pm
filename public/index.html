@@ -5569,7 +5569,7 @@ function v50ApplySeason() {
     setTimeout(v37ResizeDonut, 0);
   }
 }
-const V50_SEASON_CH = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
+const V50_SEASON_CH = { spring: 'Bloom', summer: 'Tide', autumn: 'Amber', winter: 'Frost' };
 const V50_SEASON_EMOJI = { spring: '🌸', summer: '🌊', autumn: '🍁', winter: '❄️' };
 function v50UpdateSeasonButton() {
   const btn = document.querySelector('.v50-season-toggle');
@@ -5577,9 +5577,9 @@ function v50UpdateSeasonButton() {
   const pref = v50GetSeasonPref();
   const cur = v50ResolveSeason();
   btn.textContent = pref === 'auto'
-    ? `${V50_SEASON_EMOJI[cur]} ${V50_SEASON_CH[cur]}·自動`
+    ? `${V50_SEASON_EMOJI[cur]} ${V50_SEASON_CH[cur]}·Auto`
     : `${V50_SEASON_EMOJI[pref]} ${V50_SEASON_CH[pref]}`;
-  btn.title = '點擊預覽季節：自動 → 春 → 夏 → 秋 → 冬';
+  btn.title = '點擊預覽季節：Auto → Bloom → Tide → Amber → Frost';
 }
 function v50InjectSeasonToggle() {
   const topbar = document.querySelector('.topbar');
@@ -5592,7 +5592,7 @@ function v50InjectSeasonToggle() {
     const next = order[(order.indexOf(cur) + 1) % order.length];
     v50SaveSeasonPref(next);
     v50ApplySeason();
-    showToast(`季節：${next === 'auto' ? '自動（依月份）' : V50_SEASON_EMOJI[next] + ' ' + V50_SEASON_CH[next]}`);
+    showToast(`Season: ${next === 'auto' ? 'Auto (by month)' : V50_SEASON_EMOJI[next] + ' ' + V50_SEASON_CH[next]}`);
   };
   const themeBtn = topbar.querySelector('.v38-theme-toggle');
   if (themeBtn) topbar.insertBefore(btn, themeBtn);
