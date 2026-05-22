@@ -96,6 +96,8 @@ body {
 [data-theme="dark"] .staff-row { border-bottom-color: var(--section-divider); }
 [data-theme="dark"] .staff-row.head { background: #252B33; }
 [data-theme="dark"] .staff-table .workload-gauge .bar { background: #252B33; }
+[data-theme="dark"] .staff-row .workload-gauge .fill { background: #5A8AD8 !important; }
+[data-theme="dark"] .staff-row .workload-gauge .fill.overloaded { background: #D88A30 !important; }
 [data-theme="dark"] .bar-list .bar-row .track { background: #252B33; }
 [data-theme="dark"] .bar-list .bar-row .fill { background: linear-gradient(90deg, #5A8AD8, #88AEEA); }
 [data-theme="dark"] .activity-list li { border-bottom-color: var(--section-divider); }
@@ -217,10 +219,14 @@ body {
 [data-theme="dark"] .kpi .value { color: var(--fg) !important; }
 [data-theme="dark"] .kpi .label { color: var(--fg-muted) !important; }
 [data-theme="dark"] .kpi .sub { color: var(--fg-muted) !important; }
+[data-theme="dark"] .kpi.alert { background: #2A1515 !important; border-color: #5A2525 !important; }
 [data-theme="dark"] .kpi.alert .value { color: #FF6B6B !important; }
+[data-theme="dark"] .kpi.urgent { background: #2A1E10 !important; border-color: #5A3020 !important; }
 [data-theme="dark"] .kpi.urgent .value { color: #FF9966 !important; }
-[data-theme="dark"] .kpi[style*="color:#8C6A12"] .value, /* 確稿待簽核中 inline style */
-[data-theme="dark"] .kpi[style*="color: #8C6A12"] .value { color: #F0C24A !important; }
+[data-theme="dark"] .kpi.gate { background: #2D2510 !important; border-color: #5A4820 !important; }
+[data-theme="dark"] .kpi.gate .value { color: #F0C24A !important; }
+[data-theme="dark"] .kpi.collab { background: #101C2A !important; border-color: #1E3A5A !important; }
+[data-theme="dark"] .kpi.collab .value { color: #88AEEA !important; }
 /* card section title */
 [data-theme="dark"] .section-title { color: var(--fg) !important; }
 /* bar-list (workload, hotel distribution) */
@@ -352,8 +358,14 @@ h1, h2, h3, h4 { font-weight: 500; }
 .kpi .label { font-size: 12px; color: #8C8C8C; margin-bottom: 6px; }
 .kpi .value { font-size: 26px; font-weight: 500; color: #1F1F1F; line-height: 1.2; }
 .kpi .sub { font-size: 11px; color: #8C8C8C; margin-top: 4px; }
+.kpi.alert { background: #FFF5F5; border-color: #EFC0C0; }
 .kpi.alert .value { color: #A32D2D; }
+.kpi.urgent { background: #FFF8F0; border-color: #F0CFA0; }
 .kpi.urgent .value { color: #D85A30; }
+.kpi.gate { background: #FFFBEC; border-color: #EDD79A; }
+.kpi.gate .value { color: #8C6A12; }
+.kpi.collab { background: #F0F7FF; border-color: #C9DCF0; }
+.kpi.collab .value { color: #1E5A85; }
 .greeting { margin-bottom: 20px; }
 .greeting h2 { font-size: 22px; font-weight: 500; }
 .greeting p { color: #8C8C8C; font-size: 13px; margin-top: 4px; }
@@ -510,8 +522,8 @@ h1, h2, h3, h4 { font-weight: 500; }
 .bar-row { display: grid; grid-template-columns: 70px 1fr 50px; align-items: center; gap: 8px; font-size: 12px; }
 .bar-row .name { color: #404040; }
 .bar-row .track { height: 18px; background: #F2F2F2; border-radius: 4px; position: relative; overflow: hidden; }
-.bar-row .fill { height: 100%; background: #404040; border-radius: 4px; transition: width 0.3s; }
-.bar-row .fill.overloaded { background: #A32D2D; }
+.bar-row .fill { height: 100%; background: #3F7BB6; border-radius: 4px; transition: width 0.3s; }
+.bar-row .fill.overloaded { background: #C06800; }
 .bar-row .count { text-align: right; color: #8C8C8C; font-size: 11px; }
 .donut-wrap { display: flex; align-items: center; gap: 16px; }
 .donut { width: 120px; height: 120px; }
@@ -736,8 +748,8 @@ h1, h2, h3, h4 { font-weight: 500; }
 .staff-chip-inactive { display: inline-block; padding: 2px 8px; font-size: 11px; border-radius: 10px; background: #F2F2F2; color: #8C8C8C; border: 1px solid #D9D9D9; }
 .staff-row .workload-gauge { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .staff-row .workload-gauge .bar { flex: 1; height: 6px; background: #F2F2F2; border-radius: 3px; overflow: hidden; max-width: 100px; }
-.staff-row .workload-gauge .fill { height: 100%; background: #595959; }
-.staff-row .workload-gauge .fill.overloaded { background: #A32D2D; }
+.staff-row .workload-gauge .fill { height: 100%; background: #3F7BB6; }
+.staff-row .workload-gauge .fill.overloaded { background: #C06800; }
 .staff-row .workload-gauge .score { font-family: "SF Mono","Consolas",monospace; color: #595959; font-size: 11px; min-width: 30px; text-align: right; }
 .staff-row .seniority-senior { color: #1F1F1F; font-weight: 500; }
 .staff-row .seniority-mid { color: #404040; }
@@ -864,7 +876,7 @@ h1, h2, h3, h4 { font-weight: 500; }
       <div class="gantt-wrap" id="gantt"></div>
     </div>
     <div class="view" data-view="dashboard">
-      <h2 style="margin-bottom: 16px; font-size: 20px;">Admin Dashboard · 本月 (4 月)</h2>
+      <h2 style="margin-bottom: 16px; font-size: 20px;" id="dash-title">管理儀表板</h2>
       <div class="kpi-row" id="admin-kpi"></div>
       <div class="grid-2">
         <div class="card">
@@ -990,8 +1002,8 @@ h1, h2, h3, h4 { font-weight: 500; }
       <h3 style="font-size: 13px; color: #8C8C8C; margin: 24px 0 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;">範例信件預覽</h3>
       <div id="email-preview"></div>
     </div>
-    <div class="footer-note">互動原型 v3.2 · 資料為模擬 · 假日表：中華民國 2026 年行政院人事總處公布 · deadline = 上線日；確稿日 = 上線日 − 3 工作天；校稿日 = 確稿日 − 2 工作天</div>
   </div>
+  <div class="footer-note" style="max-width:1400px;margin:24px auto 16px;padding:0 32px;">假日表：中華民國 2026 年行政院人事總處公布 · deadline = 上線日；確稿日 = 上線日 − 3 工作天；校稿日 = 確稿日 − 2 工作天</div>
 </div>
 
 <!-- Case drawer -->
@@ -1418,8 +1430,8 @@ function renderPersonal() {
     <div class="kpi"><div class="label">本週到期</div><div class="value">${weekDue.length}</div><div class="sub">7 天內（上線日）</div></div>
     <div class="kpi alert"><div class="label">已逾期</div><div class="value">${overdue.length}</div><div class="sub">請優先處理</div></div>
     <div class="kpi urgent"><div class="label">急件</div><div class="value">${urgent.length}</div><div class="sub">標記為 🔥</div></div>
-    <div class="kpi" style="border-color:#EDD79A;"><div class="label">確稿待簽核中</div><div class="value" style="color:#8C6A12;">${gate.length}</div><div class="sub">確稿日前 3 工作天內</div></div>
-    <div class="kpi" style="border-color:#C9DCF0;"><div class="label">協作中</div><div class="value" style="color:#1E5A85;">${collab.length}</div><div class="sub">他人主案 · 我協作</div></div>
+    <div class="kpi gate"><div class="label">確稿待簽核中</div><div class="value">${gate.length}</div><div class="sub">確稿日前 3 工作天內</div></div>
+    <div class="kpi collab"><div class="label">協作中</div><div class="value">${collab.length}</div><div class="sub">他人主案 · 我協作</div></div>
   `;
   // v4.7: 招呼語依本機時間切換（英文友善版）
   //   04:00–10:59 → Morning, Name
@@ -1800,7 +1812,7 @@ function renderDashboard() {
     <div class="kpi"><div class="label">已結案</div><div class="value">${done}</div><div class="sub">${total > 0 ? '達成率 ' + completionRate + '%' : '無資料'}</div></div>
     <div class="kpi alert"><div class="label">逾期</div><div class="value">${overdue}</div><div class="sub">需關切</div></div>
     <div class="kpi urgent"><div class="label">急件</div><div class="value">${urgent}</div></div>
-    <div class="kpi" style="border-color:#EDD79A;"><div class="label">確稿待簽核中</div><div class="value" style="color:#8C6A12;">${gate}</div><div class="sub">待你審核</div></div>
+    <div class="kpi gate"><div class="label">確稿待簽核中</div><div class="value">${gate}</div><div class="sub">待你審核</div></div>
   `;
   const wl = document.getElementById('workload');
   wl.innerHTML = '';
@@ -4599,6 +4611,12 @@ window.renderDashboard = function() {
       </div>
     `).join('') : '<div style="color:#8C8C8C;font-size:12px;padding:12px 0;">🎉 無待處理項目</div>';
   }
+  // Update dashboard title with current month
+  const _dashTitle = document.getElementById('dash-title');
+  if (_dashTitle) {
+    const _m = new Date().getMonth() + 1;
+    _dashTitle.textContent = `管理儀表板 · 本月（${_m} 月）`;
+  }
   // (#7) Add "即將到期（確稿前一天）" widget — uses tomorrow's review date
   v37RenderUpcomingDue();
   // Resize donut chart
@@ -4981,9 +4999,7 @@ function v37ShowDepartureArchive(name) {
 const _v37OrigRenderAnalytics = window.renderAnalytics;
 window.renderAnalytics = async function() {
   await _v37OrigRenderAnalytics();
-  // v4.3 A6: 移除全部 .footer-note（不只是分析頁內，因為 footer-note 是 .main 直系子元素
-  // 跟分析 view 是「兄弟」關係，原本只查 view 內找不到）
-  document.querySelectorAll('.footer-note').forEach(el => el.remove());
+  // footer-note 已移至 .main 外，不需要再清除
   v37AddAnalyticsStaffSelector();
   v37PatchAnalyticsFooterText();
 };
