@@ -6,39 +6,71 @@
   <title>登入 · 藝術設計部專案管理</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <style>
+    @font-face {
+      font-family: 'LINE Seed Sans';
+      src: url('https://cdn.jsdelivr.net/npm/@fontpkg/line-seed-sans@1.1.1/LINESeedSans_Rg.otf') format('opentype');
+      font-weight: 100 400; font-style: normal; font-display: swap;
+      unicode-range: U+0020-024F, U+2000-206F, U+20A0-20BF, U+2122, U+2190-21FF, U+2200-22FF, U+25A0-25FF, U+2600-27BF;
+    }
+    @font-face {
+      font-family: 'LINE Seed Sans';
+      src: url('https://cdn.jsdelivr.net/npm/@fontpkg/line-seed-sans@1.1.1/LINESeedSans_Bd.otf') format('opentype');
+      font-weight: 401 800; font-style: normal; font-display: swap;
+      unicode-range: U+0020-024F, U+2000-206F, U+20A0-20BF, U+2122, U+2190-21FF, U+2200-22FF, U+25A0-25FF, U+2600-27BF;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
-      --bg-grad: linear-gradient(135deg, #F5F5F5 0%, #EDEDED 100%);
-      --card-bg: #FFFFFF;
+      --bg-grad: linear-gradient(135deg, #EDF2F9 0%, #F0F1FA 100%);
+      --card-bg: rgba(255,255,255,0.62);
+      --glass-border: rgba(255,255,255,0.7);
+      --accent: #4A6FA5;
+      --blob1: rgba(91,131,184,0.26); --blob2: rgba(126,143,192,0.22);
       --fg: #1A1A1A;
       --fg-sub: #8C8C8C;
       --fg-muted: #444;
-      --input-bg: #FAFAFA;
+      --input-bg: rgba(255,255,255,0.7);
       --input-border: #D4D4D4;
-      --btn-bg: #1A1A1A;
+      --btn-bg: var(--accent);
       --btn-fg: #FFF;
     }
     [data-theme="dark"] {
       color-scheme: dark;
-      --bg-grad: linear-gradient(135deg, #0F1419 0%, #181D24 100%);
-      --card-bg: #1A2028;
+      --card-bg: rgba(26,32,43,0.55);
+      --glass-border: rgba(255,255,255,0.10);
       --fg: #E8E8E8;
-      --fg-sub: #8C8C8C;
+      --fg-sub: #9BA3AD;
       --fg-muted: #A0A0A0;
-      --input-bg: #0F1419;
+      --input-bg: rgba(15,20,25,0.6);
       --input-border: #3A4048;
-      --btn-bg: #FAFAFA;
       --btn-fg: #0F1419;
     }
-    html, body { height: 100%; font-family: -apple-system, "Microsoft JhengHei", "PingFang TC", sans-serif; color: var(--fg); }
+    /* 四季背景 + accent（依月份自動，與主系統一致） */
+    [data-season="spring"] { --bg-grad: linear-gradient(135deg,#FCEAF0 0%,#F4F7EC 50%,#E9F5F0 100%); --accent:#C9577C; --blob1:rgba(232,131,158,0.30); --blob2:rgba(123,179,137,0.26); }
+    [data-season="spring"][data-theme="dark"] { --bg-grad: linear-gradient(135deg,#1A1117 0%,#14130F 55%,#101512 100%); --accent:#E27EA0; --blob1:rgba(217,107,146,0.22); --blob2:rgba(110,160,120,0.18); }
+    [data-season="summer"] { --bg-grad: linear-gradient(135deg,#E6F4FB 0%,#E9F0FF 50%,#E4FAF5 100%); --accent:#1A93B0; --blob1:rgba(31,168,199,0.28); --blob2:rgba(99,140,235,0.22); }
+    [data-season="summer"][data-theme="dark"] { --bg-grad: linear-gradient(135deg,#0B1820 0%,#0C1119 55%,#0A1518 100%); --accent:#38C0DC; --blob1:rgba(43,168,196,0.22); --blob2:rgba(99,140,235,0.18); }
+    [data-season="autumn"] { --bg-grad: linear-gradient(135deg,#FCEEDE 0%,#FBE6D6 50%,#F7EAD7 100%); --accent:#C26A22; --blob1:rgba(215,122,43,0.28); --blob2:rgba(192,86,59,0.22); }
+    [data-season="autumn"][data-theme="dark"] { --bg-grad: linear-gradient(135deg,#1E1610 0%,#17110C 55%,#1A130D 100%); --accent:#DD9148; --blob1:rgba(225,162,78,0.20); --blob2:rgba(200,100,60,0.18); }
+    [data-season="winter"] { --bg-grad: linear-gradient(135deg,#EDF2F9 0%,#F0F1FA 50%,#E9F1F6 100%); --accent:#4A6FA5; --blob1:rgba(91,131,184,0.26); --blob2:rgba(126,143,192,0.22); }
+    [data-season="winter"][data-theme="dark"] { --bg-grad: linear-gradient(135deg,#0D131C 0%,#0B0F16 55%,#0C1118 100%); --accent:#7FA8D8; --blob1:rgba(110,151,207,0.20); --blob2:rgba(126,143,192,0.18); }
+    html, body { height: 100%; font-family: "LINE Seed Sans", -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; color: var(--fg); }
     body {
       background: var(--bg-grad);
       display: flex; align-items: center; justify-content: center;
-      transition: background 0.2s, color 0.2s;
+      transition: background 0.4s, color 0.3s;
+    }
+    body::before {
+      content:''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(42% 52% at 16% 18%, var(--blob1, transparent) 0%, transparent 70%),
+        radial-gradient(48% 58% at 84% 84%, var(--blob2, transparent) 0%, transparent 72%);
     }
     .card {
-      background: var(--card-bg); padding: 40px 36px; border-radius: 8px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.12);
+      position: relative; z-index: 1;
+      background: var(--card-bg); padding: 40px 36px; border-radius: 16px;
+      border: 1px solid var(--glass-border);
+      -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4);
+      box-shadow: 0 8px 40px rgba(31,41,61,0.16);
       width: 360px; max-width: calc(100vw - 32px);
     }
     h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; color: var(--fg); letter-spacing: 0.3px; }
@@ -73,6 +105,14 @@
            (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light')
         : t;
       document.documentElement.setAttribute('data-theme', eff);
+      // 季節：依偏好或月份自動
+      const sPref = localStorage.getItem('design-pm-season') || 'auto';
+      let season = sPref;
+      if (sPref === 'auto') {
+        const m = new Date().getMonth();
+        season = (m >= 2 && m <= 4) ? 'spring' : (m >= 5 && m <= 7) ? 'summer' : (m >= 8 && m <= 10) ? 'autumn' : 'winter';
+      }
+      document.documentElement.setAttribute('data-season', season);
     } catch {}
   </script>
 </head>
