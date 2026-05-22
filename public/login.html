@@ -21,6 +21,16 @@
       font-weight: 401 800; font-style: normal; font-display: swap;
       unicode-range: U+0020-024F, U+2000-206F, U+20A0-20BF, U+2122, U+2190-21FF, U+2200-22FF, U+25A0-25FF, U+2600-27BF;
     }
+    @font-face {
+      font-family: 'LINE Seed TW';
+      src: url('/fonts/LINESeedTW_Rg.woff2') format('woff2');
+      font-weight: 100 400; font-style: normal; font-display: swap;
+    }
+    @font-face {
+      font-family: 'LINE Seed TW';
+      src: url('/fonts/LINESeedTW_Bd.woff2') format('woff2');
+      font-weight: 401 800; font-style: normal; font-display: swap;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg-grad: linear-gradient(135deg, #EDF2F9 0%, #F0F1FA 100%);
@@ -56,7 +66,7 @@
     [data-season="autumn"][data-theme="dark"] { --bg-grad: linear-gradient(135deg,#1E1610 0%,#17110C 55%,#1A130D 100%); --accent:#DD9148; --blob1:rgba(225,162,78,0.20); --blob2:rgba(200,100,60,0.18); }
     [data-season="winter"] { --bg-grad: linear-gradient(135deg,#EDF2F9 0%,#F0F1FA 50%,#E9F1F6 100%); --accent:#4A6FA5; --blob1:rgba(91,131,184,0.26); --blob2:rgba(126,143,192,0.22); }
     [data-season="winter"][data-theme="dark"] { --bg-grad: linear-gradient(135deg,#0D131C 0%,#0B0F16 55%,#0C1118 100%); --accent:#7FA8D8; --blob1:rgba(110,151,207,0.20); --blob2:rgba(126,143,192,0.18); }
-    html, body { height: 100%; font-family: "LINE Seed Sans", "Chiron Hei HK", -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; color: var(--fg); }
+    html, body { height: 100%; font-family: "LINE Seed Sans", "LINE Seed TW", "Chiron Hei HK", -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; color: var(--fg); }
     body {
       background: var(--bg-grad);
       display: flex; align-items: center; justify-content: center;

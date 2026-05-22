@@ -23,6 +23,17 @@
   font-weight: 401 800; font-style: normal; font-display: swap;
   unicode-range: U+0020-024F, U+2000-206F, U+2070-209F, U+20A0-20BF, U+2122, U+2190-21FF, U+2200-22FF, U+25A0-25FF, U+2600-27BF;
 }
+/* ===== LINE Seed TW（繁中，自架 WOFF2，Big5 常用字子集 ~5400 字；罕用字 fallback Chiron/Noto）===== */
+@font-face {
+  font-family: 'LINE Seed TW';
+  src: url('/fonts/LINESeedTW_Rg.woff2') format('woff2');
+  font-weight: 100 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'LINE Seed TW';
+  src: url('/fonts/LINESeedTW_Bd.woff2') format('woff2');
+  font-weight: 401 800; font-style: normal; font-display: swap;
+}
 :root {
   color-scheme: light;
   /* v3.8 theme variables — light defaults */
@@ -69,7 +80,7 @@
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: "LINE Seed Sans", "Chiron Hei HK", -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  font-family: "LINE Seed Sans", "LINE Seed TW", "Chiron Hei HK", -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
   background: var(--bg); color: var(--fg); font-size: 14px; line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.2s, color 0.2s;
