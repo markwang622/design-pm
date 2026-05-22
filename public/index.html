@@ -4,18 +4,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>藝術設計部 · 專案管理系統</title>
+<!-- 中文：Chiron Hei HK（昭源黑體，Google Fonts 自動分包）；拉丁/數字：LINE Seed Sans（自架） -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chiron+Hei+HK:wght@400;500;700&display=swap">
 <style>
 /* ===== LINE Seed Sans (Latin/數字) — 中文落 Noto Sans TC ===== */
 /* 純拉丁 OTF，無 CJK glyph，中文自動 fallback；jsDelivr CDN ~43KB/字重 */
 @font-face {
   font-family: 'LINE Seed Sans';
-  src: url('https://cdn.jsdelivr.net/npm/@fontpkg/line-seed-sans@1.1.1/LINESeedSans_Rg.otf') format('opentype');
+  src: url('/fonts/LINESeedSans_Rg.otf') format('opentype');
   font-weight: 100 400; font-style: normal; font-display: swap;
   unicode-range: U+0020-024F, U+2000-206F, U+2070-209F, U+20A0-20BF, U+2122, U+2190-21FF, U+2200-22FF, U+25A0-25FF, U+2600-27BF;
 }
 @font-face {
   font-family: 'LINE Seed Sans';
-  src: url('https://cdn.jsdelivr.net/npm/@fontpkg/line-seed-sans@1.1.1/LINESeedSans_Bd.otf') format('opentype');
+  src: url('/fonts/LINESeedSans_Bd.otf') format('opentype');
   font-weight: 401 800; font-style: normal; font-display: swap;
   unicode-range: U+0020-024F, U+2000-206F, U+2070-209F, U+20A0-20BF, U+2122, U+2190-21FF, U+2200-22FF, U+25A0-25FF, U+2600-27BF;
 }
@@ -65,7 +69,7 @@
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: "LINE Seed Sans", -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  font-family: "LINE Seed Sans", "Chiron Hei HK", -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
   background: var(--bg); color: var(--fg); font-size: 14px; line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.2s, color 0.2s;
