@@ -1653,12 +1653,18 @@ function renderPersonal() {
     // E1: 同一 grid 內以整列分隔標題拆成「個人負責 / 協作參與」
     const mine = sortCases(base.filter(c => c.designer === ME_NAME()));
     const col = sortCases(base.filter(c => c.designer !== ME_NAME() && (c.collaborators||[]).includes(ME_NAME())));
+    // admin（非 view-as）會看到全部案件，補「其他案件」區塊避免漏顯示
+    const other = sortCases(base.filter(c => c.designer !== ME_NAME() && !(c.collaborators||[]).includes(ME_NAME())));
     listEl.appendChild(v53SectionDivider('🙋 個人負責', mine.length));
     if (mine.length) mine.forEach(c => listEl.appendChild(makeCaseCard(c)));
     else listEl.appendChild(v53EmptyHint('目前沒有個人負責的案件'));
     listEl.appendChild(v53SectionDivider('🤝 協作參與', col.length));
     if (col.length) col.forEach(c => listEl.appendChild(makeCaseCard(c)));
     else listEl.appendChild(v53EmptyHint('目前沒有協作參與的案件'));
+    if (other.length) {
+      listEl.appendChild(v53SectionDivider('📁 其他案件', other.length));
+      other.forEach(c => listEl.appendChild(makeCaseCard(c)));
+    }
   }
 }
 // E1/E2/E4 helpers
@@ -1687,6 +1693,14 @@ async function v53RenderPersonalDone(listEl) {
     const isAdminAll = ME.role === 'admin' && !(typeof v36ViewAsName !== 'undefined' && v36ViewAsName);
     let done = rows.map(normalizeCase).filter(c => FINAL_STATUS_KEYS.has(c.status));
     if (!isAdminAll) done = done.filter(c => c.designer === meName || (c.collaborators||[]).includes(meName));
+    // 封存案未經 decorateCases，補上 makeCaseCard 需要的欄位（避免 reviewDate undefined）
+    done.forEach(c => {
+      const k = computeKeyDates(c.goLive);
+      c.reviewDate = k.review; c.proofStart = k.proofStart;
+      c.daysLeft = daysUntil(c.goLive);
+      c.overdue = false; // 已完成不算逾期
+      c.gateActive = false;
+    });
     done.sort((a,b) => ((b.closedOn||b.goLive) - (a.closedOn||a.goLive)));
     listEl.innerHTML = '';
     listEl.appendChild(v53SectionDivider('✅ 已完成 / 已結案', done.length));
