@@ -21,7 +21,7 @@ const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).transform((s) => new Dat
 const createSchema = z.object({
   title: z.string().min(1).max(100),
   subTitle: z.string().optional(),
-  requester: z.string().min(1),
+  requester: z.string().optional().default(''), // B4: 需求單位未填只警示不擋
   hotel: z.string().optional(),
   level: z.enum(['SS', 'S', 'A', 'B', 'C', 'D']),
   category: z.string().optional(),
@@ -33,6 +33,10 @@ const createSchema = z.object({
   goLiveDate: dateStr,
   urgent: z.boolean().default(false),
   note: z.string().default(''),
+  contact: z.string().optional().nullable(), // B2: 案件聯絡人
+  // B1: 通知改為由前端勾選決定（預設不寄）
+  notifyDesigner: z.boolean().default(false),
+  notifyCollaborators: z.boolean().default(false),
   // A2: 建立時即可帶入子案件與初始進度日誌（存入 Json 欄位，持久化）
   items: z.array(z.any()).max(50).optional(),
   logs: z.array(z.any()).max(500).optional(),
@@ -56,6 +60,7 @@ const updateSchema = z.object({
   goLiveDate: dateStr.optional(),
   urgent: z.boolean().optional(),
   note: z.string().optional(),
+  contact: z.string().optional().nullable(), // B2: 案件聯絡人
   archivePath: z.string().optional().nullable(),
   reason: z.string().optional(), // required only when tracked fields change
 });
@@ -266,6 +271,7 @@ router.post('/', async (req, res) => {
       goLiveDate: body.goLiveDate,
       urgent: body.urgent,
       note: body.note,
+      contact: body.contact ?? undefined,
       items: body.items ?? undefined,
       logs: body.logs ?? undefined,
       designer: { connect: { id: body.designerId } },
@@ -275,25 +281,29 @@ router.post('/', async (req, res) => {
     include: caseInclude,
   });
 
-  // Fire-and-forget notifications
+  // B1: 通知改為由前端勾選決定（預設不寄）
   try {
     const designerRow = created.designer;
     const operatorName = req.user.name;
 
-    // Notify primary
-    const tpl = tplCaseAssigned({
-      caseRow: { ...created, designerName: designerRow.name },
-      operatorName,
-    });
-    await notify({ type: 'caseAssigned', recipientId: designerRow.id, ...tpl, relatedCaseId: created.id });
-
-    // Notify collaborators
-    for (const c of created.collaborators) {
-      const t = tplCollabInvite({
+    // Notify primary — 僅在勾選時
+    if (body.notifyDesigner) {
+      const tpl = tplCaseAssigned({
         caseRow: { ...created, designerName: designerRow.name },
         operatorName,
       });
-      await notify({ type: 'collabInvite', recipientId: c.id, ...t, relatedCaseId: created.id });
+      await notify({ type: 'caseAssigned', recipientId: designerRow.id, ...tpl, relatedCaseId: created.id });
+    }
+
+    // Notify collaborators — 僅在勾選時
+    if (body.notifyCollaborators) {
+      for (const c of created.collaborators) {
+        const t = tplCollabInvite({
+          caseRow: { ...created, designerName: designerRow.name },
+          operatorName,
+        });
+        await notify({ type: 'collabInvite', recipientId: c.id, ...t, relatedCaseId: created.id });
+      }
     }
   } catch (e) {
     console.warn('[cases.create] notification failed:', e.message);
@@ -376,6 +386,7 @@ router.patch('/:id', async (req, res) => {
     ...(body.goLiveDate !== undefined && { goLiveDate: body.goLiveDate }),
     ...(body.urgent !== undefined && { urgent: body.urgent }),
     ...(body.note !== undefined && { note: body.note }),
+    ...(body.contact !== undefined && { contact: body.contact }),
     ...(body.archivePath !== undefined && { archivePath: body.archivePath }),
   };
 

@@ -83,6 +83,7 @@ model Case {
   status        String   @default("todo") // todo/wait/doing/review/done
   urgent        Boolean  @default(false)
   note          String   @default("")
+  contact       String?  // B2: 案件聯絡人（選填）
   openDate      DateTime @db.Date
   dispatchDate  DateTime @db.Date
   copyDate      DateTime? @db.Date

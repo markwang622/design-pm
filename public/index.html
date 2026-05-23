@@ -1232,6 +1232,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
       <label class="span2">專案名稱 *<input id="f-name" placeholder="e.g. 5 月母親節整體行銷"></label>
       <label>館別 *<select id="f-hotel"></select></label>
       <label>需求單位 *<select id="f-unit"></select></label>
+      <label class="span2">案件聯絡人（選填）<input id="f-contact" placeholder="例：行銷 陳經理 / 都會餐廳 王小姐 — 寫給自己看，方便找誰校稿"></label>
       <label>分級 *<select id="f-level"></select></label>
       <label id="f-designer-wrap">負責設計 *<select id="f-designer"></select></label>
       <label>需求派發日 *<input type="date" id="f-dispatch"></label>
@@ -1254,12 +1255,15 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
       </div>
       <div id="items-list"></div>
     </div>
-    <div class="notify-preview" id="notify-preview">
-      ✉ 送出後自動 Email 通知 <b id="preview-designer">（選負責人）</b>；Mark 收副本；系統將依上線日自動推算確稿日與校稿日。
+    <div class="notify-preview" id="notify-preview" style="display:flex;flex-direction:column;gap:6px;">
+      <div style="font-size:12px;color:var(--fg-muted,#8C8C8C);">Email 通知（預設不寄，需要再勾）：</div>
+      <label class="check" style="font-size:13px;"><input type="checkbox" id="f-notify-designer"> ✉ 通知負責人 <b id="preview-designer" style="font-weight:500;"></b></label>
+      <label class="check" style="font-size:13px;"><input type="checkbox" id="f-notify-collab"> ✉ 通知協作者</label>
+      <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);">系統會依上線日自動推算確稿日與校稿日。</div>
     </div>
     <div class="modal-actions">
       <button class="btn-secondary" id="modal-cancel">取消</button>
-      <button class="btn-primary" id="modal-submit">建立並通知</button>
+      <button class="btn-primary" id="modal-submit">建立</button>
     </div>
   </div>
 </div>
@@ -2133,7 +2137,8 @@ function openDrawer(c) {
   const grid = document.getElementById('d-grid');
   grid.innerHTML = `
     <dt>負責設計</dt><dd>${c.designer}</dd>
-    <dt>需求單位</dt><dd>${c.unit}</dd>
+    <dt>需求單位</dt><dd>${c.unit || '—'}</dd>
+    <dt>案件聯絡人</dt><dd>${escapeHtml(c.contact) || '—'}</dd>
     <dt>協作者</dt><dd>${(c.collaborators||[]).length ? c.collaborators.join('、') : '（無）'}</dd>
     <dt>主類別</dt><dd>${c.cat}</dd>
     <dt>分級</dt><dd>${c.level}</dd>
@@ -2309,9 +2314,14 @@ document.getElementById('drawer-bg').onclick = () => {
 // ============== Create modal ==============
 function openCreateModal() {
   const hSel = document.getElementById('f-hotel');
-  hSel.innerHTML = HOTELS.map(h => `<option value="${h.name}">${h.region} · ${h.name}</option>`).join('');
+  hSel.innerHTML = '<option value="">請選擇…</option>' + HOTELS.map(h => `<option value="${h.name}">${h.region} · ${h.name}</option>`).join('');
+  hSel.value = ''; // B4: 預設不選，避免漏填送出
   const uSel = document.getElementById('f-unit');
-  uSel.innerHTML = REQUEST_UNITS.map(u => `<option value="${u}">${u}</option>`).join('');
+  uSel.innerHTML = '<option value="">請選擇…</option>' + REQUEST_UNITS.map(u => `<option value="${u}">${u}</option>`).join('');
+  uSel.value = '';
+  const cfEl = document.getElementById('f-contact'); if (cfEl) cfEl.value = ''; // reset 聯絡人
+  const ndEl = document.getElementById('f-notify-designer'); if (ndEl) ndEl.checked = false;
+  const ncEl = document.getElementById('f-notify-collab'); if (ncEl) ncEl.checked = false;
   const cSel = document.getElementById('f-cat');
   cSel.innerHTML = CATS.map(c => `<option value="${c}">${c}</option>`).join('');
   // v3.5 (#7): toggle the "自訂類別項目" input when 其他 is selected
@@ -2829,6 +2839,7 @@ function normalizeCase(b) {
     goLive: b.goLiveDate ? new Date(b.goLiveDate) : new Date(TODAY),
     urgent: !!b.urgent,
     note: b.note || '',
+    contact: b.contact || '',
     items: Array.isArray(b.items) ? b.items : [],
     logs: Array.isArray(b.logs) ? b.logs.map(l => ({ ...l, date: l.date ? new Date(l.date) : new Date(TODAY) })) : [],
     archivePath: b.archivePath || null,
@@ -2975,23 +2986,34 @@ window.submitCreate = async function() {
   const golive = document.getElementById('f-golive').value;
   const urgent = document.getElementById('f-urgent').checked;
   const note = document.getElementById('f-note').value.trim();
-  if (!name || !unit || !designerName || !golive || !dispatch) {
-    showToast('請填必填欄位：專案名稱、需求單位、需求派發日、上線日' + (self ? '' : '、負責人'), 'err');
+  const contact = (document.getElementById('f-contact')?.value || '').trim();           // B2
+  const notifyDesigner = !!document.getElementById('f-notify-designer')?.checked;        // B1
+  const notifyCollaborators = !!document.getElementById('f-notify-collab')?.checked;     // B1
+  // 必填：專案名稱、負責人、派發日、上線日（B4：館別/需求單位不再硬擋）
+  if (!name || !designerName || !golive || !dispatch) {
+    showToast('請填必填欄位：專案名稱、需求派發日、上線日' + (self ? '' : '、負責人'), 'err');
     return;
+  }
+  // B4: 館別/需求單位 未選只軟警示、不擋，建立後可在抽屜補填
+  if (!hotel || !unit) {
+    showToast('提醒：館別或需求單位尚未選擇，仍可建立，記得稍後到案件詳情補填', 'warn');
   }
   const designerId = findStaffId(designerName);
   if (!designerId) { showToast(`找不到設計師「${designerName}」`, 'err'); return; }
   const collabIds = draftCollabs.filter(n => n !== designerName).map(findStaffId).filter(Boolean);
   const items = draftItems.filter(it => it.n && it.n.trim()).map(it => ({ n: it.n.trim(), type: it.type, owner: it.owner || designerName }));
-  const initialLog = { date: ymdIso(TODAY), note: `建檔 by ${ME_NAME()}${self ? '（自接）' : ''} · 已 Email 通知 ${designerName}`, by: ME_NAME() };
+  const _notifyTxt = (notifyDesigner || notifyCollaborators) ? ` · 已寄通知（${[notifyDesigner?'負責人':null, notifyCollaborators?'協作者':null].filter(Boolean).join('、')}）` : '';
+  const initialLog = { date: ymdIso(TODAY), note: `建檔 by ${ME_NAME()}${self ? '（自接）' : ' · 指派 ' + designerName}${_notifyTxt}`, by: ME_NAME() };
   const body = {
     title: name, subTitle: items.length ? items.map(it => it.n).slice(0,2).join(' / ') + (items.length>2 ? ` ...等 ${items.length} 項` : '') : '',
     requester: unit, hotel, level, category: cat,
+    contact,                                       // B2: 案件聯絡人
     designerId, collaboratorIds: collabIds,
     openDate: ymdIso(TODAY), dispatchDate: ymdIso(new Date(dispatch)),
     copyDate: copyDate ? ymdIso(new Date(copyDate)) : undefined,
     goLiveDate: ymdIso(new Date(golive)),
     urgent, note,
+    notifyDesigner, notifyCollaborators,           // B1: 由勾選決定是否寄信
     items,                // A2: 子案件一併送後端持久化
     logs: [initialLog],   // A2: 初始進度日誌持久化
   };
@@ -3009,13 +3031,13 @@ window.submitCreate = async function() {
     CASES.unshift(norm);
     decorateCases();
     closeCreateModal();
-    showToast(`✓ ${norm.id} 已建立 · 已 Email 通知`);
+    showToast(`✓ ${norm.id} 已建立${(notifyDesigner||notifyCollaborators) ? ' · 已寄出通知' : ''}`);
     refreshAll();
   } catch (e) {
     showToast('建檔失敗：' + (e.message || '伺服器錯誤'), 'err');
   } finally {
     window._creatingCase = false;
-    if (_submitBtn) { _submitBtn.disabled = false; _submitBtn.textContent = _submitBtn.dataset._label || '建立並通知'; _submitBtn.style.opacity = ''; }
+    if (_submitBtn) { _submitBtn.disabled = false; _submitBtn.textContent = _submitBtn.dataset._label || '建立'; _submitBtn.style.opacity = ''; }
   }
 };
 document.getElementById('modal-submit').onclick = window.submitCreate;
@@ -3084,6 +3106,8 @@ window.openDrawer = function(c) {
   }
   // A3: 進度日誌持久化 + 編輯/刪除
   v51WireLogs(c);
+  // B2/B3/B4: 基本資料編輯（專案名稱/館別/需求單位/聯絡人）
+  v52WireBasicEdit(c);
 };
 
 // ── A3: 進度日誌持久化（新增 / 編輯 / 刪除）─────────────────────
@@ -3147,6 +3171,53 @@ function v51WireLogs(c) {
     v51RenderLogs(c);
     try { await api.cases.patchLogs(c.id, { logs: v51LogsForApi(c.logs) }); }
     catch (e) { c.logs.shift(); v51RenderLogs(c); showToast('進度日誌儲存失敗：' + (e.data?.message || e.message), 'err'); }
+  };
+}
+
+// ── B2/B3/B4: 抽屜內編輯基本資料（專案名稱 / 館別 / 需求單位 / 案件聯絡人）──
+function v52CanEditBasic(c) {
+  return currentRole === 'admin' || c.designer === ME_NAME();
+}
+function v52WireBasicEdit(c) {
+  const grid = document.getElementById('d-grid');
+  if (!grid) return;
+  const old = document.getElementById('v52-edit-panel');
+  if (old) old.remove();
+  if (!v52CanEditBasic(c)) return; // 僅主負責人 / admin 可編輯
+  const panel = document.createElement('details');
+  panel.id = 'v52-edit-panel';
+  panel.style.cssText = 'margin:0 0 16px;border:1px solid var(--glass-border,#E5E5E5);border-radius:8px;padding:8px 12px;background:var(--glass-bg,rgba(255,255,255,0.5));-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);';
+  const _hotels = (typeof HOTELS !== 'undefined' && HOTELS) ? HOTELS : [];
+  const _units = (typeof REQUEST_UNITS !== 'undefined' && REQUEST_UNITS) ? REQUEST_UNITS : [];
+  const hotelOpts = '<option value="">請選擇…</option>' + _hotels.map(h => `<option value="${escapeHtml(h.name)}" ${h.name === c.hotel ? 'selected' : ''}>${escapeHtml(h.region)} · ${escapeHtml(h.name)}</option>`).join('');
+  const unitOpts = '<option value="">請選擇…</option>' + _units.map(u => `<option value="${escapeHtml(u)}" ${u === c.unit ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('');
+  panel.innerHTML = `
+    <summary style="cursor:pointer;font-size:13px;font-weight:500;color:var(--fg,#1F1F1F);">✎ 編輯基本資料</summary>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;font-size:12px;">
+      <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">專案名稱<input id="v52-title" value="${escapeHtml(c.name)}" style="padding:6px 8px;"></label>
+      <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">館別<select id="v52-hotel" style="padding:6px 8px;">${hotelOpts}</select></label>
+      <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">需求單位<select id="v52-unit" style="padding:6px 8px;">${unitOpts}</select></label>
+      <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">案件聯絡人<input id="v52-contact" value="${escapeHtml(c.contact || '')}" placeholder="例：行銷 陳經理 / 王小姐" style="padding:6px 8px;"></label>
+      <button id="v52-save" style="align-self:flex-start;padding:6px 16px;background:var(--accent,#1F8A4C);color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:500;">💾 儲存基本資料</button>
+    </div>`;
+  grid.insertAdjacentElement('afterend', panel);
+  panel.querySelector('#v52-save').onclick = async () => {
+    const title = document.getElementById('v52-title').value.trim();
+    const hotel = document.getElementById('v52-hotel').value;
+    const unit = document.getElementById('v52-unit').value;
+    const contact = document.getElementById('v52-contact').value.trim();
+    if (!title) { showToast('專案名稱不能空白', 'err'); return; }
+    const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact };
+    try {
+      await api.cases.update(c.id, { title, hotel, requester: unit, contact });
+      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact;
+      showToast('✓ 基本資料已更新');
+      openDrawer(c);
+      refreshAll();
+    } catch (e) {
+      Object.assign(c, prev);
+      showToast('更新失敗：' + (e.data?.message || e.message), 'err');
+    }
   };
 }
 
@@ -4780,8 +4851,8 @@ async function v47LoadUnits() {
   const uSel = document.getElementById('f-unit');
   if (uSel) {
     const cur = uSel.value;
-    uSel.innerHTML = REQUEST_UNITS.map(u => `<option value="${u}">${u}</option>`).join('');
-    if (cur && REQUEST_UNITS.includes(cur)) uSel.value = cur;
+    uSel.innerHTML = '<option value="">請選擇…</option>' + REQUEST_UNITS.map(u => `<option value="${u}">${u}</option>`).join('');
+    uSel.value = (cur && REQUEST_UNITS.includes(cur)) ? cur : ''; // B4: 預設不選
   }
 }
 
