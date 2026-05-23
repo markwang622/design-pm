@@ -85,6 +85,7 @@ model Case {
   note          String   @default("")
   contact       String?  // B2: 案件聯絡人（選填）
   deliverables  Json?    // C1: 製作物項目（多選，字串陣列）
+  needsOutsourcing Boolean @default(false) // D2: 需發包（預留 7–10 工作天）
   openDate      DateTime @db.Date
   dispatchDate  DateTime @db.Date
   copyDate      DateTime? @db.Date

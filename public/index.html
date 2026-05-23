@@ -1245,6 +1245,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
       </label>
       <label class="span2" id="f-deliv-other-wrap" style="display:none;">其他製作物（自訂，逗號分隔）<input type="text" id="f-deliv-other" placeholder="例如：影片剪輯、活動規劃"></label>
       <label class="span2 check"><input type="checkbox" id="f-urgent"> 標記為急件（🔥）</label>
+      <label class="span2 check"><input type="checkbox" id="f-outsource"> 📦 需發包（需預留 7–10 個工作天）</label>
       <label class="span2">
         協作者（可複選，大案可 2–3 人共做）
         <div class="collab-picker" id="f-collab"></div>
@@ -1722,6 +1723,7 @@ function makeCaseCard(c) {
       <span class="chip">${c.hotel}</span>
       ${c.urgent ? '<span class="chip urgent">🔥 急件</span>' : ''}
       ${c.overdue ? '<span class="chip overdue">⚠ 逾期</span>' : ''}
+      ${c.needsOutsourcing ? '<span class="chip" style="background:#EAE0F5;color:#6B3FA0;border-color:#D4C2EC;">📦 需發包</span>' : ''}
       ${c.gateActive ? '<span class="chip gate">⏰ 待簽核</span>' : ''}
       ${(c.collaborators && c.collaborators.length) ? `<span class="chip collab">🤝 ${c.collaborators.length} 位協作</span>` : ''}
     </div>
@@ -1982,8 +1984,7 @@ function renderGantt() {
           const itCe = Math.min(100, itEp);
           const itW = Math.max(2, itCe - itCs);
           const itStatus = it.status || c.status;
-          const _v43list = (typeof V43_ITEM_STATUS !== 'undefined' ? V43_ITEM_STATUS : null);
-          const itStInfo = _v43list ? (_v43list.find(x => x.key === itStatus) || _v43list[0]) : { name: itStatus, color: '#8C8C8C' };
+          const itStInfo = v51StageInfo(itStatus);
           const itOwner = it.owner || c.designer;
           html += `
             <div class="gantt-row sub-row">
@@ -2203,6 +2204,7 @@ function openDrawer(c) {
     <dt>案件聯絡人</dt><dd>${escapeHtml(c.contact) || '—'}</dd>
     <dt>協作者</dt><dd>${(c.collaborators||[]).length ? c.collaborators.join('、') : '（無）'}</dd>
     <dt>製作物</dt><dd>${(c.deliverables && c.deliverables.length) ? c.deliverables.map(d => `<span class="chip" style="margin:1px 3px 1px 0;">${escapeHtml(d)}</span>`).join('') : (c.cat ? escapeHtml(c.cat) : '—')}</dd>
+    ${c.needsOutsourcing ? `<dt>需發包</dt><dd>📦 是 · 建議發包日 ${ymd(subtractWorkdays(c.goLive, 10))}（上線−10 工作天）</dd>` : ''}
     <dt>分級</dt><dd>${c.level}</dd>
     <dt>備註</dt><dd>${c.note || '—'}</dd>
   `;
@@ -2384,6 +2386,7 @@ function openCreateModal() {
   const cfEl = document.getElementById('f-contact'); if (cfEl) cfEl.value = ''; // reset 聯絡人
   const ndEl = document.getElementById('f-notify-designer'); if (ndEl) ndEl.checked = false;
   const ncEl = document.getElementById('f-notify-collab'); if (ncEl) ncEl.checked = false;
+  const osEl = document.getElementById('f-outsource'); if (osEl) osEl.checked = false; // D2 reset
   // C1: 製作物項目多選（取代主類別單選）
   draftDeliverables = [];
   const dOther = document.getElementById('f-deliv-other'); if (dOther) dOther.value = '';
@@ -2916,6 +2919,7 @@ function normalizeCase(b) {
     note: b.note || '',
     contact: b.contact || '',
     deliverables: Array.isArray(b.deliverables) ? b.deliverables : [],
+    needsOutsourcing: !!b.needsOutsourcing,
     items: Array.isArray(b.items) ? b.items : [],
     logs: Array.isArray(b.logs) ? b.logs.map(l => ({ ...l, date: l.date ? new Date(l.date) : new Date(TODAY) })) : [],
     archivePath: b.archivePath || null,
@@ -3063,6 +3067,7 @@ window.submitCreate = async function() {
   const urgent = document.getElementById('f-urgent').checked;
   const note = document.getElementById('f-note').value.trim();
   const contact = (document.getElementById('f-contact')?.value || '').trim();           // B2
+  const needsOutsourcing = !!document.getElementById('f-outsource')?.checked;            // D2
   const notifyDesigner = !!document.getElementById('f-notify-designer')?.checked;        // B1
   const notifyCollaborators = !!document.getElementById('f-notify-collab')?.checked;     // B1
   // 必填：專案名稱、負責人、派發日、上線日（B4：館別/需求單位不再硬擋）
@@ -3084,6 +3089,7 @@ window.submitCreate = async function() {
     title: name, subTitle: items.length ? items.map(it => it.n).slice(0,2).join(' / ') + (items.length>2 ? ` ...等 ${items.length} 項` : '') : '',
     requester: unit, hotel, level, category: cat,
     deliverables,                                  // C1: 製作物項目（多選）
+    needsOutsourcing,                              // D2: 需發包
     contact,                                       // B2: 案件聯絡人
     designerId, collaboratorIds: collabIds,
     openDate: ymdIso(TODAY), dispatchDate: ymdIso(new Date(dispatch)),
@@ -3280,6 +3286,7 @@ function v52WireBasicEdit(c) {
       <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">需求單位<select id="v52-unit" style="padding:6px 8px;">${unitOpts}</select></label>
       <div style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">製作物（可複選）<div class="collab-picker" id="v52-deliv">${delivChips()}</div></div>
       <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">案件聯絡人<input id="v52-contact" value="${escapeHtml(c.contact || '')}" placeholder="例：行銷 陳經理 / 王小姐" style="padding:6px 8px;"></label>
+      <label style="display:flex;align-items:center;gap:6px;color:var(--fg,#1F1F1F);cursor:pointer;"><input type="checkbox" id="v52-outsource" ${c.needsOutsourcing ? 'checked' : ''}> 📦 需發包（需預留 7–10 個工作天）</label>
       <button id="v52-save" style="align-self:flex-start;padding:6px 16px;background:var(--accent,#1F8A4C);color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:500;">💾 儲存基本資料</button>
     </div>`;
   grid.insertAdjacentElement('afterend', panel);
@@ -3298,11 +3305,12 @@ function v52WireBasicEdit(c) {
     const hotel = document.getElementById('v52-hotel').value;
     const unit = document.getElementById('v52-unit').value;
     const contact = document.getElementById('v52-contact').value.trim();
+    const needsOutsourcing = !!document.getElementById('v52-outsource')?.checked;
     if (!title) { showToast('專案名稱不能空白', 'err'); return; }
-    const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact, deliverables: c.deliverables, cat: c.cat };
+    const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact, deliverables: c.deliverables, cat: c.cat, needsOutsourcing: c.needsOutsourcing };
     try {
-      await api.cases.update(c.id, { title, hotel, requester: unit, contact, deliverables: selDeliv, category: selDeliv.join('、') });
-      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact; c.deliverables = selDeliv.slice(); c.cat = selDeliv.join('、');
+      await api.cases.update(c.id, { title, hotel, requester: unit, contact, deliverables: selDeliv, category: selDeliv.join('、'), needsOutsourcing });
+      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact; c.deliverables = selDeliv.slice(); c.cat = selDeliv.join('、'); c.needsOutsourcing = needsOutsourcing;
       showToast('✓ 基本資料已更新');
       openDrawer(c);
       refreshAll();
@@ -6906,6 +6914,33 @@ const V43_ITEM_STATUS = [
   { key: 'review_done', name: '確稿完成', color: '#D88A5A' },
   { key: 'done', name: '已結案', color: '#5AA85A' },
 ];
+// D1: 子案件「製作進度」完整流程清單（key=name），可同時掛 2 個
+const V51_STAGES = [
+  { key: '等文案', color: '#8C8C8C' },
+  { key: '尚未製作', color: '#9AA0A6' },
+  { key: '確認中', color: '#B89568' },
+  { key: '製作中', color: '#1F6FEB' },
+  { key: '行銷校稿', color: '#D8B85A' },
+  { key: '需求單位校稿', color: '#C79B25' },
+  { key: '確稿單', color: '#C79B25' },
+  { key: '請購單', color: '#8B5CF6' },
+  { key: '簽呈', color: '#8B5CF6' },
+  { key: '報價中', color: '#D88A5A' },
+  { key: '待發包', color: '#E0843F' },
+  { key: '已發包', color: '#2BA8C4' },
+  { key: '待供稿', color: '#E0843F' },
+  { key: '已供稿', color: '#2BA8C4' },
+  { key: '自行列印', color: '#5AA85A' },
+  { key: '待歸檔', color: '#B89568' },
+  { key: '結案/完成歸檔', color: '#5AA85A' },
+];
+function v51StageInfo(k) {
+  const s = V51_STAGES.find(x => x.key === k);
+  if (s) return { key: k, name: k, color: s.color };
+  const leg = V43_ITEM_STATUS.find(x => x.key === k);
+  if (leg) return leg;
+  return { key: k, name: k || '尚未製作', color: '#8C8C8C' };
+}
 
 function v43InjectSubItemsPanel(c, body) {
   if (!body) return;
@@ -6922,10 +6957,10 @@ function v43InjectSubItemsPanel(c, body) {
   const items = JSON.parse(JSON.stringify(c.items || []));
   let v43sectionCollapsed = false; // C3: 子案件區塊收合狀態（本次開啟有效）
 
-  // Helper: status pill HTML
-  const statusPill = (k) => {
-    const s = V43_ITEM_STATUS.find(x => x.key === k) || V43_ITEM_STATUS[0];
-    return `<span class="v43-status-pill" style="display:inline-block;padding:2px 8px;background:${s.color}22;color:${s.color};border:1px solid ${s.color}55;border-radius:10px;font-size:10px;font-weight:500;">${s.name}</span>`;
+  // Helper: status pill HTML（D1：支援完整流程清單）
+  const statusPill = (k, cls) => {
+    const s = v51StageInfo(k);
+    return `<span class="${cls || 'v43-status-pill'}" style="display:inline-block;padding:2px 8px;background:${s.color}22;color:${s.color};border:1px solid ${s.color}55;border-radius:10px;font-size:10px;font-weight:500;">${escapeHtml(s.name)}</span>`;
   };
 
   const inputStyle = 'width:100%;padding:6px 8px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;box-sizing:border-box;';
@@ -6944,7 +6979,7 @@ function v43InjectSubItemsPanel(c, body) {
               <span style="font-size:11px;color:var(--fg-muted,#8C8C8C);font-family:'SF Mono','Consolas',monospace;">#${i+1}</span>
               <span class="v43-name-preview" style="font-weight:500;font-size:13px;color:var(--fg,#1F1F1F);">${escapeHtml(it.n || '(未命名子案件)')}</span>
               <span class="v43-assignee-chip" style="font-size:11px;padding:1px 7px;background:rgba(0,0,0,0.06);border-radius:8px;color:var(--fg,#1F1F1F);${assigneeName?'':'display:none;'}">${assigneeName?'👤 '+escapeHtml(assigneeName):''}</span>
-              ${statusPill(it.status || 'todo')}
+              <span class="v43-pill-wrap" style="display:inline-flex;gap:4px;flex-wrap:wrap;">${statusPill(it.status || '尚未製作')}${it.status2 ? statusPill(it.status2, 'v43-status-pill2') : ''}</span>
               ${canWrite ? `<button data-act="del" data-i="${i}" title="刪除此子案件" style="margin-left:auto;width:24px;height:24px;padding:0;background:transparent;border:1px solid var(--input-border,#D4D4D4);border-radius:4px;cursor:pointer;color:#9A2E2E;font-size:14px;line-height:1;">×</button>` : ''}
             </div>
 
@@ -6982,10 +7017,18 @@ function v43InjectSubItemsPanel(c, body) {
                 <input type="date" data-i="${i}" data-k="end" value="${it.end||''}" ${canWrite?'':'disabled'} style="${inputStyle}">
               </div>
               <div>
-                <label style="${labelStyle}">狀態</label>
+                <label style="${labelStyle}">狀態（可同時 2 個）</label>
                 <select data-i="${i}" data-k="status" ${canWrite?'':'disabled'} style="${inputStyle}">
-                  ${V43_ITEM_STATUS.map(s=>`<option value="${s.key}" ${(it.status||'todo')===s.key?'selected':''}>${s.name}</option>`).join('')}
+                  ${V51_STAGES.map(s=>`<option value="${escapeHtml(s.key)}" ${(it.status||'尚未製作')===s.key?'selected':''}>${escapeHtml(s.key)}</option>`).join('')}
                 </select>
+                ${it.status2 != null ? `
+                  <div style="display:flex;align-items:center;gap:4px;margin-top:4px;">
+                    <select data-i="${i}" data-k="status2" ${canWrite?'':'disabled'} style="${inputStyle}flex:1;">
+                      ${V51_STAGES.map(s=>`<option value="${escapeHtml(s.key)}" ${it.status2===s.key?'selected':''}>${escapeHtml(s.key)}</option>`).join('')}
+                    </select>
+                    ${canWrite ? `<button data-act="rmstatus2" data-i="${i}" title="移除第二狀態" style="width:24px;height:24px;flex-shrink:0;padding:0;background:transparent;border:1px solid var(--input-border,#D4D4D4);border-radius:4px;cursor:pointer;color:#9A2E2E;font-size:13px;line-height:1;">×</button>` : ''}
+                  </div>
+                ` : (canWrite ? `<button data-act="addstatus2" data-i="${i}" style="margin-top:4px;font-size:11px;color:#1F8A4C;background:transparent;border:none;cursor:pointer;padding:2px 0;">＋ 加第二狀態</button>` : '')}
               </div>
             </div>
           </div>
@@ -7072,15 +7115,10 @@ function v43InjectSubItemsPanel(c, body) {
               if (name) { chip.textContent = '👤 ' + name; chip.style.display = ''; }
               else { chip.textContent = ''; chip.style.display = 'none'; }
             }
-          } else if (k === 'status') {
-            const pillEl = card.querySelector('.v43-status-pill');
-            if (pillEl) {
-              const s = V43_ITEM_STATUS.find(x => x.key === v) || V43_ITEM_STATUS[0];
-              pillEl.style.background = s.color + '22';
-              pillEl.style.color = s.color;
-              pillEl.style.borderColor = s.color + '55';
-              pillEl.textContent = s.name;
-            }
+          } else if (k === 'status' || k === 'status2') {
+            // D1: 重建狀態 pill（含第二狀態）
+            const wrap = card.querySelector('.v43-pill-wrap');
+            if (wrap) wrap.innerHTML = statusPill(items[i].status || '尚未製作') + (items[i].status2 ? statusPill(items[i].status2, 'v43-status-pill2') : '');
           }
         };
         // 'input' for text/date typing; 'change' for selects
@@ -7090,7 +7128,7 @@ function v43InjectSubItemsPanel(c, body) {
       // Add button
       const addBtn = panel.querySelector('#v43-item-add');
       if (addBtn) addBtn.onclick = () => {
-        items.push({ n: '', type: DELIVERABLES[0], owner: '', assigneeId: null, start: null, end: null, status: 'todo' });
+        items.push({ n: '', type: DELIVERABLES[0], owner: '', assigneeId: null, start: null, end: null, status: '尚未製作', status2: null });
         renderCards();
         // Scroll to and focus new card's name input
         setTimeout(() => {
@@ -7109,6 +7147,13 @@ function v43InjectSubItemsPanel(c, body) {
           }
         };
       });
+      // D1: 第二狀態 加 / 移除
+      panel.querySelectorAll('button[data-act="addstatus2"]').forEach(btn => {
+        btn.onclick = () => { const i = Number(btn.dataset.i); items[i].status2 = items[i].status === '製作中' ? '報價中' : '製作中'; renderCards(); };
+      });
+      panel.querySelectorAll('button[data-act="rmstatus2"]').forEach(btn => {
+        btn.onclick = () => { const i = Number(btn.dataset.i); items[i].status2 = null; renderCards(); };
+      });
       // Save button
       const saveBtn = panel.querySelector('#v43-items-save');
       if (saveBtn) saveBtn.onclick = async () => {
@@ -7126,7 +7171,8 @@ function v43InjectSubItemsPanel(c, body) {
             assigneeId: it.assigneeId || null,
             start: it.start || null,
             end: it.end || null,
-            status: it.status || 'todo',
+            status: it.status || '尚未製作',
+            status2: it.status2 || null, // D1: 第二狀態
           }));
           await api.cases.patchItems(c.id, { items: cleaned, reason });
           c.items = cleaned;
@@ -7166,11 +7212,11 @@ function v44CollectMySubItems() {
 }
 
 function v44MakeSubItemCard(c, it, idx) {
-  const stInfo = (V43_ITEM_STATUS.find(x => x.key === (it.status || 'todo')) || V43_ITEM_STATUS[0]);
+  const stInfo = v51StageInfo(it.status || '尚未製作');
   const itStart = it.start ? new Date(it.start) : null;
   const itEnd = it.end ? new Date(it.end) : null;
   const today = new Date(); today.setHours(0,0,0,0);
-  const isDone = it.status === 'done' || it.status === 'closed';
+  const isDone = it.status === 'done' || it.status === 'closed' || it.status === '結案/完成歸檔';
   const overdue = !isDone && itEnd && itEnd < today;
   const daysLeft = itEnd ? Math.round((itEnd - today) / 86400000) : null;
 
