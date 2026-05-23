@@ -1238,8 +1238,11 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
       <label>需求派發日 *<input type="date" id="f-dispatch"></label>
       <label>文案收件日（可選填）<input type="date" id="f-copy"></label>
       <label>上線日 *<input type="date" id="f-golive"></label>
-      <label>主類別 *<select id="f-cat"></select></label>
-      <label id="f-cat-other-wrap" style="display:none;">自訂類別項目 *<input type="text" id="f-cat-other" placeholder="例如：影片剪輯、活動規劃…"></label>
+      <label class="span2">製作物項目（可複選）
+        <div class="collab-picker" id="f-deliverables"></div>
+        <div class="collab-picker-hint">點擊選取本專案包含的製作物；可多選。需要細部追蹤（負責人／日期／狀態）再用下方子案件。</div>
+      </label>
+      <label class="span2" id="f-deliv-other-wrap" style="display:none;">其他製作物（自訂，逗號分隔）<input type="text" id="f-deliv-other" placeholder="例如：影片剪輯、活動規劃"></label>
       <label class="span2 check"><input type="checkbox" id="f-urgent"> 標記為急件（🔥）</label>
       <label class="span2">
         協作者（可複選，大案可 2–3 人共做）
@@ -1422,6 +1425,8 @@ const SELECTABLE_STATUSES = STATUSES.filter(s => s.key !== 'done');
 const FINAL_STATUS_KEYS = new Set(['done', 'closed']);
 const PENDING_REVIEW_KEY = 'review_done';
 const CATS = ['1 平面設計製作物','2 數位廣宣','3 拍攝(外發)','4 拍攝(自拍)','5 實體陳列','6 提案','7 其他'];
+// C1: 製作物項目（多選清單，取代單選主類別）
+const DELIVERABLES = ['電子看板','PDF','GIF','ai 檔','印刷輸出','官網','FB / IG / GMB','Ocard','LINE','拍攝（自）','拍攝（外）','拍攝規劃','陳列','提案','公版 / PPT / Canva'];
 const LEVELS = ['SS','S','A','B','C','D'];
 
 function activeDesigners() { return STAFF.filter(s => s.active).map(s => s.name); }
@@ -1502,6 +1507,7 @@ let ganttStart = d(2026, 4, 1);
 let expandedProjects = new Set();
 let draftItems = [];
 let draftCollabs = [];
+let draftDeliverables = []; // C1: 製作物項目多選
 let currentCase = null;
 let reassignCase = null;
 let departureTarget = null;
@@ -2140,7 +2146,7 @@ function openDrawer(c) {
     <dt>需求單位</dt><dd>${c.unit || '—'}</dd>
     <dt>案件聯絡人</dt><dd>${escapeHtml(c.contact) || '—'}</dd>
     <dt>協作者</dt><dd>${(c.collaborators||[]).length ? c.collaborators.join('、') : '（無）'}</dd>
-    <dt>主類別</dt><dd>${c.cat}</dd>
+    <dt>製作物</dt><dd>${(c.deliverables && c.deliverables.length) ? c.deliverables.map(d => `<span class="chip" style="margin:1px 3px 1px 0;">${escapeHtml(d)}</span>`).join('') : (c.cat ? escapeHtml(c.cat) : '—')}</dd>
     <dt>分級</dt><dd>${c.level}</dd>
     <dt>備註</dt><dd>${c.note || '—'}</dd>
   `;
@@ -2322,20 +2328,11 @@ function openCreateModal() {
   const cfEl = document.getElementById('f-contact'); if (cfEl) cfEl.value = ''; // reset 聯絡人
   const ndEl = document.getElementById('f-notify-designer'); if (ndEl) ndEl.checked = false;
   const ncEl = document.getElementById('f-notify-collab'); if (ncEl) ncEl.checked = false;
-  const cSel = document.getElementById('f-cat');
-  cSel.innerHTML = CATS.map(c => `<option value="${c}">${c}</option>`).join('');
-  // v3.5 (#7): toggle the "自訂類別項目" input when 其他 is selected
-  const otherWrap = document.getElementById('f-cat-other-wrap');
-  const otherInput = document.getElementById('f-cat-other');
-  if (otherWrap && otherInput) {
-    otherInput.value = '';
-    otherWrap.style.display = 'none';
-    cSel.onchange = () => {
-      const isOther = /其他/.test(cSel.value);
-      otherWrap.style.display = isOther ? '' : 'none';
-      if (!isOther) otherInput.value = '';
-    };
-  }
+  // C1: 製作物項目多選（取代主類別單選）
+  draftDeliverables = [];
+  const dOther = document.getElementById('f-deliv-other'); if (dOther) dOther.value = '';
+  const dOtherWrap = document.getElementById('f-deliv-other-wrap'); if (dOtherWrap) dOtherWrap.style.display = 'none';
+  renderDeliverablesPicker();
   const lSel = document.getElementById('f-level');
   lSel.innerHTML = LEVELS.map(l => `<option value="${l}" ${l==='B'?'selected':''}>${l}</option>`).join('');
   const dSel = document.getElementById('f-designer');
@@ -2346,7 +2343,7 @@ function openCreateModal() {
   toggleSelfCreated();
   ['f-name','f-dispatch','f-copy','f-golive','f-note'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f-urgent').checked = false;
-  draftItems = [{ n:'', type: CATS[0], owner: (currentRole === 'designer' ? ME_NAME() : '') }];
+  draftItems = [{ n:'', type: DELIVERABLES[0], owner: (currentRole === 'designer' ? ME_NAME() : '') }];
   draftCollabs = [];
   renderItemsEditor();
   renderCollabPicker();
@@ -2366,6 +2363,27 @@ function primaryDesigner() {
   const self = document.getElementById('f-self').checked;
   if (self) return ME_NAME();
   return document.getElementById('f-designer').value;
+}
+// C1: 製作物項目多選 picker（沿用 collab-chip 樣式）
+function renderDeliverablesPicker() {
+  const wrap = document.getElementById('f-deliverables');
+  if (!wrap) return;
+  const opts = DELIVERABLES.concat(['其他']);
+  wrap.innerHTML = opts.map(d => {
+    const sel = draftDeliverables.includes(d);
+    return `<span class="collab-chip${sel ? ' selected' : ''}" data-d="${escapeHtml(d)}">${escapeHtml(d)}</span>`;
+  }).join('');
+  wrap.querySelectorAll('.collab-chip').forEach(el => {
+    el.onclick = () => {
+      const d = el.dataset.d;
+      if (draftDeliverables.includes(d)) draftDeliverables = draftDeliverables.filter(x => x !== d);
+      else draftDeliverables.push(d);
+      // 「其他」勾選時顯示自訂輸入
+      const otherWrap = document.getElementById('f-deliv-other-wrap');
+      if (otherWrap) otherWrap.style.display = draftDeliverables.includes('其他') ? '' : 'none';
+      renderDeliverablesPicker();
+    };
+  });
 }
 function renderCollabPicker() {
   const wrap = document.getElementById('f-collab');
@@ -2392,7 +2410,7 @@ function renderItemsEditor() {
   wrap.innerHTML = draftItems.map((it, i) => `
     <div class="item-editor-row">
       <input data-i="${i}" data-k="n" placeholder="子案件名稱" value="${it.n || ''}">
-      <select data-i="${i}" data-k="type">${CATS.map(c => `<option value="${c}" ${c===it.type?'selected':''}>${c}</option>`).join('')}</select>
+      <select data-i="${i}" data-k="type">${DELIVERABLES.map(c => `<option value="${c}" ${c===it.type?'selected':''}>${c}</option>`).join('')}</select>
       <select data-i="${i}" data-k="owner">
         <option value="">（同主負責）</option>
         ${activeDesigners().map(dn => `<option value="${dn}" ${dn===it.owner?'selected':''}>${dn}</option>`).join('')}
@@ -2411,7 +2429,7 @@ function renderItemsEditor() {
   });
 }
 document.getElementById('items-add').onclick = () => {
-  draftItems.push({ n:'', type: CATS[0], owner: '' });
+  draftItems.push({ n:'', type: DELIVERABLES[0], owner: '' });
   renderItemsEditor();
 };
 document.getElementById('f-self').addEventListener('change', toggleSelfCreated);
@@ -2430,7 +2448,7 @@ function submitCreate() {
   const name = document.getElementById('f-name').value.trim();
   const hotel = document.getElementById('f-hotel').value;
   const unit = document.getElementById('f-unit').value;
-  const cat = document.getElementById('f-cat').value;
+  const cat = document.getElementById('f-cat')?.value || ''; // 原始函式已被 wrapper 覆寫；保險避免 null
   const level = document.getElementById('f-level').value;
   const designer = self ? ME_NAME() : document.getElementById('f-designer').value;
   const dispatch = document.getElementById('f-dispatch').value;
@@ -2840,6 +2858,7 @@ function normalizeCase(b) {
     urgent: !!b.urgent,
     note: b.note || '',
     contact: b.contact || '',
+    deliverables: Array.isArray(b.deliverables) ? b.deliverables : [],
     items: Array.isArray(b.items) ? b.items : [],
     logs: Array.isArray(b.logs) ? b.logs.map(l => ({ ...l, date: l.date ? new Date(l.date) : new Date(TODAY) })) : [],
     archivePath: b.archivePath || null,
@@ -2972,13 +2991,13 @@ window.submitCreate = async function() {
   const name = document.getElementById('f-name').value.trim();
   const hotel = document.getElementById('f-hotel').value;
   const unit = document.getElementById('f-unit').value;
-  let cat = document.getElementById('f-cat').value;
-  // v3.5 (#7): if 其他, append the user's custom item
-  if (/其他/.test(cat)) {
-    const customLabel = (document.getElementById('f-cat-other')?.value || '').trim();
-    if (!customLabel) { showToast('選了「其他」就要填自訂類別項目', 'err'); return; }
-    cat = `7 其他 — ${customLabel}`;
+  // C1: 製作物項目多選（取代主類別）。「其他」可加自訂（逗號分隔）
+  let deliverables = draftDeliverables.filter(d => d !== '其他');
+  if (draftDeliverables.includes('其他')) {
+    const customTxt = (document.getElementById('f-deliv-other')?.value || '').trim();
+    if (customTxt) deliverables = deliverables.concat(customTxt.split(/[,，、]/).map(s => s.trim()).filter(Boolean));
   }
+  const cat = deliverables.join('、'); // legacy category 仍存 joined 字串
   const level = document.getElementById('f-level').value;
   const designerName = self ? ME_NAME() : document.getElementById('f-designer').value;
   const dispatch = document.getElementById('f-dispatch').value;
@@ -3007,6 +3026,7 @@ window.submitCreate = async function() {
   const body = {
     title: name, subTitle: items.length ? items.map(it => it.n).slice(0,2).join(' / ') + (items.length>2 ? ` ...等 ${items.length} 項` : '') : '',
     requester: unit, hotel, level, category: cat,
+    deliverables,                                  // C1: 製作物項目（多選）
     contact,                                       // B2: 案件聯絡人
     designerId, collaboratorIds: collabIds,
     openDate: ymdIso(TODAY), dispatchDate: ymdIso(new Date(dispatch)),
@@ -3191,26 +3211,41 @@ function v52WireBasicEdit(c) {
   const _units = (typeof REQUEST_UNITS !== 'undefined' && REQUEST_UNITS) ? REQUEST_UNITS : [];
   const hotelOpts = '<option value="">請選擇…</option>' + _hotels.map(h => `<option value="${escapeHtml(h.name)}" ${h.name === c.hotel ? 'selected' : ''}>${escapeHtml(h.region)} · ${escapeHtml(h.name)}</option>`).join('');
   const unitOpts = '<option value="">請選擇…</option>' + _units.map(u => `<option value="${escapeHtml(u)}" ${u === c.unit ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('');
+  // C1: 製作物多選（含案件既有的自訂項目）
+  let selDeliv = Array.isArray(c.deliverables) ? c.deliverables.slice() : [];
+  const allDeliv = DELIVERABLES.concat(selDeliv.filter(d => !DELIVERABLES.includes(d)));
+  const delivChips = () => allDeliv.map(d => `<span class="collab-chip${selDeliv.includes(d) ? ' selected' : ''}" data-d="${escapeHtml(d)}" style="cursor:pointer;">${escapeHtml(d)}</span>`).join('');
   panel.innerHTML = `
     <summary style="cursor:pointer;font-size:13px;font-weight:500;color:var(--fg,#1F1F1F);">✎ 編輯基本資料</summary>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;font-size:12px;">
       <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">專案名稱<input id="v52-title" value="${escapeHtml(c.name)}" style="padding:6px 8px;"></label>
       <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">館別<select id="v52-hotel" style="padding:6px 8px;">${hotelOpts}</select></label>
       <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">需求單位<select id="v52-unit" style="padding:6px 8px;">${unitOpts}</select></label>
+      <div style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">製作物（可複選）<div class="collab-picker" id="v52-deliv">${delivChips()}</div></div>
       <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">案件聯絡人<input id="v52-contact" value="${escapeHtml(c.contact || '')}" placeholder="例：行銷 陳經理 / 王小姐" style="padding:6px 8px;"></label>
       <button id="v52-save" style="align-self:flex-start;padding:6px 16px;background:var(--accent,#1F8A4C);color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:500;">💾 儲存基本資料</button>
     </div>`;
   grid.insertAdjacentElement('afterend', panel);
+  const wireDeliv = () => {
+    const box = panel.querySelector('#v52-deliv');
+    if (!box) return;
+    box.querySelectorAll('.collab-chip').forEach(el => el.onclick = () => {
+      const d = el.dataset.d;
+      if (selDeliv.includes(d)) selDeliv = selDeliv.filter(x => x !== d); else selDeliv.push(d);
+      box.innerHTML = delivChips(); wireDeliv();
+    });
+  };
+  wireDeliv();
   panel.querySelector('#v52-save').onclick = async () => {
     const title = document.getElementById('v52-title').value.trim();
     const hotel = document.getElementById('v52-hotel').value;
     const unit = document.getElementById('v52-unit').value;
     const contact = document.getElementById('v52-contact').value.trim();
     if (!title) { showToast('專案名稱不能空白', 'err'); return; }
-    const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact };
+    const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact, deliverables: c.deliverables, cat: c.cat };
     try {
-      await api.cases.update(c.id, { title, hotel, requester: unit, contact });
-      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact;
+      await api.cases.update(c.id, { title, hotel, requester: unit, contact, deliverables: selDeliv, category: selDeliv.join('、') });
+      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact; c.deliverables = selDeliv.slice(); c.cat = selDeliv.join('、');
       showToast('✓ 基本資料已更新');
       openDrawer(c);
       refreshAll();
@@ -6821,6 +6856,7 @@ function v43InjectSubItemsPanel(c, body) {
   panel.style.cssText = 'margin:14px 0;padding:14px;background:#F4FBF7;border:1px solid #BFE0CB;border-radius:8px;';
 
   const items = JSON.parse(JSON.stringify(c.items || []));
+  let v43sectionCollapsed = false; // C3: 子案件區塊收合狀態（本次開啟有效）
 
   // Helper: status pill HTML
   const statusPill = (k) => {
@@ -6838,8 +6874,9 @@ function v43InjectSubItemsPanel(c, body) {
         const assigneeName = it.assigneeId ? (STAFF.find(s => s.id === it.assigneeId)?.name || it.owner) : (it.owner || '');
         return `
           <div class="v43-item-card" data-idx="${i}" style="background:var(--card-bg,#fff);border:1px solid #DDEDE0;border-radius:6px;padding:12px;margin-bottom:8px;">
-            <!-- Header row: index, name preview, status, delete -->
+            <!-- Header row: drag handle, index, name preview, status, delete -->
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+              ${canWrite ? `<span class="v43-drag" draggable="true" data-i="${i}" title="拖曳排序" style="cursor:grab;color:var(--fg-muted,#8C8C8C);font-size:14px;user-select:none;">⠿</span>` : ''}
               <span style="font-size:11px;color:var(--fg-muted,#8C8C8C);font-family:'SF Mono','Consolas',monospace;">#${i+1}</span>
               <span class="v43-name-preview" style="font-weight:500;font-size:13px;color:var(--fg,#1F1F1F);">${escapeHtml(it.n || '(未命名子案件)')}</span>
               <span class="v43-assignee-chip" style="font-size:11px;padding:1px 7px;background:rgba(0,0,0,0.06);border-radius:8px;color:var(--fg,#1F1F1F);${assigneeName?'':'display:none;'}">${assigneeName?'👤 '+escapeHtml(assigneeName):''}</span>
@@ -6856,9 +6893,9 @@ function v43InjectSubItemsPanel(c, body) {
             <!-- Row 2: type + assignee -->
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
               <div>
-                <label style="${labelStyle}">主類別</label>
+                <label style="${labelStyle}">製作物</label>
                 <select data-i="${i}" data-k="type" ${canWrite?'':'disabled'} style="${inputStyle}">
-                  ${CATS.map(cat => `<option value="${escapeHtml(cat)}" ${cat===it.type?'selected':''}>${escapeHtml(cat)}</option>`).join('')}
+                  ${DELIVERABLES.map(cat => `<option value="${escapeHtml(cat)}" ${cat===it.type?'selected':''}>${escapeHtml(cat)}</option>`).join('')}
                 </select>
               </div>
               <div>
@@ -6893,12 +6930,13 @@ function v43InjectSubItemsPanel(c, body) {
 
     panel.innerHTML = `
       <div style="display:flex;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
-        <span style="font-size:14px;font-weight:600;color:var(--fg,#1F1F1F);">📋 子案件</span>
+        <span id="v43-collapse-toggle" style="cursor:pointer;font-size:14px;font-weight:600;color:var(--fg,#1F1F1F);user-select:none;">${v43sectionCollapsed ? '▶' : '▼'} 📋 子案件</span>
         <span style="padding:1px 8px;background:rgba(0,0,0,0.08);border-radius:10px;font-size:11px;color:var(--fg,#1F1F1F);">${items.length}</span>
         ${canWrite
-          ? '<span style="margin-left:auto;font-size:11px;color:#1F8A4C;">✓ 可編輯</span>'
+          ? '<span style="margin-left:auto;font-size:11px;color:#1F8A4C;">✓ 可編輯 · 可拖曳排序</span>'
           : '<span style="margin-left:auto;font-size:11px;color:var(--fg-muted,#8C8C8C);">僅可瀏覽</span>'}
       </div>
+      <div id="v43-collapsible" style="${v43sectionCollapsed ? 'display:none;' : ''}">
       <div id="v43-items-container">${cards}</div>
       ${canWrite ? `
         <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
@@ -6906,9 +6944,43 @@ function v43InjectSubItemsPanel(c, body) {
           <button id="v43-items-save" style="padding:7px 18px;background:#1F8A4C;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:500;margin-left:auto;">💾 儲存子案件</button>
         </div>
       ` : ''}
+      </div>
     `;
 
+    // C3: 收合切換（任何人可收合檢視）
+    const collapseToggle = panel.querySelector('#v43-collapse-toggle');
+    if (collapseToggle) collapseToggle.onclick = () => {
+      v43sectionCollapsed = !v43sectionCollapsed;
+      const box = panel.querySelector('#v43-collapsible');
+      if (box) box.style.display = v43sectionCollapsed ? 'none' : '';
+      collapseToggle.textContent = (v43sectionCollapsed ? '▶' : '▼') + ' 📋 子案件';
+    };
+
     if (canWrite) {
+      // C4: 子案件拖曳排序（用拖曳把手，拖放後重排，按「儲存子案件」持久化）
+      let dragFrom = null;
+      panel.querySelectorAll('.v43-drag').forEach(h => {
+        h.addEventListener('dragstart', e => {
+          dragFrom = Number(h.dataset.i);
+          e.dataTransfer.effectAllowed = 'move';
+          const card = h.closest('.v43-item-card'); if (card) card.style.opacity = '0.5';
+        });
+        h.addEventListener('dragend', () => {
+          const card = h.closest('.v43-item-card'); if (card) card.style.opacity = '';
+        });
+      });
+      panel.querySelectorAll('.v43-item-card').forEach(card => {
+        card.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+        card.addEventListener('drop', e => {
+          e.preventDefault();
+          const to = Number(card.dataset.idx);
+          if (dragFrom === null || isNaN(to) || dragFrom === to) return;
+          const moved = items.splice(dragFrom, 1)[0];
+          items.splice(to, 0, moved);
+          dragFrom = null;
+          renderCards();
+        });
+      });
       // Wire field changes — in-place header updates only (no re-render, to preserve focus)
       panel.querySelectorAll('input[data-i], select[data-i]').forEach(el => {
         const handler = (e) => {
@@ -6954,7 +7026,7 @@ function v43InjectSubItemsPanel(c, body) {
       // Add button
       const addBtn = panel.querySelector('#v43-item-add');
       if (addBtn) addBtn.onclick = () => {
-        items.push({ n: '', type: CATS[0], owner: '', assigneeId: null, start: null, end: null, status: 'todo' });
+        items.push({ n: '', type: DELIVERABLES[0], owner: '', assigneeId: null, start: null, end: null, status: 'todo' });
         renderCards();
         // Scroll to and focus new card's name input
         setTimeout(() => {

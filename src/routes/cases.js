@@ -34,6 +34,7 @@ const createSchema = z.object({
   urgent: z.boolean().default(false),
   note: z.string().default(''),
   contact: z.string().optional().nullable(), // B2: 案件聯絡人
+  deliverables: z.array(z.string()).max(30).optional(), // C1: 製作物項目（多選）
   // B1: 通知改為由前端勾選決定（預設不寄）
   notifyDesigner: z.boolean().default(false),
   notifyCollaborators: z.boolean().default(false),
@@ -61,6 +62,7 @@ const updateSchema = z.object({
   urgent: z.boolean().optional(),
   note: z.string().optional(),
   contact: z.string().optional().nullable(), // B2: 案件聯絡人
+  deliverables: z.array(z.string()).max(30).optional(), // C1: 製作物項目
   archivePath: z.string().optional().nullable(),
   reason: z.string().optional(), // required only when tracked fields change
 });
@@ -272,6 +274,7 @@ router.post('/', async (req, res) => {
       urgent: body.urgent,
       note: body.note,
       contact: body.contact ?? undefined,
+      deliverables: body.deliverables ?? undefined,
       items: body.items ?? undefined,
       logs: body.logs ?? undefined,
       designer: { connect: { id: body.designerId } },
@@ -387,6 +390,7 @@ router.patch('/:id', async (req, res) => {
     ...(body.urgent !== undefined && { urgent: body.urgent }),
     ...(body.note !== undefined && { note: body.note }),
     ...(body.contact !== undefined && { contact: body.contact }),
+    ...(body.deliverables !== undefined && { deliverables: body.deliverables }),
     ...(body.archivePath !== undefined && { archivePath: body.archivePath }),
   };
 
