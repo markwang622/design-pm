@@ -366,14 +366,8 @@ router.patch('/:id', async (req, res) => {
     if (body[f] !== undefined) trackedPatch[f] = body[f];
   }
   const changes = detectChanges(existing, trackedPatch);
-  const reasonStr = (body.reason || '').trim();
-  if (changes.length > 0 && !reasonStr) {
-    return res.status(422).json({
-      error: 'reason_required',
-      message: '時程或任務欄位調整時，必須填寫調整原因',
-      changedFields: changes.map((c) => c.field),
-    });
-  }
+  // D3: 調整原因改為非必填（未填則記錄為「—」）
+  const reasonStr = (body.reason || '').trim() || '—';
 
   const data = {
     ...(body.title !== undefined && { title: body.title }),

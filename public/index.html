@@ -1003,6 +1003,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
         <button class="pill" data-filter="urgent">急件</button>
         <button class="pill" data-filter="gate">確稿中</button>
         <button class="pill" data-filter="collab">協作中</button>
+        <button class="pill" data-filter="done">已完成</button>
       </div>
       <div class="case-list" id="case-list"></div>
     </div>
@@ -1605,13 +1606,19 @@ function renderPersonal() {
   const doneThisMonth = me.filter(c => FINAL_STATUS_KEYS.has(c.status)).length;
   const collab = me.filter(c => c.designer !== ME_NAME() && (c.collaborators||[]).includes(ME_NAME()));
   kpi.innerHTML = `
-    <div class="kpi"><div class="label">負責中</div><div class="value">${open.length}</div><div class="sub">本月總件數 ${me.length}</div></div>
-    <div class="kpi"><div class="label">本週到期</div><div class="value">${weekDue.length}</div><div class="sub">7 天內（上線日）</div></div>
-    <div class="kpi alert"><div class="label">已逾期</div><div class="value">${overdue.length}</div><div class="sub">請優先處理</div></div>
-    <div class="kpi urgent"><div class="label">急件</div><div class="value">${urgent.length}</div><div class="sub">標記為 🔥</div></div>
-    <div class="kpi gate"><div class="label">確稿待簽核中</div><div class="value">${gate.length}</div><div class="sub">確稿日前 3 工作天內</div></div>
-    <div class="kpi collab"><div class="label">協作中</div><div class="value">${collab.length}</div><div class="sub">他人主案 · 我協作</div></div>
+    <div class="kpi" data-kf="all"><div class="label">負責中</div><div class="value">${open.length}</div><div class="sub">本月總件數 ${me.length}</div></div>
+    <div class="kpi" data-kf="week"><div class="label">本週到期</div><div class="value">${weekDue.length}</div><div class="sub">7 天內（上線日）</div></div>
+    <div class="kpi alert" data-kf="overdue"><div class="label">已逾期</div><div class="value">${overdue.length}</div><div class="sub">請優先處理</div></div>
+    <div class="kpi urgent" data-kf="urgent"><div class="label">急件</div><div class="value">${urgent.length}</div><div class="sub">標記為 🔥</div></div>
+    <div class="kpi gate" data-kf="gate"><div class="label">確稿待簽核中</div><div class="value">${gate.length}</div><div class="sub">確稿日前 3 工作天內</div></div>
+    <div class="kpi collab" data-kf="collab"><div class="label">協作中</div><div class="value">${collab.length}</div><div class="sub">他人主案 · 我協作</div></div>
   `;
+  // E4: KPI 卡點擊 → 套用對應篩選
+  kpi.querySelectorAll('.kpi[data-kf]').forEach(el => {
+    el.style.cursor = 'pointer';
+    el.title = '點擊篩選';
+    el.onclick = () => v53SetPersonalFilter(el.dataset.kf);
+  });
   // v4.7: 招呼語依本機時間切換（英文友善版）
   //   04:00–10:59 → Morning, Name
   //   11:00–17:59 → Hi Name
@@ -1627,17 +1634,66 @@ function renderPersonal() {
   const _wd = ['日','一','二','三','四','五','六'];
   const _today = new Date();
   document.getElementById('hello-sub').textContent = `今天是 ${_today.getMonth()+1}/${_today.getDate()}（${_wd[_today.getDay()]}）· 你有 ${weekDue.length} 件本週上線、${gate.length} 件進入確稿待簽核、${overdue.length} 件逾期`;
-  let list = me;
-  if (personalFilter === 'week') list = weekDue;
-  if (personalFilter === 'month') list = me;
-  if (personalFilter === 'overdue') list = overdue;
-  if (personalFilter === 'urgent') list = urgent;
-  if (personalFilter === 'gate') list = gate;
-  if (personalFilter === 'collab') list = collab;
   const listEl = document.getElementById('case-list');
+  // E2: 已完成 — 非同步抓封存案件
+  if (personalFilter === 'done') { v53RenderPersonalDone(listEl); return; }
+  // 依 filter 取 base
+  let base = me;
+  if (personalFilter === 'week') base = weekDue;
+  else if (personalFilter === 'overdue') base = overdue;
+  else if (personalFilter === 'urgent') base = urgent;
+  else if (personalFilter === 'gate') base = gate;
+  else if (personalFilter === 'collab') base = collab;
+  const sortCases = arr => arr.slice().sort((a,b) => (a.overdue && !b.overdue ? -1 : !a.overdue && b.overdue ? 1 : a.goLive - b.goLive));
   listEl.innerHTML = '';
-  list.sort((a,b) => (a.overdue && !b.overdue ? -1 : !a.overdue && b.overdue ? 1 : a.goLive - b.goLive));
-  list.forEach(c => listEl.appendChild(makeCaseCard(c)));
+  if (personalFilter === 'collab') {
+    sortCases(collab).forEach(c => listEl.appendChild(makeCaseCard(c)));
+  } else {
+    // E1: 同一 grid 內以整列分隔標題拆成「個人負責 / 協作參與」
+    const mine = sortCases(base.filter(c => c.designer === ME_NAME()));
+    const col = sortCases(base.filter(c => c.designer !== ME_NAME() && (c.collaborators||[]).includes(ME_NAME())));
+    listEl.appendChild(v53SectionDivider('🙋 個人負責', mine.length));
+    if (mine.length) mine.forEach(c => listEl.appendChild(makeCaseCard(c)));
+    else listEl.appendChild(v53EmptyHint('目前沒有個人負責的案件'));
+    listEl.appendChild(v53SectionDivider('🤝 協作參與', col.length));
+    if (col.length) col.forEach(c => listEl.appendChild(makeCaseCard(c)));
+    else listEl.appendChild(v53EmptyHint('目前沒有協作參與的案件'));
+  }
+}
+// E1/E2/E4 helpers
+function v53SetPersonalFilter(f) {
+  personalFilter = f;
+  document.querySelectorAll('#personal-filter .pill').forEach(p => p.classList.toggle('active', p.dataset.filter === f));
+  renderPersonal();
+}
+function v53SectionDivider(title, n) {
+  const d = document.createElement('div');
+  d.style.cssText = 'grid-column:1/-1;margin:14px 0 4px;padding:6px 10px;background:var(--glass-bg,rgba(0,0,0,0.04));border-left:3px solid var(--accent,#1F1F1F);border-radius:4px;font-size:12px;font-weight:600;color:var(--fg,#1F1F1F);display:flex;align-items:center;gap:8px;';
+  d.innerHTML = `${title} <span style="padding:1px 8px;background:var(--card-bg,#fff);border-radius:8px;font-size:11px;font-weight:500;">${n}</span>`;
+  return d;
+}
+function v53EmptyHint(txt) {
+  const d = document.createElement('div');
+  d.style.cssText = 'grid-column:1/-1;color:var(--fg-muted,#8C8C8C);font-size:12px;padding:6px 10px;';
+  d.textContent = txt;
+  return d;
+}
+async function v53RenderPersonalDone(listEl) {
+  listEl.innerHTML = '<div style="grid-column:1/-1;color:var(--fg-muted,#8C8C8C);font-size:12px;padding:10px;">載入已完成案件…</div>';
+  try {
+    const rows = await api.cases.listArchived();
+    const meName = ME_NAME();
+    const isAdminAll = ME.role === 'admin' && !(typeof v36ViewAsName !== 'undefined' && v36ViewAsName);
+    let done = rows.map(normalizeCase).filter(c => FINAL_STATUS_KEYS.has(c.status));
+    if (!isAdminAll) done = done.filter(c => c.designer === meName || (c.collaborators||[]).includes(meName));
+    done.sort((a,b) => ((b.closedOn||b.goLive) - (a.closedOn||a.goLive)));
+    listEl.innerHTML = '';
+    listEl.appendChild(v53SectionDivider('✅ 已完成 / 已結案', done.length));
+    if (done.length) done.forEach(c => listEl.appendChild(makeCaseCard(c)));
+    else listEl.appendChild(v53EmptyHint('目前沒有已完成的案件'));
+  } catch (e) {
+    listEl.innerHTML = '<div style="grid-column:1/-1;color:#A32D2D;font-size:12px;padding:10px;">載入失敗：' + (e.data?.message || e.message) + '</div>';
+  }
 }
 function makeCaseCard(c) {
   const el = document.createElement('div');
@@ -2813,6 +2869,7 @@ window.api = {
   },
   cases: {
     list:     () => fetchJson('GET',  '/api/cases'),
+    listArchived: () => fetchJson('GET', '/api/cases?includeArchived=1'), // E2
     create:   (b) => fetchJson('POST', '/api/cases', b),
     update:   (id, b) => fetchJson('PATCH', `/api/cases/${encodeURIComponent(id)}`, b),
     transfer: (id, b) => fetchJson('POST', `/api/cases/${encodeURIComponent(id)}/transfer`, b),
@@ -3383,7 +3440,7 @@ function v33EnsureReasonModal() {
     <div id="v33-reason-modal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
          background:#fff;border-radius:8px;padding:24px;width:min(440px,92%);z-index:91;
          box-shadow:0 12px 32px rgba(0,0,0,0.18);display:none;">
-      <h3 style="font-size:16px;margin-bottom:8px;">填寫調整原因</h3>
+      <h3 style="font-size:16px;margin-bottom:8px;">調整原因（選填）</h3>
       <p id="v33-reason-detail" style="font-size:12px;color:#8C8C8C;margin-bottom:12px;line-height:1.6;"></p>
       <textarea id="v33-reason-input" rows="3" style="width:100%;padding:8px 10px;border:1px solid #D4D4D4;border-radius:6px;
          font:inherit;resize:vertical;" placeholder="例如：客戶延後上線、人力調整、需求單位緊急加塞…"></textarea>
@@ -3402,7 +3459,7 @@ function promptReason(detailHtml) {
   const modal = document.getElementById('v33-reason-modal');
   const input = document.getElementById('v33-reason-input');
   const detail = document.getElementById('v33-reason-detail');
-  detail.innerHTML = detailHtml || '請填寫此次調整的原因，將寫入該案的變更記錄。';
+  detail.innerHTML = detailHtml || '可填寫此次調整的原因（選填），將寫入該案的變更記錄。';
   input.value = '';
   bg.classList.add('open');
   modal.style.display = 'block';
@@ -3414,9 +3471,7 @@ function promptReason(detailHtml) {
       resolve(val);
     };
     document.getElementById('v33-reason-ok').onclick = () => {
-      const v = input.value.trim();
-      if (!v) { showToast('請填寫調整原因', 'err'); return; }
-      close(v);
+      close(input.value.trim() || '—'); // D3: 調整原因改非必填
     };
     document.getElementById('v33-reason-cancel').onclick = () => close(null);
     bg.onclick = () => close(null);
@@ -6444,8 +6499,17 @@ window.renderGantt = function() {
 function v41HookGanttButtons() {
   const expand = document.getElementById('gantt-expand-all');
   const collapse = document.getElementById('gantt-collapse-all');
-  if (expand) expand.onclick = v41ExpandAllGroups;
-  if (collapse) collapse.onclick = v41CollapseAllGroups;
+  // E3: 整合成單一 toggle 鈕（沿用 #gantt-expand-all，隱藏另一顆）
+  if (collapse) collapse.style.display = 'none';
+  if (expand) {
+    const sync = () => { expand.textContent = window._v41AllCollapsed ? '全部展開' : '全部收合'; };
+    sync();
+    expand.onclick = () => {
+      if (window._v41AllCollapsed) { v41ExpandAllGroups(); window._v41AllCollapsed = false; }
+      else { v41CollapseAllGroups(); window._v41AllCollapsed = true; }
+      sync();
+    };
+  }
 }
 
 // ─── Inject vacation / trip bars into gantt ────────────────
@@ -7176,8 +7240,8 @@ window.renderPersonal = function() {
   } else if (personalFilter === 'collab') {
     // 顯示「主案不是我但我負責子案件」的情況
     visible = subItems.filter(({c}) => c.designer !== ME_NAME());
-  } else if (personalFilter === 'urgent' || personalFilter === 'gate') {
-    // 這兩個 filter 是主案件特有概念，不顯示子案件
+  } else if (personalFilter === 'urgent' || personalFilter === 'gate' || personalFilter === 'done') {
+    // 這些 filter 是主案件特有概念（或已完成走非同步），不附掛子案件
     visible = [];
   }
   if (visible.length === 0) return;
