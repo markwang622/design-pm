@@ -2981,6 +2981,7 @@ window.submitCreate = async function() {
   if (!designerId) { showToast(`找不到設計師「${designerName}」`, 'err'); return; }
   const collabIds = draftCollabs.filter(n => n !== designerName).map(findStaffId).filter(Boolean);
   const items = draftItems.filter(it => it.n && it.n.trim()).map(it => ({ n: it.n.trim(), type: it.type, owner: it.owner || designerName }));
+  const initialLog = { date: ymdIso(TODAY), note: `建檔 by ${ME_NAME()}${self ? '（自接）' : ''} · 已 Email 通知 ${designerName}`, by: ME_NAME() };
   const body = {
     title: name, subTitle: items.length ? items.map(it => it.n).slice(0,2).join(' / ') + (items.length>2 ? ` ...等 ${items.length} 項` : '') : '',
     requester: unit, hotel, level, category: cat,
@@ -2989,13 +2990,20 @@ window.submitCreate = async function() {
     copyDate: copyDate ? ymdIso(new Date(copyDate)) : undefined,
     goLiveDate: ymdIso(new Date(golive)),
     urgent, note,
+    items,                // A2: 子案件一併送後端持久化
+    logs: [initialLog],   // A2: 初始進度日誌持久化
   };
+  // A1: 防止快速雙擊重複建立
+  if (window._creatingCase) return;
+  window._creatingCase = true;
+  const _submitBtn = document.getElementById('modal-submit');
+  if (_submitBtn) { _submitBtn.disabled = true; _submitBtn.dataset._label = _submitBtn.textContent; _submitBtn.textContent = '建立中…'; _submitBtn.style.opacity = '0.6'; }
   try {
     const created = await api.cases.create(body);
     const norm = normalizeCase(created);
-    // Preserve items/logs client-side (backend has Json cols but create schema doesn't accept items)
-    norm.items = items;
-    norm.logs = [{ date: new Date(TODAY), note: `建檔 by ${ME_NAME()}${self ? '（自接）' : ''} · 已 Email 通知 ${designerName}`, by: ME_NAME() }];
+    // 後端已存 items/logs；以回傳為準，未帶到時用本地值兜底
+    if (!norm.items || !norm.items.length) norm.items = items;
+    if (!norm.logs || !norm.logs.length) norm.logs = [{ ...initialLog, date: new Date(TODAY) }];
     CASES.unshift(norm);
     decorateCases();
     closeCreateModal();
@@ -3003,6 +3011,9 @@ window.submitCreate = async function() {
     refreshAll();
   } catch (e) {
     showToast('建檔失敗：' + (e.message || '伺服器錯誤'), 'err');
+  } finally {
+    window._creatingCase = false;
+    if (_submitBtn) { _submitBtn.disabled = false; _submitBtn.textContent = _submitBtn.dataset._label || '建立並通知'; _submitBtn.style.opacity = ''; }
   }
 };
 document.getElementById('modal-submit').onclick = window.submitCreate;
@@ -3069,7 +3080,73 @@ window.openDrawer = function(c) {
       catch (err) { c.urgent = before; showToast('更新急件失敗', 'err'); refreshAll(); }
     };
   }
+  // A3: 進度日誌持久化 + 編輯/刪除
+  v51WireLogs(c);
 };
+
+// ── A3: 進度日誌持久化（新增 / 編輯 / 刪除）─────────────────────
+api.cases.patchLogs = (id, body) => fetchJson('PATCH', `/api/cases/${encodeURIComponent(id)}/logs`, body);
+function v51CanEditLogs(c) {
+  if (currentRole === 'admin') return true;
+  const me = ME_NAME();
+  return c.designer === me || (c.collaborators || []).includes(me);
+}
+function v51LogsForApi(logs) {
+  return (logs || []).map(l => ({
+    date: l.date ? (l.date instanceof Date ? ymdIso(l.date) : String(l.date)) : ymdIso(TODAY),
+    note: l.note,
+    by: l.by || '',
+  }));
+}
+function v51RenderLogs(c) {
+  const tl = document.getElementById('d-timeline');
+  if (!tl) return;
+  const logs = c.logs || [];
+  const canEdit = v51CanEditLogs(c);
+  const btnStyle = 'width:22px;height:22px;padding:0;border:1px solid var(--input-border,#D4D4D4);background:transparent;border-radius:4px;cursor:pointer;line-height:1;';
+  tl.innerHTML = logs.length ? logs.map((l, i) => `
+    <div class="log-item" style="display:flex;gap:8px;align-items:flex-start;">
+      <div style="flex:1;min-width:0;">
+        <div class="log-date">${ymd(l.date)} · ${escapeHtml(l.by || '')}</div>
+        <div class="log-note">${escapeHtml(l.note)}</div>
+      </div>
+      ${canEdit ? `<div style="display:flex;gap:4px;flex-shrink:0;">
+        <button data-logedit="${i}" title="編輯" style="${btnStyle}font-size:11px;color:var(--fg-muted,#8C8C8C);">✎</button>
+        <button data-logdel="${i}" title="刪除" style="${btnStyle}font-size:13px;color:#9A2E2E;">×</button>
+      </div>` : ''}
+    </div>`).join('') : '<div style="color:var(--fg-muted,#8C8C8C);font-size:12px;padding:6px 0;">尚無進度日誌</div>';
+  if (!canEdit) return;
+  tl.querySelectorAll('[data-logedit]').forEach(b => b.onclick = async () => {
+    const i = +b.dataset.logedit; const cur = c.logs && c.logs[i]; if (!cur) return;
+    const nv = prompt('編輯進度日誌：', cur.note);
+    if (nv === null) return; const t = nv.trim(); if (!t) return;
+    const prev = cur.note; cur.note = t; v51RenderLogs(c);
+    try { await api.cases.patchLogs(c.id, { logs: v51LogsForApi(c.logs) }); showToast('✓ 進度日誌已更新'); }
+    catch (e) { cur.note = prev; v51RenderLogs(c); showToast('更新失敗：' + (e.data?.message || e.message), 'err'); }
+  });
+  tl.querySelectorAll('[data-logdel]').forEach(b => b.onclick = async () => {
+    const i = +b.dataset.logdel; if (!c.logs || !c.logs[i]) return;
+    if (!confirm('刪除這筆進度日誌？')) return;
+    const removed = c.logs.splice(i, 1)[0]; v51RenderLogs(c);
+    try { await api.cases.patchLogs(c.id, { logs: v51LogsForApi(c.logs) }); showToast('✓ 已刪除'); }
+    catch (e) { c.logs.splice(i, 0, removed); v51RenderLogs(c); showToast('刪除失敗：' + (e.data?.message || e.message), 'err'); }
+  });
+}
+function v51WireLogs(c) {
+  v51RenderLogs(c);
+  const btn = document.getElementById('d-log-submit');
+  if (!btn) return;
+  btn.onclick = async () => {
+    const ta = document.getElementById('d-log-input');
+    const txt = (ta && ta.value || '').trim(); if (!txt) return;
+    const entry = { date: new Date(TODAY), note: txt, by: ME_NAME() };
+    (c.logs = c.logs || []).unshift(entry);
+    if (ta) ta.value = '';
+    v51RenderLogs(c);
+    try { await api.cases.patchLogs(c.id, { logs: v51LogsForApi(c.logs) }); }
+    catch (e) { c.logs.shift(); v51RenderLogs(c); showToast('進度日誌儲存失敗：' + (e.data?.message || e.message), 'err'); }
+  };
+}
 
 // Wrap staff-add submit → POST /api/staff
 const saBtn = document.getElementById('staff-add-submit');

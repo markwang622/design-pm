@@ -33,6 +33,9 @@ const createSchema = z.object({
   goLiveDate: dateStr,
   urgent: z.boolean().default(false),
   note: z.string().default(''),
+  // A2: 建立時即可帶入子案件與初始進度日誌（存入 Json 欄位，持久化）
+  items: z.array(z.any()).max(50).optional(),
+  logs: z.array(z.any()).max(500).optional(),
 });
 
 const updateSchema = z.object({
@@ -263,6 +266,8 @@ router.post('/', async (req, res) => {
       goLiveDate: body.goLiveDate,
       urgent: body.urgent,
       note: body.note,
+      items: body.items ?? undefined,
+      logs: body.logs ?? undefined,
       designer: { connect: { id: body.designerId } },
       collaborators: { connect: collabIds.map((id) => ({ id })) },
       createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
@@ -705,6 +710,43 @@ router.patch('/:id/items', async (req, res) => {
       req.user.name,
     );
   } catch (e) { console.warn('[items patch] changelog failed:', e.message); }
+  res.json(updated);
+});
+
+// ─── PATCH /api/cases/:id/logs — 進度日誌持久化 (A3) ──────────
+// 整包替換 logs 陣列（新增/編輯/刪除皆送完整陣列）。
+const logsPatchSchema = z.object({
+  logs: z.array(z.object({
+    date: z.string().optional(),
+    note: z.string().min(1).max(2000),
+    by: z.string().optional(),
+  })).max(500),
+});
+router.patch('/:id/logs', async (req, res) => {
+  const parsed = logsPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues });
+  }
+  const existing = await prisma.case.findUnique({
+    where: { id: req.params.id },
+    include: { collaborators: { select: { id: true } } },
+  });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  // Permission: admin OR primary designer OR collaborator（協作者可共寫進度日誌）
+  const isAdmin = req.user?.role === 'admin';
+  const isPrimary = existing.designerId === req.user?.id;
+  const isCollab = existing.collaborators.some(c => c.id === req.user?.id);
+  if (!isAdmin && !isPrimary && !isCollab) {
+    return res.status(403).json({
+      error: 'forbidden',
+      message: '只有主負責人、協作者或 admin 可編輯進度日誌',
+    });
+  }
+  const updated = await prisma.case.update({
+    where: { id: existing.id },
+    data: { logs: parsed.data.logs },
+    include: caseInclude,
+  });
   res.json(updated);
 });
 
