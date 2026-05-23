@@ -3263,11 +3263,21 @@ function v51WireLogs(c) {
     const ta = document.getElementById('d-log-input');
     const txt = (ta && ta.value || '').trim(); if (!txt) return;
     const entry = { date: new Date(TODAY), note: txt, by: ME_NAME() };
-    (c.logs = c.logs || []).unshift(entry);
-    if (ta) ta.value = '';
-    v51RenderLogs(c);
-    try { await api.cases.patchLogs(c.id, { logs: v51LogsForApi(c.logs) }); }
-    catch (e) { c.logs.shift(); v51RenderLogs(c); showToast('進度日誌儲存失敗：' + (e.data?.message || e.message), 'err'); }
+    btn.disabled = true;
+    try {
+      // 保險：先抓 DB 最新日誌再合併，避免多人/多處同時編輯時覆蓋彼此的日誌（永久保留）
+      let serverLogs = [];
+      try { const fresh = await api.cases.getOne(c.id); serverLogs = Array.isArray(fresh.logs) ? fresh.logs : []; } catch {}
+      const merged = [entry, ...serverLogs];
+      await api.cases.patchLogs(c.id, { logs: v51LogsForApi(merged) });
+      c.logs = merged.map(l => ({ ...l, date: (l.date instanceof Date) ? l.date : (l.date ? new Date(l.date) : new Date(TODAY)) }));
+      if (ta) ta.value = '';
+      v51RenderLogs(c);
+    } catch (e) {
+      showToast('進度日誌儲存失敗：' + (e.data?.message || e.message), 'err');
+    } finally {
+      btn.disabled = false;
+    }
   };
 }
 
