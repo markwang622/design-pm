@@ -6274,7 +6274,10 @@ function v41ApplyGroupCollapse() {
   let collapsed = false;
   children.forEach((el) => {
     if (el.classList.contains('gantt-group-head')) {
-      const labelEl = el.querySelector('.g-label span');
+      // A5 真正根因：toggle 指示符 ▼ 也是 .g-label 內的 span，且插在名稱前，
+      // 用 .g-label span 會抓到「▼」→ 所有群組名都變「▼」→ 點一組全部一起收合。
+      // 改用 :not(.v41-group-toggle) 取得真正的群組名稱。
+      const labelEl = el.querySelector('.g-label span:not(.v41-group-toggle)');
       currentGroup = labelEl ? labelEl.textContent.trim() : '';
       collapsed = v41CollapsedGroups.has(currentGroup);
       // Add toggle indicator + click handler
@@ -6310,7 +6313,7 @@ function v41ExpandAllGroups() {
 function v41CollapseAllGroups() {
   const ganttEl = document.getElementById('gantt');
   if (!ganttEl) return;
-  ganttEl.querySelectorAll('.gantt-group-head .g-label span').forEach(s => {
+  ganttEl.querySelectorAll('.gantt-group-head .g-label span:not(.v41-group-toggle)').forEach(s => {
     v41CollapsedGroups.add(s.textContent.trim());
   });
   v41ApplyGroupCollapse();
