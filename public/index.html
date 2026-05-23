@@ -1971,7 +1971,9 @@ function renderDashboard() {
   const done = live.filter(c => FINAL_STATUS_KEYS.has(c.status)).length;
   const overdue = live.filter(c => c.overdue).length;
   const urgent = live.filter(c => c.urgent && !FINAL_STATUS_KEYS.has(c.status)).length;
-  const gate = live.filter(c => c.gateActive).length;
+  // A4: 「確稿待簽核中（待你審核）」應為確稿流程中的案件（確稿中 + 確稿完成），
+  // 而非 gateActive（確稿日前 3 工作天的到期提醒，已由「即將到期」widget 負責）。
+  const gate = live.filter(c => c.status === 'review' || c.status === 'review_done').length;
   // v4.1 (B1): guard against zero-division for 達成率
   const completionRate = total > 0 ? Math.round(done / total * 100) : 0;
   // v4.1 (B2): 拿掉「VS 上月 +X」假數據（之前是寫死 total*0.12）
@@ -6286,11 +6288,13 @@ function v41ApplyGroupCollapse() {
         el.querySelector('.v41-group-toggle').textContent = collapsed ? '▶' : '▼';
       }
       el.style.cursor = 'pointer';
+      // A5: 每個群組各自綁定自己的名稱（用 const 凍結），
+      // 修正原本 closure 取到迴圈最後一組、導致點任何群組都收到錯組的問題。
+      const groupName = currentGroup;
       el.onclick = (e) => {
         e.stopPropagation();
-        const name = currentGroup;
-        if (v41CollapsedGroups.has(name)) v41CollapsedGroups.delete(name);
-        else v41CollapsedGroups.add(name);
+        if (v41CollapsedGroups.has(groupName)) v41CollapsedGroups.delete(groupName);
+        else v41CollapsedGroups.add(groupName);
         v41ApplyGroupCollapse();
       };
     } else if (el.classList.contains('gantt-row')) {
