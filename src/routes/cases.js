@@ -681,7 +681,15 @@ const itemSchema = z.object({
   assigneeId: z.number().int().nullable().optional(),
   start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'done', 'closed']).optional().default('todo'),
+  // D1: status 放寬為字串（支援完整製作流程清單），新增第二狀態
+  status: z.string().optional().default('尚未製作'),
+  status2: z.string().nullable().optional(),
+  // 子項目日誌（每筆可編輯）
+  logs: z.array(z.object({
+    date: z.string().optional(),
+    note: z.string().min(1).max(2000),
+    by: z.string().optional(),
+  })).max(200).optional(),
 });
 const itemsPatchSchema = z.object({
   items: z.array(itemSchema).max(50),

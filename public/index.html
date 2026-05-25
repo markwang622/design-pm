@@ -7055,6 +7055,23 @@ function v43InjectSubItemsPanel(c, body) {
                 ` : (canWrite ? `<button data-act="addstatus2" data-i="${i}" style="margin-top:4px;font-size:11px;color:#1F8A4C;background:transparent;border:none;cursor:pointer;padding:2px 0;">＋ 加第二狀態</button>` : '')}
               </div>
             </div>
+
+            <!-- F1: 子項目日誌（每筆可編輯） -->
+            <div style="margin-top:10px;border-top:1px dashed var(--input-border,#D4D4D4);padding-top:8px;">
+              <label style="${labelStyle}">📝 子項目日誌（${(it.logs||[]).length}）</label>
+              ${(it.logs||[]).map((l,li)=>`
+                <div style="display:flex;gap:6px;align-items:flex-start;font-size:11px;margin:3px 0;background:rgba(0,0,0,0.03);border-radius:4px;padding:4px 6px;">
+                  <div style="flex:1;min-width:0;">
+                    <span style="color:var(--fg-muted,#8C8C8C);">${ymd(l.date instanceof Date ? l.date : new Date(l.date))} · ${escapeHtml(l.by||'')}</span>
+                    <div style="color:var(--fg,#1F1F1F);white-space:pre-wrap;word-break:break-word;">${escapeHtml(l.note||'')}</div>
+                  </div>
+                  ${canWrite?`<button data-act="ilogedit" data-i="${i}" data-li="${li}" title="編輯" style="width:20px;height:20px;flex-shrink:0;padding:0;border:1px solid var(--input-border,#D4D4D4);background:transparent;border-radius:4px;cursor:pointer;color:var(--fg-muted,#8C8C8C);font-size:10px;line-height:1;">✎</button><button data-act="ilogdel" data-i="${i}" data-li="${li}" title="刪除" style="width:20px;height:20px;flex-shrink:0;padding:0;border:1px solid var(--input-border,#D4D4D4);background:transparent;border-radius:4px;cursor:pointer;color:#9A2E2E;font-size:12px;line-height:1;">×</button>`:''}
+                </div>`).join('')}
+              ${canWrite?`<div style="display:flex;gap:6px;margin-top:5px;">
+                <input data-ilognew="${i}" placeholder="新增此子項目進度…" style="${inputStyle}flex:1;">
+                <button data-act="ilogadd" data-i="${i}" style="flex-shrink:0;padding:0 12px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">＋ 記錄</button>
+              </div>`:''}
+            </div>
           </div>
         `;
       }).join('');
@@ -7178,6 +7195,33 @@ function v43InjectSubItemsPanel(c, body) {
       panel.querySelectorAll('button[data-act="rmstatus2"]').forEach(btn => {
         btn.onclick = () => { const i = Number(btn.dataset.i); items[i].status2 = null; renderCards(); };
       });
+      // F1: 子項目日誌 新增 / 編輯 / 刪除（暫存於 item.logs，按💾儲存子案件持久化）
+      panel.querySelectorAll('button[data-act="ilogadd"]').forEach(btn => {
+        btn.onclick = () => {
+          const i = Number(btn.dataset.i);
+          const inp = panel.querySelector(`input[data-ilognew="${i}"]`);
+          const txt = (inp && inp.value || '').trim(); if (!txt) return;
+          (items[i].logs = items[i].logs || []).unshift({ date: new Date(TODAY), note: txt, by: ME_NAME() });
+          renderCards();
+        };
+      });
+      panel.querySelectorAll('button[data-act="ilogedit"]').forEach(btn => {
+        btn.onclick = () => {
+          const i = Number(btn.dataset.i), li = Number(btn.dataset.li);
+          const cur = items[i].logs && items[i].logs[li]; if (!cur) return;
+          const nv = prompt('編輯子項目日誌：', cur.note);
+          if (nv === null) return; const t = nv.trim(); if (!t) return;
+          cur.note = t; renderCards();
+        };
+      });
+      panel.querySelectorAll('button[data-act="ilogdel"]').forEach(btn => {
+        btn.onclick = () => {
+          const i = Number(btn.dataset.i), li = Number(btn.dataset.li);
+          if (!items[i].logs || !items[i].logs[li]) return;
+          if (!confirm('刪除這筆子項目日誌？')) return;
+          items[i].logs.splice(li, 1); renderCards();
+        };
+      });
       // Save button
       const saveBtn = panel.querySelector('#v43-items-save');
       if (saveBtn) saveBtn.onclick = async () => {
@@ -7197,6 +7241,12 @@ function v43InjectSubItemsPanel(c, body) {
             end: it.end || null,
             status: it.status || '尚未製作',
             status2: it.status2 || null, // D1: 第二狀態
+            // F1: 子項目日誌（date 統一存 YYYY-MM-DD 字串）
+            logs: (it.logs || []).filter(l => l && l.note && l.note.trim()).map(l => ({
+              date: (l.date instanceof Date) ? ymdIso(l.date) : (l.date || ymdIso(TODAY)),
+              note: l.note.trim(),
+              by: l.by || '',
+            })),
           }));
           await api.cases.patchItems(c.id, { items: cleaned, reason });
           c.items = cleaned;
