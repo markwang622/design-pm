@@ -1246,23 +1246,6 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
       <label class="span2" id="f-deliv-other-wrap" style="display:none;">其他製作物（自訂，逗號分隔）<input type="text" id="f-deliv-other" placeholder="例如：影片剪輯、活動規劃"></label>
       <label class="span2 check"><input type="checkbox" id="f-urgent"> 標記為急件（🔥）</label>
       <label class="span2 check"><input type="checkbox" id="f-outsource"> 📦 需發包（需預留 7–10 個工作天）</label>
-      <div class="span2" style="border:1px solid var(--input-border,#D4D4D4);border-radius:6px;padding:8px 10px;">
-        <details id="f-shoot-details">
-          <summary style="cursor:pointer;font-size:13px;color:var(--fg,#1F1F1F);user-select:none;">📷 拍攝（選填，本案有拍攝需求時填寫）</summary>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;font-size:12px;">
-            <label style="grid-column:1/-1;display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">拍攝內容說明<input id="f-shoot-desc" placeholder="例：雙人房型情境照 8 張、餐點俯拍 5 道菜" style="padding:6px 8px;"></label>
-            <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">外發 / 自己拍攝
-              <select id="f-shoot-mode" style="padding:6px 8px;">
-                <option value="">請選擇…</option>
-                <option value="in-house">自己拍攝</option>
-                <option value="outsource">外發</option>
-              </select>
-            </label>
-            <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">拍攝時間<input type="date" id="f-shoot-date" style="padding:6px 8px;"></label>
-            <label style="grid-column:1/-1;display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">攝影師<input id="f-shoot-photographer" placeholder="姓名（自拍可填同事；外發可填攝影師/工作室）" style="padding:6px 8px;"></label>
-          </div>
-        </details>
-      </div>
       <label class="span2">
         協作者（可複選，大案可 2–3 人共做）
         <div class="collab-picker" id="f-collab"></div>
@@ -1755,7 +1738,6 @@ function makeCaseCard(c) {
       ${c.urgent ? '<span class="chip urgent">🔥 急件</span>' : ''}
       ${c.overdue ? '<span class="chip overdue">⚠ 逾期</span>' : ''}
       ${c.needsOutsourcing ? '<span class="chip" style="background:#EAE0F5;color:#6B3FA0;border-color:#D4C2EC;">📦 需發包</span>' : ''}
-      ${(c.shoot && (c.shoot.date || c.shoot.desc)) ? `<span class="chip" title="${c.shoot.mode === 'in-house' ? '自拍' : (c.shoot.mode === 'outsource' ? '外發' : '拍攝')}${c.shoot.date ? ' · ' + ymd(new Date(c.shoot.date)) : ''}${c.shoot.photographer ? ' · ' + escapeHtml(c.shoot.photographer) : ''}${c.shoot.desc ? ' · ' + escapeHtml(c.shoot.desc) : ''}" style="background:#D6EEFB;color:#1A6BAF;border-color:#A8D5F0;">📷 ${c.shoot.mode === 'in-house' ? '自拍' : (c.shoot.mode === 'outsource' ? '外發' : '拍攝')}${c.shoot.date ? ' ' + md(new Date(c.shoot.date)) : ''}</span>` : ''}
       ${c.gateActive ? '<span class="chip gate">⏰ 待簽核</span>' : ''}
       ${(c.collaborators && c.collaborators.length) ? `<span class="chip collab">🤝 ${c.collaborators.length} 位協作</span>` : ''}
     </div>
@@ -1996,7 +1978,7 @@ function renderGantt() {
           <div class="label">
             ${expander}
             <span class="p-avatar" title="${c.designer}">${c.designer.slice(0,2)}</span>
-            <span class="p-name" title="${c.name} (${c.id})">${c.name}${hasItems ? ` <span style="color:#8C8C8C;font-size:11px;">(${c.items.length})</span>` : ''}${collabSuffix}${(c.shoot && (c.shoot.desc || c.shoot.date || c.shoot.photographer)) ? ` <span style="color:#1A6BAF;font-size:11px;cursor:help;" title="拍攝：${c.shoot.mode === 'in-house' ? '自拍' : (c.shoot.mode === 'outsource' ? '外發' : '未指定')}${c.shoot.date ? ' · ' + c.shoot.date : ''}${c.shoot.photographer ? ' · ' + c.shoot.photographer : ''}${c.shoot.desc ? '\\n' + c.shoot.desc : ''}">📷</span>` : ''}</span>
+            <span class="p-name" title="${c.name} (${c.id})">${c.name}${hasItems ? ` <span style="color:#8C8C8C;font-size:11px;">(${c.items.length})</span>` : ''}${collabSuffix}</span>
           </div>
           <div class="gantt-track">
             ${renderBackground(40)}
@@ -2237,11 +2219,6 @@ function openDrawer(c) {
     <dt>協作者</dt><dd>${(c.collaborators||[]).length ? c.collaborators.join('、') : '（無）'}</dd>
     <dt>製作物</dt><dd>${(c.deliverables && c.deliverables.length) ? c.deliverables.map(d => `<span class="chip" style="margin:1px 3px 1px 0;">${escapeHtml(d)}</span>`).join('') : (c.cat ? escapeHtml(c.cat) : '—')}</dd>
     ${c.needsOutsourcing ? `<dt>需發包</dt><dd>📦 是 · 建議發包日 ${ymd(subtractWorkdays(c.goLive, 10))}（上線−10 工作天）</dd>` : ''}
-    ${(c.shoot && (c.shoot.desc || c.shoot.mode || c.shoot.date || c.shoot.photographer)) ? `<dt>📷 拍攝</dt><dd>${[
-      c.shoot.mode === 'in-house' ? '自拍' : (c.shoot.mode === 'outsource' ? '外發' : ''),
-      c.shoot.date ? ymd(new Date(c.shoot.date)) : '',
-      c.shoot.photographer ? '👤 ' + escapeHtml(c.shoot.photographer) : '',
-    ].filter(Boolean).join(' · ')}${c.shoot.desc ? '<div style="margin-top:2px;color:var(--fg-muted,#8C8C8C);">' + escapeHtml(c.shoot.desc) + '</div>' : ''}</dd>` : ''}
     <dt>分級</dt><dd>${c.level}</dd>
     <dt>備註</dt><dd>${c.note || '—'}</dd>
   `;
@@ -2423,9 +2400,6 @@ function openCreateModal() {
   const cfEl = document.getElementById('f-contact'); if (cfEl) cfEl.value = ''; // reset 聯絡人
   const ndEl = document.getElementById('f-notify-designer'); if (ndEl) ndEl.checked = false;
   const ncEl = document.getElementById('f-notify-collab'); if (ncEl) ncEl.checked = false;
-  // G1: 拍攝欄位重設
-  ['f-shoot-desc','f-shoot-mode','f-shoot-date','f-shoot-photographer'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
-  const shootDt = document.getElementById('f-shoot-details'); if (shootDt) shootDt.open = false;
   const osEl = document.getElementById('f-outsource'); if (osEl) osEl.checked = false; // D2 reset
   // C1: 製作物項目多選（取代主類別單選）
   draftDeliverables = [];
@@ -2960,12 +2934,6 @@ function normalizeCase(b) {
     contact: b.contact || '',
     deliverables: Array.isArray(b.deliverables) ? b.deliverables : [],
     needsOutsourcing: !!b.needsOutsourcing,
-    shoot: (b.shoot && typeof b.shoot === 'object') ? {
-      desc: b.shoot.desc || '',
-      mode: b.shoot.mode || '',
-      date: b.shoot.date || '',
-      photographer: b.shoot.photographer || '',
-    } : null,
     items: Array.isArray(b.items) ? b.items : [],
     logs: Array.isArray(b.logs) ? b.logs.map(l => ({ ...l, date: l.date ? new Date(l.date) : new Date(TODAY) })) : [],
     archivePath: b.archivePath || null,
@@ -3114,12 +3082,6 @@ window.submitCreate = async function() {
   const note = document.getElementById('f-note').value.trim();
   const contact = (document.getElementById('f-contact')?.value || '').trim();           // B2
   const needsOutsourcing = !!document.getElementById('f-outsource')?.checked;            // D2
-  // G1: 拍攝（任一欄位填了才送 shoot 物件）
-  const _sd = (document.getElementById('f-shoot-desc')?.value || '').trim();
-  const _sm = document.getElementById('f-shoot-mode')?.value || '';
-  const _sdate = document.getElementById('f-shoot-date')?.value || '';
-  const _sp = (document.getElementById('f-shoot-photographer')?.value || '').trim();
-  const shoot = (_sd || _sm || _sdate || _sp) ? { desc: _sd, mode: _sm || undefined, date: _sdate || null, photographer: _sp } : undefined;
   const notifyDesigner = !!document.getElementById('f-notify-designer')?.checked;        // B1
   const notifyCollaborators = !!document.getElementById('f-notify-collab')?.checked;     // B1
   // 必填：專案名稱、負責人、派發日、上線日（B4：館別/需求單位不再硬擋）
@@ -3142,7 +3104,6 @@ window.submitCreate = async function() {
     requester: unit, hotel, level, category: cat,
     deliverables,                                  // C1: 製作物項目（多選）
     needsOutsourcing,                              // D2: 需發包
-    shoot,                                         // G1: 拍攝
     contact,                                       // B2: 案件聯絡人
     designerId, collaboratorIds: collabIds,
     openDate: ymdIso(TODAY), dispatchDate: ymdIso(new Date(dispatch)),
@@ -3350,21 +3311,6 @@ function v52WireBasicEdit(c) {
       <div style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">製作物（可複選）<div class="collab-picker" id="v52-deliv">${delivChips()}</div></div>
       <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">案件聯絡人<input id="v52-contact" value="${escapeHtml(c.contact || '')}" placeholder="例：行銷 陳經理 / 王小姐" style="padding:6px 8px;"></label>
       <label style="display:flex;align-items:center;gap:6px;color:var(--fg,#1F1F1F);cursor:pointer;"><input type="checkbox" id="v52-outsource" ${c.needsOutsourcing ? 'checked' : ''}> 📦 需發包（需預留 7–10 個工作天）</label>
-      <details style="border:1px solid var(--input-border,#D4D4D4);border-radius:5px;padding:6px 8px;" ${(c.shoot && (c.shoot.desc || c.shoot.mode || c.shoot.date || c.shoot.photographer)) ? 'open' : ''}>
-        <summary style="cursor:pointer;font-size:12px;color:var(--fg,#1F1F1F);">📷 拍攝（選填）</summary>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
-          <label style="grid-column:1/-1;display:flex;flex-direction:column;gap:2px;color:var(--fg-muted,#8C8C8C);font-size:11px;">拍攝內容說明<input id="v52-shoot-desc" value="${escapeHtml(c.shoot?.desc || '')}" placeholder="例：雙人房型情境照 8 張" style="padding:5px 7px;font-size:12px;"></label>
-          <label style="display:flex;flex-direction:column;gap:2px;color:var(--fg-muted,#8C8C8C);font-size:11px;">外發/自拍
-            <select id="v52-shoot-mode" style="padding:5px 7px;font-size:12px;">
-              <option value="" ${!c.shoot?.mode ? 'selected' : ''}>未指定</option>
-              <option value="in-house" ${c.shoot?.mode === 'in-house' ? 'selected' : ''}>自己拍攝</option>
-              <option value="outsource" ${c.shoot?.mode === 'outsource' ? 'selected' : ''}>外發</option>
-            </select>
-          </label>
-          <label style="display:flex;flex-direction:column;gap:2px;color:var(--fg-muted,#8C8C8C);font-size:11px;">拍攝時間<input type="date" id="v52-shoot-date" value="${c.shoot?.date || ''}" style="padding:5px 7px;font-size:12px;"></label>
-          <label style="grid-column:1/-1;display:flex;flex-direction:column;gap:2px;color:var(--fg-muted,#8C8C8C);font-size:11px;">攝影師<input id="v52-shoot-photographer" value="${escapeHtml(c.shoot?.photographer || '')}" placeholder="姓名" style="padding:5px 7px;font-size:12px;"></label>
-        </div>
-      </details>
       <button id="v52-save" style="align-self:flex-start;padding:6px 16px;background:var(--accent,#1F8A4C);color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:500;">💾 儲存基本資料</button>
     </div>`;
   grid.insertAdjacentElement('afterend', panel);
@@ -3384,17 +3330,11 @@ function v52WireBasicEdit(c) {
     const unit = document.getElementById('v52-unit').value;
     const contact = document.getElementById('v52-contact').value.trim();
     const needsOutsourcing = !!document.getElementById('v52-outsource')?.checked;
-    // G1: 讀取拍攝欄位
-    const _sd = (document.getElementById('v52-shoot-desc')?.value || '').trim();
-    const _sm = document.getElementById('v52-shoot-mode')?.value || '';
-    const _sdate = document.getElementById('v52-shoot-date')?.value || '';
-    const _sp = (document.getElementById('v52-shoot-photographer')?.value || '').trim();
-    const shoot = (_sd || _sm || _sdate || _sp) ? { desc: _sd, mode: _sm || undefined, date: _sdate || null, photographer: _sp } : null;
     if (!title) { showToast('專案名稱不能空白', 'err'); return; }
-    const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact, deliverables: c.deliverables, cat: c.cat, needsOutsourcing: c.needsOutsourcing, shoot: c.shoot };
+    const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact, deliverables: c.deliverables, cat: c.cat, needsOutsourcing: c.needsOutsourcing };
     try {
-      await api.cases.update(c.id, { title, hotel, requester: unit, contact, deliverables: selDeliv, category: selDeliv.join('、'), needsOutsourcing, shoot });
-      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact; c.deliverables = selDeliv.slice(); c.cat = selDeliv.join('、'); c.needsOutsourcing = needsOutsourcing; c.shoot = shoot;
+      await api.cases.update(c.id, { title, hotel, requester: unit, contact, deliverables: selDeliv, category: selDeliv.join('、'), needsOutsourcing });
+      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact; c.deliverables = selDeliv.slice(); c.cat = selDeliv.join('、'); c.needsOutsourcing = needsOutsourcing;
       showToast('✓ 基本資料已更新');
       openDrawer(c);
       refreshAll();
@@ -6285,9 +6225,17 @@ api.businessTrips = {
   update: (id, b) => fetchJson('PATCH', `/api/business-trips/${id}`, b),
   delete: (id) => fetchJson('DELETE', `/api/business-trips/${id}`),
 };
+// G2: 拍攝行程
+api.shoots = {
+  list: (q) => fetchJson('GET', '/api/shoots' + (q ? '?' + new URLSearchParams(q) : '')),
+  create: (b) => fetchJson('POST', '/api/shoots', b),
+  update: (id, b) => fetchJson('PATCH', `/api/shoots/${id}`, b),
+  delete: (id) => fetchJson('DELETE', `/api/shoots/${id}`),
+};
 
 let VACATIONS = [];
 let TRIPS = [];
+let SHOOTS = []; // G2
 async function v40LoadAvailability() {
   try {
     const [v, t] = await Promise.all([api.vacations.list(), api.businessTrips.list()]);
@@ -6885,6 +6833,188 @@ bootstrap = async function() {
   // v4.0 patch: wire group expand/collapse + render gantt with vacation/trip rows
   v41HookGanttButtons();
   if (currentView === 'kanban') renderKanban();
+  if (currentView === 'gantt') renderGantt();
+};
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ G2 拍攝行程獨立模組（topbar，仿休假/出差）▼▼▼
+// ═══════════════════════════════════════════════════════════════
+const V55_MODE_LABEL = { 'in-house': '自己拍攝', 'outsource': '外發' };
+async function v55LoadShoots() {
+  try { SHOOTS = await api.shoots.list(); } catch (e) { console.warn('shoots load failed', e); }
+}
+function v55CanEdit(s) {
+  if (ME && ME.role === 'admin') return true;
+  return !s.createdBy || (ME && s.createdBy.id === ME.id);
+}
+// topbar 按鈕（放在 休假/出差 後面）
+function v55InjectShootButton() {
+  const topbar = document.querySelector('.topbar');
+  if (!topbar || topbar.querySelector('.v55-shoot-btn')) return;
+  const btn = document.createElement('button');
+  btn.className = 'v55-shoot-btn v40-avail-btn'; // 沿用樣式
+  btn.style.cssText = 'margin-left:8px;padding:6px 12px;background:transparent;color:var(--topbar-fg,#FAFAFA);border:1px solid #595959;border-radius:6px;font-size:12px;cursor:pointer;';
+  btn.textContent = '📷 拍攝';
+  btn.onclick = v55OpenModal;
+  const availBtn = topbar.querySelector('.v40-avail-btn:not(.v55-shoot-btn)');
+  if (availBtn && availBtn.nextSibling) topbar.insertBefore(btn, availBtn.nextSibling);
+  else if (availBtn) topbar.appendChild(btn);
+  else { const themeBtn = topbar.querySelector('.v38-theme-toggle'); themeBtn ? topbar.insertBefore(btn, themeBtn) : topbar.appendChild(btn); }
+}
+let v55EditId = null;
+function v55OpenModal() {
+  let bg = document.getElementById('v55-shoot-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id = 'v55-shoot-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '85'; document.body.appendChild(bg); }
+  let modal = document.getElementById('v55-shoot-modal');
+  if (!modal) {
+    modal = document.createElement('div'); modal.id = 'v55-shoot-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(680px,94%);max-height:85vh;overflow-y:auto;z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);';
+    document.body.appendChild(modal);
+  }
+  bg.classList.add('open'); modal.style.display = 'block';
+  bg.onclick = () => v55CloseModal();
+  v55EditId = null;
+  v55RenderModal();
+}
+function v55CloseModal() {
+  document.getElementById('v55-shoot-bg')?.classList.remove('open');
+  const m = document.getElementById('v55-shoot-modal'); if (m) m.style.display = 'none';
+  v55EditId = null;
+}
+async function v55RenderModal() {
+  const modal = document.getElementById('v55-shoot-modal');
+  if (!modal) return;
+  await v55LoadShoots();
+  const inputStyle = 'width:100%;padding:6px 8px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;box-sizing:border-box;';
+  const today = ymdIso(TODAY);
+  const editing = v55EditId ? SHOOTS.find(s => s.id === v55EditId) : null;
+  const hotelOpts = '<option value="">（不指定地點）</option>' + (typeof HOTELS !== 'undefined' ? HOTELS : []).map(h => `<option value="${escapeHtml(h.name)}" ${editing && editing.hotel === h.name ? 'selected' : ''}>${escapeHtml(h.name)}</option>`).join('');
+  // 依起始日排序（近→遠）
+  const sorted = SHOOTS.slice().sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:16px;">📷 拍攝行程</h3>
+      <button id="v55-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    <div style="border:1px solid var(--card-border,#E5E5E5);border-radius:6px;padding:12px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:500;margin-bottom:8px;">${editing ? '✎ 編輯拍攝' : '＋ 新增拍攝'}</div>
+      <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);">拍攝內容說明 *<input id="v55-desc" value="${editing ? escapeHtml(editing.desc) : ''}" placeholder="例：雙人房型情境照 8 張、餐點俯拍 5 道菜" style="${inputStyle}margin-top:3px;"></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;color:var(--fg-muted,#8C8C8C);margin-top:8px;">
+        <label>外發 / 自己拍攝<select id="v55-mode" style="${inputStyle}margin-top:3px;">
+          <option value="in-house" ${!editing || editing.mode === 'in-house' ? 'selected' : ''}>自己拍攝</option>
+          <option value="outsource" ${editing && editing.mode === 'outsource' ? 'selected' : ''}>外發</option>
+        </select></label>
+        <label>攝影師<input id="v55-photographer" value="${editing ? escapeHtml(editing.photographer || '') : ''}" placeholder="姓名 / 工作室" style="${inputStyle}margin-top:3px;"></label>
+        <label>起始日<input id="v55-start" type="date" value="${editing ? editing.startDate.slice(0,10) : today}" style="${inputStyle}margin-top:3px;"></label>
+        <label>結束日<input id="v55-end" type="date" value="${editing ? editing.endDate.slice(0,10) : today}" style="${inputStyle}margin-top:3px;"></label>
+        <label>拍攝地點（選填）<select id="v55-hotel" style="${inputStyle}margin-top:3px;">${hotelOpts}</select></label>
+        <label>備註（選填）<input id="v55-note" value="${editing ? escapeHtml(editing.note || '') : ''}" placeholder="補充說明" style="${inputStyle}margin-top:3px;"></label>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button id="v55-save" style="padding:6px 16px;background:#1A6BAF;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">${editing ? '更新' : '新增拍攝'}</button>
+        ${editing ? '<button id="v55-cancel-edit" style="padding:6px 14px;background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:4px;cursor:pointer;font-size:12px;">取消編輯</button>' : ''}
+      </div>
+    </div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:6px;">全部拍攝行程（${sorted.length}）</div>
+    <div>
+      ${sorted.length === 0 ? '<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">尚無拍攝行程</div>' :
+        sorted.map(s => `
+          <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 6px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;flex-wrap:wrap;">
+            <span style="padding:2px 8px;background:${s.mode === 'outsource' ? '#FBE0D0' : '#D6EEFB'};color:${s.mode === 'outsource' ? '#8B4513' : '#1A6BAF'};border-radius:10px;min-width:52px;text-align:center;flex-shrink:0;">📷 ${V55_MODE_LABEL[s.mode] || s.mode}</span>
+            <div style="flex:1;min-width:160px;">
+              <div style="font-weight:500;color:var(--fg,#1F1F1F);">${escapeHtml(s.desc)}</div>
+              <div style="color:var(--fg-dim,#595959);margin-top:2px;">${s.startDate.slice(0,10)} → ${s.endDate.slice(0,10)}${s.hotel ? ' · ' + escapeHtml(s.hotel) : ''}${s.photographer ? ' · 👤 ' + escapeHtml(s.photographer) : ''}</div>
+              ${s.note ? `<div style="color:#8C8C8C;margin-top:2px;">${escapeHtml(s.note)}</div>` : ''}
+            </div>
+            ${v55CanEdit(s) ? `
+              <div style="display:flex;gap:4px;flex-shrink:0;">
+                <button data-sedit="${s.id}" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">編輯</button>
+                <button data-sdel="${s.id}" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:#9A2E2E;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">刪除</button>
+              </div>` : ''}
+          </div>
+        `).join('')
+      }
+    </div>
+  `;
+  document.getElementById('v55-close').onclick = () => v55CloseModal();
+  const cancelEdit = document.getElementById('v55-cancel-edit');
+  if (cancelEdit) cancelEdit.onclick = () => { v55EditId = null; v55RenderModal(); };
+  document.getElementById('v55-save').onclick = async () => {
+    const desc = document.getElementById('v55-desc').value.trim();
+    const mode = document.getElementById('v55-mode').value;
+    const startDate = document.getElementById('v55-start').value;
+    const endDate = document.getElementById('v55-end').value;
+    const photographer = document.getElementById('v55-photographer').value.trim();
+    const hotel = document.getElementById('v55-hotel').value || null;
+    const note = document.getElementById('v55-note').value.trim();
+    if (!desc) { showToast('請填拍攝內容說明', 'err'); return; }
+    if (!startDate || !endDate) { showToast('請填起訖日', 'err'); return; }
+    if (endDate < startDate) { showToast('結束日不能早於起始日', 'err'); return; }
+    const body = { desc, mode, startDate, endDate, photographer, hotel, note };
+    try {
+      if (v55EditId) { await api.shoots.update(v55EditId, body); showToast('✓ 拍攝已更新'); }
+      else { await api.shoots.create(body); showToast('✓ 拍攝已新增'); }
+      v55EditId = null;
+      await v55RenderModal();
+      if (currentView === 'gantt') renderGantt();
+    } catch (e) { showToast('儲存失敗：' + (e.data?.message || e.message), 'err'); }
+  };
+  modal.querySelectorAll('button[data-sedit]').forEach(b => b.onclick = () => { v55EditId = Number(b.dataset.sedit); v55RenderModal(); modal.scrollTop = 0; });
+  modal.querySelectorAll('button[data-sdel]').forEach(b => b.onclick = async () => {
+    if (!confirm('刪除這筆拍攝行程？')) return;
+    try { await api.shoots.delete(Number(b.dataset.sdel)); showToast('✓ 已刪除'); await v55RenderModal(); if (currentView === 'gantt') renderGantt(); }
+    catch (e) { showToast('刪除失敗：' + (e.data?.message || e.message), 'err'); }
+  });
+}
+// 甘特圖上方「拍攝行程」區塊（未來 60 天）
+function v55RenderGanttShoots() {
+  const ganttView = document.querySelector('div.view[data-view="gantt"]');
+  if (!ganttView) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const horizon = new Date(today.getTime() + 60 * 24 * 3600 * 1000);
+  const active = SHOOTS.filter(s => {
+    const st = new Date(s.startDate); st.setHours(0,0,0,0);
+    const en = new Date(s.endDate); en.setHours(0,0,0,0);
+    return st <= horizon && en >= today;
+  }).sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+  let strip = document.getElementById('v55-gantt-shoots');
+  if (!active.length) { if (strip) strip.remove(); return; }
+  if (!strip) {
+    strip = document.createElement('div'); strip.id = 'v55-gantt-shoots'; strip.className = 'card';
+    strip.style.cssText = 'margin-bottom:12px;padding:10px 14px;';
+    const avail = document.getElementById('v40-gantt-avail');
+    const g = document.getElementById('gantt');
+    // 放在 休假/出差 區塊之後、甘特之前
+    if (avail && avail.parentElement) avail.parentElement.insertBefore(strip, avail.nextSibling);
+    else if (g && g.parentElement) g.parentElement.insertBefore(strip, g);
+  }
+  strip.innerHTML = `
+    <div style="font-size:12px;font-weight:500;margin-bottom:6px;color:var(--fg,#1F1F1F);">📷 拍攝行程（未來 60 天）</div>
+    <div style="display:flex;flex-direction:column;gap:4px;font-size:11px;">
+      ${active.map(s => `
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;cursor:pointer;" onclick="v55OpenModal()">
+          <span style="padding:2px 8px;background:${s.mode === 'outsource' ? '#FBE0D0' : '#D6EEFB'};color:${s.mode === 'outsource' ? '#8B4513' : '#1A6BAF'};border-radius:10px;min-width:52px;text-align:center;">📷 ${V55_MODE_LABEL[s.mode] || s.mode}</span>
+          <span style="color:var(--fg-dim,#595959);">${s.startDate.slice(0,10)} → ${s.endDate.slice(0,10)}</span>
+          <span style="font-weight:500;color:var(--fg,#1F1F1F);">${escapeHtml(s.desc)}</span>
+          ${s.hotel ? `<span style="color:var(--fg,#404040);">${escapeHtml(s.hotel)}</span>` : ''}
+          ${s.photographer ? `<span style="color:#8C8C8C;">👤 ${escapeHtml(s.photographer)}</span>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+// hook renderGantt 一起渲染拍攝區塊
+const _v55OrigRenderGantt = window.renderGantt;
+window.renderGantt = function() {
+  _v55OrigRenderGantt();
+  v55RenderGanttShoots();
+};
+// bootstrap：載入拍攝 + 注入按鈕
+const _v55OrigBootstrap = bootstrap;
+bootstrap = async function() {
+  await _v55OrigBootstrap();
+  await v55LoadShoots();
+  v55InjectShootButton();
   if (currentView === 'gantt') renderGantt();
 };
 

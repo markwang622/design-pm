@@ -20,6 +20,7 @@ import hotelsRouter from './routes/hotels.js';
 import unitsRouter from './routes/units.js'; // v4.7
 import vacationsRouter from './routes/vacations.js';
 import businessTripsRouter from './routes/businessTrips.js';
+import shootsRouter from './routes/shoots.js'; // G2
 import adminRouter from './routes/admin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -117,6 +118,7 @@ app.use('/api/hotels', hotelsRouter);
 app.use('/api/units', unitsRouter); // v4.7
 app.use('/api/vacations', vacationsRouter);
 app.use('/api/business-trips', businessTripsRouter);
+app.use('/api/shoots', shootsRouter); // G2
 app.use('/api/admin', adminRouter);
 
 // 404 for unknown API paths

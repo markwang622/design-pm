@@ -33,6 +33,7 @@ model Staff {
   notifications     Notification[]
   vacations         Vacation[]      // v4.0
   businessTrips     BusinessTrip[]  // v4.0
+  createdShoots     Shoot[]         @relation("shootCreator") // G2
 
   @@map("staff")
 }
@@ -72,6 +73,25 @@ model BusinessTrip {
   @@map("business_trips")
 }
 
+// G2: 拍攝行程（部門共享，不綁特定同仁；攝影師為自由文字）
+model Shoot {
+  id           Int      @id @default(autoincrement())
+  desc         String                      // 拍攝內容說明
+  mode         String   @default("in-house") // 'in-house'(自己拍攝) | 'outsource'(外發)
+  startDate    DateTime @db.Date
+  endDate      DateTime @db.Date
+  photographer String   @default("")       // 攝影師（自由文字，可填同事或外部工作室）
+  hotel        String?                      // 拍攝地點 / 館別（選填）
+  note         String   @default("")
+  createdById  Int?                         // 建立者（權限用）
+  createdBy    Staff?   @relation("shootCreator", fields: [createdById], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([startDate, endDate])
+  @@map("shoots")
+}
+
 model Case {
   id            String   @id // e.g., "SS-2026-04-001"
   title         String
@@ -86,7 +106,6 @@ model Case {
   contact       String?  // B2: 案件聯絡人（選填）
   deliverables  Json?    // C1: 製作物項目（多選，字串陣列）
   needsOutsourcing Boolean @default(false) // D2: 需發包（預留 7–10 工作天）
-  shoot         Json?    // G1: 拍攝 { desc, mode:'in-house'|'outsource', date, photographer }
   openDate      DateTime @db.Date
   dispatchDate  DateTime @db.Date
   copyDate      DateTime? @db.Date
