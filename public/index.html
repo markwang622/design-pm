@@ -963,6 +963,62 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
 @media (prefers-reduced-motion: reduce) {
   body, .card, .kpi, .case-card, .kb-card, .topbar { transition: none !important; }
 }
+
+/* ═══ v5.6 右下角浮動動作鈕（speed-dial）═══ */
+/* 收進 FAB 的 topbar 原按鈕隱藏 */
+.v56-moved-to-fab { display: none !important; }
+#v56-fab {
+  position: fixed; right: 24px; bottom: 24px; z-index: 47;
+  display: flex; flex-direction: column-reverse; align-items: flex-end; gap: 12px;
+}
+#v56-fab .v56-main {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--accent, #1F8A4C); color: var(--accent-ink, #fff);
+  border: none; cursor: pointer; font-size: 26px; line-height: 1;
+  box-shadow: 0 6px 20px rgba(31,41,61,0.28);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.25s ease, filter 0.15s;
+}
+#v56-fab .v56-main:hover { filter: brightness(1.08); }
+#v56-fab.open .v56-main { transform: rotate(135deg); }
+#v56-fab .v56-actions {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+  opacity: 0; pointer-events: none;
+  transform: translateY(10px) scale(0.96); transform-origin: bottom right;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+#v56-fab.open .v56-actions { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+#v56-fab .v56-act {
+  display: flex; align-items: center; gap: 10px;
+  background: transparent; border: none; cursor: pointer; padding: 0;
+  color: var(--fg, #1F1F1F);
+}
+#v56-fab .v56-act .v56-label {
+  font-size: 12.5px; font-weight: 500; white-space: nowrap;
+  background: var(--glass-bg-strong, rgba(255,255,255,0.92)); color: var(--fg, #1F1F1F);
+  border: 1px solid var(--glass-border, #E5E5E5);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  padding: 5px 11px; border-radius: 8px; box-shadow: 0 3px 10px rgba(31,41,61,0.12);
+}
+#v56-fab .v56-act .v56-ico {
+  width: 46px; height: 46px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 20px;
+  background: var(--card-bg, #fff); border: 1px solid var(--glass-border, #E5E5E5);
+  box-shadow: 0 4px 14px rgba(31,41,61,0.18); flex-shrink: 0;
+}
+#v56-fab .v56-act:hover .v56-ico { filter: brightness(0.97); transform: translateY(-1px); }
+#v56-fab-backdrop {
+  position: fixed; inset: 0; z-index: 46; background: transparent;
+  display: none;
+}
+#v56-fab-backdrop.open { display: block; }
+@media (max-width: 768px) {
+  #v56-fab { right: 16px; bottom: 16px; }
+  #v56-fab .v56-main { width: 50px; height: 50px; font-size: 23px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #v56-fab .v56-main, #v56-fab .v56-actions { transition: none !important; }
+}
 </style>
 </head>
 <body>
@@ -7016,6 +7072,66 @@ bootstrap = async function() {
   await v55LoadShoots();
   v55InjectShootButton();
   if (currentView === 'gantt') renderGantt();
+};
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v5.6 右下角浮動動作鈕（建立專案 / 休假出差 / 拍攝）▼▼▼
+// 把 topbar 三顆高頻按鈕收進右下角 speed-dial，讓上方更清爽。
+// ═══════════════════════════════════════════════════════════════
+function v56CloseFab() {
+  const fab = document.getElementById('v56-fab');
+  const bd = document.getElementById('v56-fab-backdrop');
+  if (fab) fab.classList.remove('open');
+  if (bd) bd.classList.remove('open');
+}
+function v56ToggleFab() {
+  const fab = document.getElementById('v56-fab');
+  const bd = document.getElementById('v56-fab-backdrop');
+  if (!fab) return;
+  const willOpen = !fab.classList.contains('open');
+  fab.classList.toggle('open', willOpen);
+  if (bd) bd.classList.toggle('open', willOpen);
+}
+function v56BuildFab() {
+  if (document.getElementById('v56-fab')) return;
+  // 隱藏 topbar 原本三按鈕（保留元素與既有事件綁定，只是不顯示）
+  ['create-btn'].forEach(id => document.getElementById(id)?.classList.add('v56-moved-to-fab'));
+  document.querySelectorAll('.v40-avail-btn, .v55-shoot-btn').forEach(b => b.classList.add('v56-moved-to-fab'));
+
+  const backdrop = document.createElement('div');
+  backdrop.id = 'v56-fab-backdrop';
+  backdrop.onclick = v56CloseFab;
+  document.body.appendChild(backdrop);
+
+  const fab = document.createElement('div');
+  fab.id = 'v56-fab';
+  // 動作：圖示 / 標籤 / 對應函數
+  const acts = [
+    { ico: '＋', label: '建立專案', fn: () => (typeof openCreateModal === 'function') && openCreateModal() },
+    { ico: '📅', label: '休假 / 出差', fn: () => (typeof v40OpenAvailabilityModal === 'function') && v40OpenAvailabilityModal() },
+    { ico: '📷', label: '拍攝', fn: () => (typeof v55OpenModal === 'function') && v55OpenModal() },
+  ];
+  fab.innerHTML = `
+    <button class="v56-main" id="v56-main" title="快速動作" aria-label="快速動作">＋</button>
+    <div class="v56-actions">
+      ${acts.map((a, i) => `
+        <button class="v56-act" data-v56act="${i}">
+          <span class="v56-label">${a.label}</span>
+          <span class="v56-ico">${a.ico}</span>
+        </button>`).join('')}
+    </div>
+  `;
+  document.body.appendChild(fab);
+  document.getElementById('v56-main').onclick = v56ToggleFab;
+  fab.querySelectorAll('[data-v56act]').forEach(btn => {
+    btn.onclick = () => { const a = acts[Number(btn.dataset.v56act)]; v56CloseFab(); a.fn(); };
+  });
+}
+// bootstrap：建立 FAB（在三按鈕都注入後）
+const _v56OrigBootstrap = bootstrap;
+bootstrap = async function() {
+  await _v56OrigBootstrap();
+  v56BuildFab();
 };
 
 // ═══════════════════════════════════════════════════════════════
