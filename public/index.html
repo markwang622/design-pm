@@ -1246,6 +1246,23 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
       <label class="span2" id="f-deliv-other-wrap" style="display:none;">其他製作物（自訂，逗號分隔）<input type="text" id="f-deliv-other" placeholder="例如：影片剪輯、活動規劃"></label>
       <label class="span2 check"><input type="checkbox" id="f-urgent"> 標記為急件（🔥）</label>
       <label class="span2 check"><input type="checkbox" id="f-outsource"> 📦 需發包（需預留 7–10 個工作天）</label>
+      <div class="span2" style="border:1px solid var(--input-border,#D4D4D4);border-radius:6px;padding:8px 10px;">
+        <details id="f-shoot-details">
+          <summary style="cursor:pointer;font-size:13px;color:var(--fg,#1F1F1F);user-select:none;">📷 拍攝（選填，本案有拍攝需求時填寫）</summary>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;font-size:12px;">
+            <label style="grid-column:1/-1;display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">拍攝內容說明<input id="f-shoot-desc" placeholder="例：雙人房型情境照 8 張、餐點俯拍 5 道菜" style="padding:6px 8px;"></label>
+            <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">外發 / 自己拍攝
+              <select id="f-shoot-mode" style="padding:6px 8px;">
+                <option value="">請選擇…</option>
+                <option value="in-house">自己拍攝</option>
+                <option value="outsource">外發</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">拍攝時間<input type="date" id="f-shoot-date" style="padding:6px 8px;"></label>
+            <label style="grid-column:1/-1;display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">攝影師<input id="f-shoot-photographer" placeholder="姓名（自拍可填同事；外發可填攝影師/工作室）" style="padding:6px 8px;"></label>
+          </div>
+        </details>
+      </div>
       <label class="span2">
         協作者（可複選，大案可 2–3 人共做）
         <div class="collab-picker" id="f-collab"></div>
@@ -1738,6 +1755,7 @@ function makeCaseCard(c) {
       ${c.urgent ? '<span class="chip urgent">🔥 急件</span>' : ''}
       ${c.overdue ? '<span class="chip overdue">⚠ 逾期</span>' : ''}
       ${c.needsOutsourcing ? '<span class="chip" style="background:#EAE0F5;color:#6B3FA0;border-color:#D4C2EC;">📦 需發包</span>' : ''}
+      ${(c.shoot && (c.shoot.date || c.shoot.desc)) ? `<span class="chip" title="${c.shoot.mode === 'in-house' ? '自拍' : (c.shoot.mode === 'outsource' ? '外發' : '拍攝')}${c.shoot.date ? ' · ' + ymd(new Date(c.shoot.date)) : ''}${c.shoot.photographer ? ' · ' + escapeHtml(c.shoot.photographer) : ''}${c.shoot.desc ? ' · ' + escapeHtml(c.shoot.desc) : ''}" style="background:#D6EEFB;color:#1A6BAF;border-color:#A8D5F0;">📷 ${c.shoot.mode === 'in-house' ? '自拍' : (c.shoot.mode === 'outsource' ? '外發' : '拍攝')}${c.shoot.date ? ' ' + md(new Date(c.shoot.date)) : ''}</span>` : ''}
       ${c.gateActive ? '<span class="chip gate">⏰ 待簽核</span>' : ''}
       ${(c.collaborators && c.collaborators.length) ? `<span class="chip collab">🤝 ${c.collaborators.length} 位協作</span>` : ''}
     </div>
@@ -1978,7 +1996,7 @@ function renderGantt() {
           <div class="label">
             ${expander}
             <span class="p-avatar" title="${c.designer}">${c.designer.slice(0,2)}</span>
-            <span class="p-name" title="${c.name} (${c.id})">${c.name}${hasItems ? ` <span style="color:#8C8C8C;font-size:11px;">(${c.items.length})</span>` : ''}${collabSuffix}</span>
+            <span class="p-name" title="${c.name} (${c.id})">${c.name}${hasItems ? ` <span style="color:#8C8C8C;font-size:11px;">(${c.items.length})</span>` : ''}${collabSuffix}${(c.shoot && (c.shoot.desc || c.shoot.date || c.shoot.photographer)) ? ` <span style="color:#1A6BAF;font-size:11px;cursor:help;" title="拍攝：${c.shoot.mode === 'in-house' ? '自拍' : (c.shoot.mode === 'outsource' ? '外發' : '未指定')}${c.shoot.date ? ' · ' + c.shoot.date : ''}${c.shoot.photographer ? ' · ' + c.shoot.photographer : ''}${c.shoot.desc ? '\\n' + c.shoot.desc : ''}">📷</span>` : ''}</span>
           </div>
           <div class="gantt-track">
             ${renderBackground(40)}
@@ -2219,6 +2237,11 @@ function openDrawer(c) {
     <dt>協作者</dt><dd>${(c.collaborators||[]).length ? c.collaborators.join('、') : '（無）'}</dd>
     <dt>製作物</dt><dd>${(c.deliverables && c.deliverables.length) ? c.deliverables.map(d => `<span class="chip" style="margin:1px 3px 1px 0;">${escapeHtml(d)}</span>`).join('') : (c.cat ? escapeHtml(c.cat) : '—')}</dd>
     ${c.needsOutsourcing ? `<dt>需發包</dt><dd>📦 是 · 建議發包日 ${ymd(subtractWorkdays(c.goLive, 10))}（上線−10 工作天）</dd>` : ''}
+    ${(c.shoot && (c.shoot.desc || c.shoot.mode || c.shoot.date || c.shoot.photographer)) ? `<dt>📷 拍攝</dt><dd>${[
+      c.shoot.mode === 'in-house' ? '自拍' : (c.shoot.mode === 'outsource' ? '外發' : ''),
+      c.shoot.date ? ymd(new Date(c.shoot.date)) : '',
+      c.shoot.photographer ? '👤 ' + escapeHtml(c.shoot.photographer) : '',
+    ].filter(Boolean).join(' · ')}${c.shoot.desc ? '<div style="margin-top:2px;color:var(--fg-muted,#8C8C8C);">' + escapeHtml(c.shoot.desc) + '</div>' : ''}</dd>` : ''}
     <dt>分級</dt><dd>${c.level}</dd>
     <dt>備註</dt><dd>${c.note || '—'}</dd>
   `;
@@ -2400,6 +2423,9 @@ function openCreateModal() {
   const cfEl = document.getElementById('f-contact'); if (cfEl) cfEl.value = ''; // reset 聯絡人
   const ndEl = document.getElementById('f-notify-designer'); if (ndEl) ndEl.checked = false;
   const ncEl = document.getElementById('f-notify-collab'); if (ncEl) ncEl.checked = false;
+  // G1: 拍攝欄位重設
+  ['f-shoot-desc','f-shoot-mode','f-shoot-date','f-shoot-photographer'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  const shootDt = document.getElementById('f-shoot-details'); if (shootDt) shootDt.open = false;
   const osEl = document.getElementById('f-outsource'); if (osEl) osEl.checked = false; // D2 reset
   // C1: 製作物項目多選（取代主類別單選）
   draftDeliverables = [];
@@ -2934,6 +2960,12 @@ function normalizeCase(b) {
     contact: b.contact || '',
     deliverables: Array.isArray(b.deliverables) ? b.deliverables : [],
     needsOutsourcing: !!b.needsOutsourcing,
+    shoot: (b.shoot && typeof b.shoot === 'object') ? {
+      desc: b.shoot.desc || '',
+      mode: b.shoot.mode || '',
+      date: b.shoot.date || '',
+      photographer: b.shoot.photographer || '',
+    } : null,
     items: Array.isArray(b.items) ? b.items : [],
     logs: Array.isArray(b.logs) ? b.logs.map(l => ({ ...l, date: l.date ? new Date(l.date) : new Date(TODAY) })) : [],
     archivePath: b.archivePath || null,
@@ -3082,6 +3114,12 @@ window.submitCreate = async function() {
   const note = document.getElementById('f-note').value.trim();
   const contact = (document.getElementById('f-contact')?.value || '').trim();           // B2
   const needsOutsourcing = !!document.getElementById('f-outsource')?.checked;            // D2
+  // G1: 拍攝（任一欄位填了才送 shoot 物件）
+  const _sd = (document.getElementById('f-shoot-desc')?.value || '').trim();
+  const _sm = document.getElementById('f-shoot-mode')?.value || '';
+  const _sdate = document.getElementById('f-shoot-date')?.value || '';
+  const _sp = (document.getElementById('f-shoot-photographer')?.value || '').trim();
+  const shoot = (_sd || _sm || _sdate || _sp) ? { desc: _sd, mode: _sm || undefined, date: _sdate || null, photographer: _sp } : undefined;
   const notifyDesigner = !!document.getElementById('f-notify-designer')?.checked;        // B1
   const notifyCollaborators = !!document.getElementById('f-notify-collab')?.checked;     // B1
   // 必填：專案名稱、負責人、派發日、上線日（B4：館別/需求單位不再硬擋）
@@ -3104,6 +3142,7 @@ window.submitCreate = async function() {
     requester: unit, hotel, level, category: cat,
     deliverables,                                  // C1: 製作物項目（多選）
     needsOutsourcing,                              // D2: 需發包
+    shoot,                                         // G1: 拍攝
     contact,                                       // B2: 案件聯絡人
     designerId, collaboratorIds: collabIds,
     openDate: ymdIso(TODAY), dispatchDate: ymdIso(new Date(dispatch)),
@@ -3311,6 +3350,21 @@ function v52WireBasicEdit(c) {
       <div style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">製作物（可複選）<div class="collab-picker" id="v52-deliv">${delivChips()}</div></div>
       <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">案件聯絡人<input id="v52-contact" value="${escapeHtml(c.contact || '')}" placeholder="例：行銷 陳經理 / 王小姐" style="padding:6px 8px;"></label>
       <label style="display:flex;align-items:center;gap:6px;color:var(--fg,#1F1F1F);cursor:pointer;"><input type="checkbox" id="v52-outsource" ${c.needsOutsourcing ? 'checked' : ''}> 📦 需發包（需預留 7–10 個工作天）</label>
+      <details style="border:1px solid var(--input-border,#D4D4D4);border-radius:5px;padding:6px 8px;" ${(c.shoot && (c.shoot.desc || c.shoot.mode || c.shoot.date || c.shoot.photographer)) ? 'open' : ''}>
+        <summary style="cursor:pointer;font-size:12px;color:var(--fg,#1F1F1F);">📷 拍攝（選填）</summary>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
+          <label style="grid-column:1/-1;display:flex;flex-direction:column;gap:2px;color:var(--fg-muted,#8C8C8C);font-size:11px;">拍攝內容說明<input id="v52-shoot-desc" value="${escapeHtml(c.shoot?.desc || '')}" placeholder="例：雙人房型情境照 8 張" style="padding:5px 7px;font-size:12px;"></label>
+          <label style="display:flex;flex-direction:column;gap:2px;color:var(--fg-muted,#8C8C8C);font-size:11px;">外發/自拍
+            <select id="v52-shoot-mode" style="padding:5px 7px;font-size:12px;">
+              <option value="" ${!c.shoot?.mode ? 'selected' : ''}>未指定</option>
+              <option value="in-house" ${c.shoot?.mode === 'in-house' ? 'selected' : ''}>自己拍攝</option>
+              <option value="outsource" ${c.shoot?.mode === 'outsource' ? 'selected' : ''}>外發</option>
+            </select>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:2px;color:var(--fg-muted,#8C8C8C);font-size:11px;">拍攝時間<input type="date" id="v52-shoot-date" value="${c.shoot?.date || ''}" style="padding:5px 7px;font-size:12px;"></label>
+          <label style="grid-column:1/-1;display:flex;flex-direction:column;gap:2px;color:var(--fg-muted,#8C8C8C);font-size:11px;">攝影師<input id="v52-shoot-photographer" value="${escapeHtml(c.shoot?.photographer || '')}" placeholder="姓名" style="padding:5px 7px;font-size:12px;"></label>
+        </div>
+      </details>
       <button id="v52-save" style="align-self:flex-start;padding:6px 16px;background:var(--accent,#1F8A4C);color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:500;">💾 儲存基本資料</button>
     </div>`;
   grid.insertAdjacentElement('afterend', panel);
@@ -3330,11 +3384,17 @@ function v52WireBasicEdit(c) {
     const unit = document.getElementById('v52-unit').value;
     const contact = document.getElementById('v52-contact').value.trim();
     const needsOutsourcing = !!document.getElementById('v52-outsource')?.checked;
+    // G1: 讀取拍攝欄位
+    const _sd = (document.getElementById('v52-shoot-desc')?.value || '').trim();
+    const _sm = document.getElementById('v52-shoot-mode')?.value || '';
+    const _sdate = document.getElementById('v52-shoot-date')?.value || '';
+    const _sp = (document.getElementById('v52-shoot-photographer')?.value || '').trim();
+    const shoot = (_sd || _sm || _sdate || _sp) ? { desc: _sd, mode: _sm || undefined, date: _sdate || null, photographer: _sp } : null;
     if (!title) { showToast('專案名稱不能空白', 'err'); return; }
-    const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact, deliverables: c.deliverables, cat: c.cat, needsOutsourcing: c.needsOutsourcing };
+    const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact, deliverables: c.deliverables, cat: c.cat, needsOutsourcing: c.needsOutsourcing, shoot: c.shoot };
     try {
-      await api.cases.update(c.id, { title, hotel, requester: unit, contact, deliverables: selDeliv, category: selDeliv.join('、'), needsOutsourcing });
-      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact; c.deliverables = selDeliv.slice(); c.cat = selDeliv.join('、'); c.needsOutsourcing = needsOutsourcing;
+      await api.cases.update(c.id, { title, hotel, requester: unit, contact, deliverables: selDeliv, category: selDeliv.join('、'), needsOutsourcing, shoot });
+      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact; c.deliverables = selDeliv.slice(); c.cat = selDeliv.join('、'); c.needsOutsourcing = needsOutsourcing; c.shoot = shoot;
       showToast('✓ 基本資料已更新');
       openDrawer(c);
       refreshAll();

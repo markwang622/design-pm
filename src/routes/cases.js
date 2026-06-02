@@ -36,6 +36,13 @@ const createSchema = z.object({
   contact: z.string().optional().nullable(), // B2: 案件聯絡人
   deliverables: z.array(z.string()).max(30).optional(), // C1: 製作物項目（多選）
   needsOutsourcing: z.boolean().default(false), // D2: 需發包
+  // G1: 拍攝（外發/自己拍攝 / 時間 / 攝影師 / 內容說明）
+  shoot: z.object({
+    desc: z.string().optional().default(''),
+    mode: z.enum(['in-house', 'outsource']).optional(),
+    date: z.string().optional().nullable(),
+    photographer: z.string().optional().default(''),
+  }).nullable().optional(),
   // B1: 通知改為由前端勾選決定（預設不寄）
   notifyDesigner: z.boolean().default(false),
   notifyCollaborators: z.boolean().default(false),
@@ -65,6 +72,12 @@ const updateSchema = z.object({
   contact: z.string().optional().nullable(), // B2: 案件聯絡人
   deliverables: z.array(z.string()).max(30).optional(), // C1: 製作物項目
   needsOutsourcing: z.boolean().optional(), // D2: 需發包
+  shoot: z.object({                            // G1: 拍攝
+    desc: z.string().optional().default(''),
+    mode: z.enum(['in-house', 'outsource']).optional(),
+    date: z.string().optional().nullable(),
+    photographer: z.string().optional().default(''),
+  }).nullable().optional(),
   archivePath: z.string().optional().nullable(),
   reason: z.string().optional(), // required only when tracked fields change
 });
@@ -278,6 +291,7 @@ router.post('/', async (req, res) => {
       contact: body.contact ?? undefined,
       deliverables: body.deliverables ?? undefined,
       needsOutsourcing: body.needsOutsourcing ?? false,
+      shoot: body.shoot ?? undefined,
       items: body.items ?? undefined,
       logs: body.logs ?? undefined,
       designer: { connect: { id: body.designerId } },
@@ -389,6 +403,7 @@ router.patch('/:id', async (req, res) => {
     ...(body.contact !== undefined && { contact: body.contact }),
     ...(body.deliverables !== undefined && { deliverables: body.deliverables }),
     ...(body.needsOutsourcing !== undefined && { needsOutsourcing: body.needsOutsourcing }),
+    ...(body.shoot !== undefined && { shoot: body.shoot }),
     ...(body.archivePath !== undefined && { archivePath: body.archivePath }),
   };
 
