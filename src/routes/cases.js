@@ -36,6 +36,9 @@ const createSchema = z.object({
   contact: z.string().optional().nullable(), // B2: 案件聯絡人
   deliverables: z.array(z.string()).max(30).optional(), // C1: 製作物項目（多選）
   needsOutsourcing: z.boolean().default(false), // D2: 需發包
+  copyPath: z.string().optional().nullable(),   // H2: 文案路徑
+  source: z.string().optional().nullable(),     // H3: 專案來源/需求單號
+  printDate: dateStr.optional().nullable(),     // H4: 印刷送印日
   // B1: 通知改為由前端勾選決定（預設不寄）
   notifyDesigner: z.boolean().default(false),
   notifyCollaborators: z.boolean().default(false),
@@ -53,7 +56,7 @@ const updateSchema = z.object({
   category: z.string().optional(),
   // v3.6: three-stage close — review → review_done → closed
   // 'done' kept for backward compat with v3.3/v3.4 data; treated like 'closed'
-  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'done', 'closed']).optional(),
+  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'print', 'done', 'closed']).optional(),
   designerId: z.number().int().optional(),
   collaboratorIds: z.array(z.number().int()).max(3).optional(),
   openDate: dateStr.optional(),
@@ -65,6 +68,9 @@ const updateSchema = z.object({
   contact: z.string().optional().nullable(), // B2: 案件聯絡人
   deliverables: z.array(z.string()).max(30).optional(), // C1: 製作物項目
   needsOutsourcing: z.boolean().optional(), // D2: 需發包
+  copyPath: z.string().optional().nullable(),   // H2: 文案路徑
+  source: z.string().optional().nullable(),     // H3: 專案來源/需求單號
+  printDate: dateStr.optional().nullable(),     // H4: 印刷送印日
   archivePath: z.string().optional().nullable(),
   reason: z.string().optional(), // required only when tracked fields change
 });
@@ -84,7 +90,7 @@ const bulkRowSchema = z.object({
   category: z.string().optional(),
   designerName: z.string().min(1),
   collaboratorNames: z.array(z.string()).default([]),
-  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'done', 'closed']).default('todo'),
+  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'print', 'done', 'closed']).default('todo'),
   urgent: z.boolean().default(false),
   note: z.string().default(''),
   // Dates — accept YYYY-MM-DD strings; convert later
@@ -272,10 +278,13 @@ router.post('/', async (req, res) => {
       openDate: body.openDate,
       dispatchDate: body.dispatchDate,
       copyDate: body.copyDate,
+      printDate: body.printDate ?? undefined,
       goLiveDate: body.goLiveDate,
       urgent: body.urgent,
       note: body.note,
       contact: body.contact ?? undefined,
+      copyPath: body.copyPath ?? undefined,
+      source: body.source ?? undefined,
       deliverables: body.deliverables ?? undefined,
       needsOutsourcing: body.needsOutsourcing ?? false,
       items: body.items ?? undefined,
@@ -383,10 +392,13 @@ router.patch('/:id', async (req, res) => {
     ...(body.openDate !== undefined && { openDate: body.openDate }),
     ...(body.dispatchDate !== undefined && { dispatchDate: body.dispatchDate }),
     ...(body.copyDate !== undefined && { copyDate: body.copyDate }),
+    ...(body.printDate !== undefined && { printDate: body.printDate }),
     ...(body.goLiveDate !== undefined && { goLiveDate: body.goLiveDate }),
     ...(body.urgent !== undefined && { urgent: body.urgent }),
     ...(body.note !== undefined && { note: body.note }),
     ...(body.contact !== undefined && { contact: body.contact }),
+    ...(body.copyPath !== undefined && { copyPath: body.copyPath }),
+    ...(body.source !== undefined && { source: body.source }),
     ...(body.deliverables !== undefined && { deliverables: body.deliverables }),
     ...(body.needsOutsourcing !== undefined && { needsOutsourcing: body.needsOutsourcing }),
     ...(body.archivePath !== undefined && { archivePath: body.archivePath }),

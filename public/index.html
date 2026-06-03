@@ -373,6 +373,7 @@ h1, h2, h3, h4 { font-weight: 500; }
 .chip.status-doing { background: #D6E8F8; color: #1E5A85; border-color: #BBD6EB; }
 .chip.status-review { background: #FBE8B7; color: #8C6A12; border-color: #EDD79A; }
 .chip.status-review_done { background: #FFE0CC; color: #8B4513; border-color: #F0C49B; } /* v3.6: 確稿完成（待 admin 審核）*/
+.chip.status-print { background: #EAE0F5; color: #6B3FA0; border-color: #D4C2EC; }      /* H6: 送印中 */
 .chip.status-done { background: #CDE4CD; color: #2F6B2F; border-color: #BFD9BF; }       /* legacy v3.5- */
 .chip.status-closed { background: #C8E6C9; color: #1B5E20; border-color: #A5D6A7; font-weight: 500; } /* v3.6: 已結案 */
 .chip.gate { background: #FDE0E0; color: #9A2E2E; border-color: #F5B5B5; }
@@ -413,6 +414,7 @@ h1, h2, h3, h4 { font-weight: 500; }
 .case-card.s-doing { background: #F4F9FF; border-color: #C9DCF0; }
 .case-card.s-review { background: #FFF8E6; border-color: #EDD79A; }
 .case-card.s-review_done { background: #FFEFE0; border-color: #F0C49B; }
+.case-card.s-print { background: #F3EDFA; border-color: #D4C2EC; }
 .case-card.s-done { background: #EEF6EE; border-color: #BFD9BF; }
 .case-card.s-closed { background: #E8F5E9; border-color: #A5D6A7; }
 .case-card.archived-case { opacity: 0.55; background: #F5F5F5; border-color: #D9D9D9; border-left-color: transparent; }
@@ -426,7 +428,10 @@ h1, h2, h3, h4 { font-weight: 500; }
 .case-card:hover .mini-btn { opacity: 1; }
 .case-card .mini-btn:hover { background: #1F1F1F; color: #fff; border-color: #1F1F1F; }
 .kanban { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 16px; min-height: 500px; }
-.kb-col { background: #F2F2F2; border-radius: 10px; padding: 12px; }
+.kb-col { background: #F2F2F2; border-radius: 10px; padding: 12px; transition: outline-color 0.15s, background 0.15s; outline: 2px dashed transparent; outline-offset: -4px; }
+.kb-col.kb-col-dragover { outline-color: var(--accent, #1F8A4C); background: rgba(31,138,76,0.06); }
+.kb-card { cursor: grab; }
+.kb-card:active { cursor: grabbing; }
 .kb-col-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 500; color: #404040; padding: 0 4px 10px; border-bottom: 1px solid #E5E5E5; margin-bottom: 10px; }
 .kb-col-head .count { background: #fff; color: #595959; border-radius: 10px; padding: 1px 8px; font-size: 10px; }
 .kb-card { background: #fff; border: 1px solid #E5E5E5; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; font-size: 12px; border-left: 3px solid transparent; }
@@ -436,6 +441,8 @@ h1, h2, h3, h4 { font-weight: 500; }
 .kb-card.s-wait { background: #F6F3EE; border-color: #D9CEBF; }
 .kb-card.s-doing { background: #F4F9FF; border-color: #C9DCF0; }
 .kb-card.s-review { background: #FFF8E6; border-color: #EDD79A; }
+.kb-card.s-review_done { background: #FFEFE0; border-color: #F0C49B; }
+.kb-card.s-print { background: #F3EDFA; border-color: #D4C2EC; }
 .kb-card.s-done { background: #EEF6EE; border-color: #BFD9BF; }
 .kb-card .t { font-weight: 500; margin-bottom: 4px; color: #1F1F1F; }
 .kb-card .meta { display: flex; justify-content: space-between; align-items: center; color: #8C8C8C; font-size: 10px; margin-top: 6px; }
@@ -516,6 +523,8 @@ h1, h2, h3, h4 { font-weight: 500; }
 .gantt-bar.s-wait { background: #A89578; }
 .gantt-bar.s-doing { background: #3F7BB6; }
 .gantt-bar.s-review { background: #C79B25; }
+.gantt-bar.s-print { background: #6B3FA0; }
+.gantt-bar.s-review_done { background: #D88A5A; }
 .gantt-bar.s-done { background: #5A8A5A; opacity: 0.8; }
 .gantt-bar.urgent { box-shadow: inset 0 0 0 2px #D85A30; }
 .gantt-bar.sub {
@@ -924,6 +933,7 @@ body::before {
 .case-card.s-doing, .kb-card.s-doing { --cc-status:#3F7BB6; }
 .case-card.s-review,.kb-card.s-review{ --cc-status:#C79B25; }
 .case-card.s-review_done             { --cc-status:#D88A5A; }
+.case-card.s-print, .kb-card.s-print { --cc-status:#6B3FA0; }
 .case-card.s-done,  .kb-card.s-done  { --cc-status:#5AA85A; }
 .case-card.s-closed                  { --cc-status:#5AA85A; }
 .case-card.urgent,  .kb-card.urgent  { --cc-status:#D85A30; }
@@ -1257,7 +1267,11 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
     <div class="log-timeline" id="d-timeline"></div>
     <div class="log-add">
       <textarea id="d-log-input" placeholder="更新今日進度（例如：2 版提案送執辦、已收客戶回饋、等文案）"></textarea>
-      <button class="submit" id="d-log-submit">送出</button>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+        <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);">日期</label>
+        <input type="date" id="d-log-date" style="padding:5px 8px;font-size:12px;">
+        <button class="submit" id="d-log-submit" style="margin-left:auto;">送出</button>
+      </div>
     </div>
     <div class="status-change">
       <span style="font-size: 13px; color: #595959;">變更狀態：</span>
@@ -1266,6 +1280,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
         <option value="wait">等待中</option>
         <option value="doing">進行中</option>
         <option value="review">確稿中（提出確稿）</option>
+        <option value="print">送印中</option>
         <option value="review_done">確稿完成（送 admin 審核）</option>
         <!-- 已結案 由 admin 在審核中心通過後自動設定，這裡不開放選 -->
       </select>
@@ -1290,10 +1305,13 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
       <label>館別 *<select id="f-hotel"></select></label>
       <label>需求單位 *<select id="f-unit"></select></label>
       <label class="span2">案件聯絡人（選填）<input id="f-contact" placeholder="例：行銷 陳經理 / 都會餐廳 王小姐 — 寫給自己看，方便找誰校稿"></label>
+      <label class="span2">文案路徑（選填）<input id="f-copypath" placeholder="行銷提供的文案連結 / 路徑，例：/設計部共用/文案/2026Q2/…"></label>
+      <label class="span2">專案來源 / 需求單號（選填）<input id="f-source" placeholder="例：需求單 #2026-0612 / 行銷月會 / 客戶來信"></label>
       <label>分級 *<select id="f-level"></select></label>
       <label id="f-designer-wrap">負責設計 *<select id="f-designer"></select></label>
       <label>需求派發日 *<input type="date" id="f-dispatch"></label>
       <label>文案收件日（可選填）<input type="date" id="f-copy"></label>
+      <label>印刷送印日（選填）<input type="date" id="f-print"></label>
       <label>上線日 *<input type="date" id="f-golive"></label>
       <label class="span2">製作物項目（可複選）
         <div class="collab-picker" id="f-deliverables"></div>
@@ -1474,6 +1492,7 @@ const STATUSES = [
   {key:'doing', name:'進行中'},
   {key:'review', name:'確稿中'},
   {key:'review_done', name:'確稿完成'},   // v3.6: designer marks done, awaits admin
+  {key:'print', name:'送印中'},            // H6: 送印中（選填階段）
   {key:'closed', name:'已結案'},           // v3.6: admin approved, auto-archived
   {key:'done', name:'已結案'},             // v4.3: visually identical to closed (legacy data shows up the same)
 ];
@@ -1835,12 +1854,21 @@ function renderKanban() {
   KANBAN_STATUSES.forEach(s => {
     const col = document.createElement('div');
     col.className = 'kb-col';
+    col.dataset.status = s.key;
     const cards = list.filter(c => c.status === s.key);
     col.innerHTML = `<div class="kb-col-head"><span>${s.name}</span><span class="count">${cards.length}</span></div><div class="kb-col-body"></div>`;
     const body = col.querySelector('.kb-col-body');
+    // H5: 拖放區 — 卡片放下即改狀態
+    col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('kb-col-dragover'); });
+    col.addEventListener('dragleave', () => col.classList.remove('kb-col-dragover'));
+    col.addEventListener('drop', e => { e.preventDefault(); col.classList.remove('kb-col-dragover'); v54KanbanDrop(e.dataTransfer.getData('text/plain'), s.key); });
     cards.forEach(c => {
       const card = document.createElement('div');
       card.className = 'kb-card s-' + c.status + (c.urgent ? ' urgent' : '');
+      card.draggable = true;
+      card.dataset.caseId = c.id;
+      card.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', c.id); e.dataTransfer.effectAllowed = 'move'; card.style.opacity = '0.5'; });
+      card.addEventListener('dragend', () => { card.style.opacity = ''; });
       card.onclick = () => openDrawer(c);
       const collabHtml = (c.collaborators && c.collaborators.length)
         ? `<span class="avatar-stack" style="margin-left:4px;">${c.collaborators.map(n => `<span class="avatar" style="width:18px;height:18px;font-size:8px;">${n.slice(0,2)}</span>`).join('')}</span>`
@@ -1866,6 +1894,33 @@ function renderKanban() {
     });
     kb.appendChild(col);
   });
+}
+// H5: 看板拖放改狀態
+async function v54KanbanDrop(caseId, newStatus) {
+  if (!caseId) return;
+  const c = CASES.find(x => x.id === caseId);
+  if (!c || c.status === newStatus) return;
+  // 權限：admin 或 主負責人（與抽屜一致）
+  if (!(ME.role === 'admin' || c.designer === ME_NAME())) {
+    showToast('只有主負責人或 admin 可變更狀態', 'err'); return;
+  }
+  // 進終態（review_done）需要歸檔路徑 → 引導到抽屜操作
+  if (newStatus === 'review_done' && !(c.archivePath && String(c.archivePath).trim())) {
+    showToast('「確稿完成」需先填檔案歸檔位置，請點開卡片操作', 'err');
+    openDrawer(c); return;
+  }
+  const before = c.status;
+  c.status = newStatus;
+  decorateCases && decorateCases();
+  renderKanban();
+  try {
+    await api.cases.update(c.id, { status: newStatus, reason: '看板拖曳' });
+    showToast(`✓ 已移至「${(STATUSES.find(s => s.key === newStatus) || {}).name || newStatus}」`);
+    refreshAll();
+  } catch (e) {
+    c.status = before; decorateCases && decorateCases(); renderKanban();
+    showToast('狀態更新失敗：' + (e.data?.message || e.message), 'err');
+  }
 }
 
 // ============== Gantt ==============
@@ -2272,6 +2327,8 @@ function openDrawer(c) {
     <dt>負責設計</dt><dd>${c.designer}</dd>
     <dt>需求單位</dt><dd>${c.unit || '—'}</dd>
     <dt>案件聯絡人</dt><dd>${escapeHtml(c.contact) || '—'}</dd>
+    ${c.copyPath ? `<dt>文案路徑</dt><dd style="word-break:break-all;">${escapeHtml(c.copyPath)}</dd>` : ''}
+    ${c.source ? `<dt>專案來源</dt><dd>${escapeHtml(c.source)}</dd>` : ''}
     <dt>協作者</dt><dd>${(c.collaborators||[]).length ? c.collaborators.join('、') : '（無）'}</dd>
     <dt>製作物</dt><dd>${(c.deliverables && c.deliverables.length) ? c.deliverables.map(d => `<span class="chip" style="margin:1px 3px 1px 0;">${escapeHtml(d)}</span>`).join('') : (c.cat ? escapeHtml(c.cat) : '—')}</dd>
     ${c.needsOutsourcing ? `<dt>需發包</dt><dd>📦 是 · 建議發包日 ${ymd(subtractWorkdays(c.goLive, 10))}（上線−10 工作天）</dd>` : ''}
@@ -2285,6 +2342,7 @@ function openDrawer(c) {
     c.copy ? {label:'文案收件日', date:c.copy, cls:''} : null,
     {label:'校稿日（起）',  date:c.proofStart,  cls:''},
     {label:'確稿日',        date:c.reviewDate,  cls:'key'},
+    c.printDate ? {label:'印刷送印日', date:c.printDate, cls:(workdaysBetween(c.printDate, c.goLive) < 5 ? 'warn' : '')} : null,
     {label:'上線日（交件）', date:c.goLive,    cls:'warn'},
   ].filter(Boolean);
   const tlHtml = `
@@ -2470,7 +2528,7 @@ function openCreateModal() {
   const self = document.getElementById('f-self');
   self.checked = (currentRole === 'designer');
   toggleSelfCreated();
-  ['f-name','f-dispatch','f-copy','f-golive','f-note'].forEach(id => document.getElementById(id).value = '');
+  ['f-name','f-dispatch','f-copy','f-golive','f-note','f-copypath','f-source','f-print'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('f-urgent').checked = false;
   draftItems = [{ n:'', type: DELIVERABLES[0], owner: (currentRole === 'designer' ? ME_NAME() : '') }];
   draftCollabs = [];
@@ -2984,10 +3042,13 @@ function normalizeCase(b) {
     open: b.openDate ? new Date(b.openDate) : new Date(TODAY),
     dispatch: b.dispatchDate ? new Date(b.dispatchDate) : new Date(TODAY),
     copy: b.copyDate ? new Date(b.copyDate) : null,
+    printDate: b.printDate ? new Date(b.printDate) : null, // H4
     goLive: b.goLiveDate ? new Date(b.goLiveDate) : new Date(TODAY),
     urgent: !!b.urgent,
     note: b.note || '',
     contact: b.contact || '',
+    copyPath: b.copyPath || '', // H2
+    source: b.source || '',     // H3
     deliverables: Array.isArray(b.deliverables) ? b.deliverables : [],
     needsOutsourcing: !!b.needsOutsourcing,
     items: Array.isArray(b.items) ? b.items : [],
@@ -3137,6 +3198,9 @@ window.submitCreate = async function() {
   const urgent = document.getElementById('f-urgent').checked;
   const note = document.getElementById('f-note').value.trim();
   const contact = (document.getElementById('f-contact')?.value || '').trim();           // B2
+  const copyPath = (document.getElementById('f-copypath')?.value || '').trim();          // H2
+  const source = (document.getElementById('f-source')?.value || '').trim();              // H3
+  const printDate = document.getElementById('f-print')?.value || '';                     // H4
   const needsOutsourcing = !!document.getElementById('f-outsource')?.checked;            // D2
   const notifyDesigner = !!document.getElementById('f-notify-designer')?.checked;        // B1
   const notifyCollaborators = !!document.getElementById('f-notify-collab')?.checked;     // B1
@@ -3148,6 +3212,10 @@ window.submitCreate = async function() {
   // B4: 館別/需求單位 未選只軟警示、不擋，建立後可在抽屜補填
   if (!hotel || !unit) {
     showToast('提醒：館別或需求單位尚未選擇，仍可建立，記得稍後到案件詳情補填', 'warn');
+  }
+  // H4: 印刷送印日 建議至少為上線日前 5 工作天（軟警示，不擋）
+  if (printDate && golive && workdaysBetween(new Date(printDate), new Date(golive)) < 5) {
+    showToast('提醒：印刷送印日距上線日不足 5 個工作天，仍可建立，請留意印刷時程', 'warn');
   }
   const designerId = findStaffId(designerName);
   if (!designerId) { showToast(`找不到設計師「${designerName}」`, 'err'); return; }
@@ -3161,9 +3229,12 @@ window.submitCreate = async function() {
     deliverables,                                  // C1: 製作物項目（多選）
     needsOutsourcing,                              // D2: 需發包
     contact,                                       // B2: 案件聯絡人
+    copyPath: copyPath || undefined,               // H2: 文案路徑
+    source: source || undefined,                   // H3: 專案來源/需求單號
     designerId, collaboratorIds: collabIds,
     openDate: ymdIso(TODAY), dispatchDate: ymdIso(new Date(dispatch)),
     copyDate: copyDate ? ymdIso(new Date(copyDate)) : undefined,
+    printDate: printDate ? ymdIso(new Date(printDate)) : undefined, // H4: 印刷送印日
     goLiveDate: ymdIso(new Date(golive)),
     urgent, note,
     notifyDesigner, notifyCollaborators,           // B1: 由勾選決定是否寄信
@@ -3315,10 +3386,13 @@ function v51WireLogs(c) {
   v51RenderLogs(c);
   const btn = document.getElementById('d-log-submit');
   if (!btn) return;
+  const dateInput = document.getElementById('d-log-date');
+  if (dateInput && !dateInput.value) dateInput.value = ymdIso(TODAY); // H1: 預設今天，可改
   btn.onclick = async () => {
     const ta = document.getElementById('d-log-input');
     const txt = (ta && ta.value || '').trim(); if (!txt) return;
-    const entry = { date: new Date(TODAY), note: txt, by: ME_NAME() };
+    const logDate = (dateInput && dateInput.value) ? new Date(dateInput.value) : new Date(TODAY); // H1
+    const entry = { date: logDate, note: txt, by: ME_NAME() };
     btn.disabled = true;
     try {
       // 保險：先抓 DB 最新日誌再合併，避免多人/多處同時編輯時覆蓋彼此的日誌（永久保留）
@@ -3366,6 +3440,9 @@ function v52WireBasicEdit(c) {
       <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">需求單位<select id="v52-unit" style="padding:6px 8px;">${unitOpts}</select></label>
       <div style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">製作物（可複選）<div class="collab-picker" id="v52-deliv">${delivChips()}</div></div>
       <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">案件聯絡人<input id="v52-contact" value="${escapeHtml(c.contact || '')}" placeholder="例：行銷 陳經理 / 王小姐" style="padding:6px 8px;"></label>
+      <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">文案路徑<input id="v52-copypath" value="${escapeHtml(c.copyPath || '')}" placeholder="行銷提供的文案連結 / 路徑" style="padding:6px 8px;"></label>
+      <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">專案來源 / 需求單號<input id="v52-source" value="${escapeHtml(c.source || '')}" placeholder="例：需求單 #2026-0612" style="padding:6px 8px;"></label>
+      <label style="display:flex;flex-direction:column;gap:3px;color:var(--fg-muted,#8C8C8C);">印刷送印日（選填，建議上線日前 5 工作天）<input type="date" id="v52-printdate" value="${c.printDate ? ymdIso(c.printDate) : ''}" style="padding:6px 8px;"></label>
       <label style="display:flex;align-items:center;gap:6px;color:var(--fg,#1F1F1F);cursor:pointer;"><input type="checkbox" id="v52-outsource" ${c.needsOutsourcing ? 'checked' : ''}> 📦 需發包（需預留 7–10 個工作天）</label>
       <button id="v52-save" style="align-self:flex-start;padding:6px 16px;background:var(--accent,#1F8A4C);color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:500;">💾 儲存基本資料</button>
     </div>`;
@@ -3385,12 +3462,19 @@ function v52WireBasicEdit(c) {
     const hotel = document.getElementById('v52-hotel').value;
     const unit = document.getElementById('v52-unit').value;
     const contact = document.getElementById('v52-contact').value.trim();
+    const copyPath = document.getElementById('v52-copypath').value.trim();   // H2
+    const source = document.getElementById('v52-source').value.trim();       // H3
+    const printDateStr = document.getElementById('v52-printdate').value;      // H4
     const needsOutsourcing = !!document.getElementById('v52-outsource')?.checked;
     if (!title) { showToast('專案名稱不能空白', 'err'); return; }
-    const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact, deliverables: c.deliverables, cat: c.cat, needsOutsourcing: c.needsOutsourcing };
+    // H4: 印刷送印日 軟驗證
+    if (printDateStr && c.goLive && workdaysBetween(new Date(printDateStr), c.goLive) < 5) {
+      showToast('提醒：印刷送印日距上線日不足 5 個工作天，仍會儲存', 'warn');
+    }
+    const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact, deliverables: c.deliverables, cat: c.cat, needsOutsourcing: c.needsOutsourcing, copyPath: c.copyPath, source: c.source, printDate: c.printDate };
     try {
-      await api.cases.update(c.id, { title, hotel, requester: unit, contact, deliverables: selDeliv, category: selDeliv.join('、'), needsOutsourcing });
-      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact; c.deliverables = selDeliv.slice(); c.cat = selDeliv.join('、'); c.needsOutsourcing = needsOutsourcing;
+      await api.cases.update(c.id, { title, hotel, requester: unit, contact, deliverables: selDeliv, category: selDeliv.join('、'), needsOutsourcing, copyPath: copyPath || null, source: source || null, printDate: printDateStr || null });
+      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact; c.deliverables = selDeliv.slice(); c.cat = selDeliv.join('、'); c.needsOutsourcing = needsOutsourcing; c.copyPath = copyPath; c.source = source; c.printDate = printDateStr ? new Date(printDateStr) : null;
       showToast('✓ 基本資料已更新');
       openDrawer(c);
       refreshAll();
@@ -7373,8 +7457,9 @@ function v43InjectSubItemsPanel(c, body) {
                   </div>
                   ${canWrite?`<button data-act="ilogedit" data-i="${i}" data-li="${li}" title="編輯" style="width:20px;height:20px;flex-shrink:0;padding:0;border:1px solid var(--input-border,#D4D4D4);background:transparent;border-radius:4px;cursor:pointer;color:var(--fg-muted,#8C8C8C);font-size:10px;line-height:1;">✎</button><button data-act="ilogdel" data-i="${i}" data-li="${li}" title="刪除" style="width:20px;height:20px;flex-shrink:0;padding:0;border:1px solid var(--input-border,#D4D4D4);background:transparent;border-radius:4px;cursor:pointer;color:#9A2E2E;font-size:12px;line-height:1;">×</button>`:''}
                 </div>`).join('')}
-              ${canWrite?`<div style="display:flex;gap:6px;margin-top:5px;">
-                <input data-ilognew="${i}" placeholder="新增此子項目進度…" style="${inputStyle}flex:1;">
+              ${canWrite?`<div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;">
+                <input data-ilognew="${i}" placeholder="新增此子項目進度…" style="${inputStyle}flex:1;min-width:140px;">
+                <input type="date" data-ilogdate="${i}" value="${ymdIso(TODAY)}" style="${inputStyle}width:auto;flex-shrink:0;" title="日誌日期">
                 <button data-act="ilogadd" data-i="${i}" style="flex-shrink:0;padding:0 12px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">＋ 記錄</button>
               </div>`:''}
             </div>
@@ -7506,8 +7591,10 @@ function v43InjectSubItemsPanel(c, body) {
         btn.onclick = () => {
           const i = Number(btn.dataset.i);
           const inp = panel.querySelector(`input[data-ilognew="${i}"]`);
+          const dinp = panel.querySelector(`input[data-ilogdate="${i}"]`);
           const txt = (inp && inp.value || '').trim(); if (!txt) return;
-          (items[i].logs = items[i].logs || []).unshift({ date: new Date(TODAY), note: txt, by: ME_NAME() });
+          const ldate = (dinp && dinp.value) ? new Date(dinp.value) : new Date(TODAY); // H1
+          (items[i].logs = items[i].logs || []).unshift({ date: ldate, note: txt, by: ME_NAME() });
           renderCards();
         };
       });

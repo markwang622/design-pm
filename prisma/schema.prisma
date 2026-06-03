@@ -106,9 +106,12 @@ model Case {
   contact       String?  // B2: 案件聯絡人（選填）
   deliverables  Json?    // C1: 製作物項目（多選，字串陣列）
   needsOutsourcing Boolean @default(false) // D2: 需發包（預留 7–10 工作天）
+  copyPath      String?  // H2: 行銷提供的文案路徑/連結（選填）
+  source        String?  // H3: 專案來源 / 需求單號（選填）
   openDate      DateTime @db.Date
   dispatchDate  DateTime @db.Date
   copyDate      DateTime? @db.Date
+  printDate     DateTime? @db.Date // H4: 印刷送印日（選填，建議上線日前 5 工作天）
   goLiveDate    DateTime @db.Date
   archivePath   String?
   archived      Boolean  @default(false)
