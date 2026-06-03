@@ -1560,7 +1560,7 @@ function decorateCases() {
     const k = computeKeyDates(c.goLive);
     c.reviewDate = k.review;
     c.proofStart = k.proofStart;
-    const wdToReview = (c.status === 'review' || c.status === 'review_done' || FINAL_STATUS_KEYS.has(c.status))
+    const wdToReview = (c.status === 'review' || c.status === 'review_done' || c.status === 'print' || FINAL_STATUS_KEYS.has(c.status))
       ? 999 : workdaysBetween(TODAY, c.reviewDate) - 1;
     c.gateActive = (wdToReview >= 0 && wdToReview <= 3);
   });
@@ -2159,7 +2159,7 @@ document.getElementById('gantt-collapse-all').onclick = () => {
 function renderDashboard() {
   const live = CASES.filter(c => !c.archived);
   const total = live.length;
-  const doing = live.filter(c => c.status === 'doing' || c.status === 'review' || c.status === 'review_done').length;
+  const doing = live.filter(c => c.status === 'doing' || c.status === 'review' || c.status === 'review_done' || c.status === 'print').length;
   const done = live.filter(c => FINAL_STATUS_KEYS.has(c.status)).length;
   const overdue = live.filter(c => c.overdue).length;
   const urgent = live.filter(c => c.urgent && !FINAL_STATUS_KEYS.has(c.status)).length;

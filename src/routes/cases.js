@@ -264,37 +264,44 @@ router.post('/', async (req, res) => {
   // Designer must not be in collaborators list
   const collabIds = body.collaboratorIds.filter((id) => id !== body.designerId);
 
-  const id = await nextCaseId(body.level, body.openDate);
-
-  const created = await prisma.case.create({
-    data: {
-      id,
-      title: body.title,
-      subTitle: body.subTitle,
-      requester: body.requester,
-      hotel: body.hotel,
-      level: body.level,
-      category: body.category,
-      openDate: body.openDate,
-      dispatchDate: body.dispatchDate,
-      copyDate: body.copyDate,
-      printDate: body.printDate ?? undefined,
-      goLiveDate: body.goLiveDate,
-      urgent: body.urgent,
-      note: body.note,
-      contact: body.contact ?? undefined,
-      copyPath: body.copyPath ?? undefined,
-      source: body.source ?? undefined,
-      deliverables: body.deliverables ?? undefined,
-      needsOutsourcing: body.needsOutsourcing ?? false,
-      items: body.items ?? undefined,
-      logs: body.logs ?? undefined,
-      designer: { connect: { id: body.designerId } },
-      collaborators: { connect: collabIds.map((id) => ({ id })) },
-      createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
-    },
-    include: caseInclude,
-  });
+  // Bug #1 修復：nextCaseId 為「讀最大+1」非原子，兩個併發建立可能撞同 ID。
+  // 撞號（P2002 unique violation）時重算 ID 再試，最多 5 次。
+  const caseData = {
+    title: body.title,
+    subTitle: body.subTitle,
+    requester: body.requester,
+    hotel: body.hotel,
+    level: body.level,
+    category: body.category,
+    openDate: body.openDate,
+    dispatchDate: body.dispatchDate,
+    copyDate: body.copyDate,
+    printDate: body.printDate ?? undefined,
+    goLiveDate: body.goLiveDate,
+    urgent: body.urgent,
+    note: body.note,
+    contact: body.contact ?? undefined,
+    copyPath: body.copyPath ?? undefined,
+    source: body.source ?? undefined,
+    deliverables: body.deliverables ?? undefined,
+    needsOutsourcing: body.needsOutsourcing ?? false,
+    items: body.items ?? undefined,
+    logs: body.logs ?? undefined,
+    designer: { connect: { id: body.designerId } },
+    collaborators: { connect: collabIds.map((id) => ({ id })) },
+    createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
+  };
+  let created;
+  for (let attempt = 0; ; attempt++) {
+    const id = await nextCaseId(body.level, body.openDate);
+    try {
+      created = await prisma.case.create({ data: { id, ...caseData }, include: caseInclude });
+      break;
+    } catch (e) {
+      if (e.code === 'P2002' && attempt < 4) continue; // ID 撞號 → 重算重試
+      throw e;
+    }
+  }
 
   // B1: 通知改為由前端勾選決定（預設不寄）
   try {

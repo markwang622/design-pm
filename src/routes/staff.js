@@ -171,9 +171,9 @@ router.get('/:id/departure-preview', requireAdmin, async (req, res) => {
   if (!leaver) return res.status(404).json({ error: 'not_found' });
 
   const [ownedDone, ownedOpen, collabOn] = await Promise.all([
-    prisma.case.findMany({ where: { designerId: id, status: 'done', archived: false } }),
+    prisma.case.findMany({ where: { designerId: id, status: { in: ['done', 'closed'] }, archived: false } }),
     prisma.case.findMany({
-      where: { designerId: id, status: { not: 'done' }, archived: false },
+      where: { designerId: id, status: { notIn: ['done', 'closed'] }, archived: false },
       include: { collaborators: { select: { id: true, name: true } } },
     }),
     prisma.case.findMany({
@@ -221,8 +221,8 @@ router.post('/:id/departure', requireAdmin, async (req, res) => {
 
   // Pull current state
   const [ownedDone, ownedOpen, collabOn] = await Promise.all([
-    prisma.case.findMany({ where: { designerId: id, status: 'done', archived: false } }),
-    prisma.case.findMany({ where: { designerId: id, status: { not: 'done' }, archived: false } }),
+    prisma.case.findMany({ where: { designerId: id, status: { in: ['done', 'closed'] }, archived: false } }),
+    prisma.case.findMany({ where: { designerId: id, status: { notIn: ['done', 'closed'] }, archived: false } }),
     prisma.case.findMany({
       where: { archived: false, collaborators: { some: { id } }, NOT: { designerId: id } },
       select: { id: true },

@@ -77,7 +77,7 @@ router.patch('/:id', async (req, res) => {
   const existing = await prisma.shoot.findUnique({ where: { id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   // 編輯權限：建立者或 admin
-  if (existing.createdById && existing.createdById !== req.user.id && req.user.role !== 'admin') {
+  if (req.user.role !== 'admin' && existing.createdById !== req.user.id) {
     return res.status(403).json({ error: 'forbidden', message: '只有建立者或 admin 可編輯此拍攝行程' });
   }
   const parsed = updateSchema.safeParse(req.body);
@@ -90,7 +90,7 @@ router.delete('/:id', async (req, res) => {
   const id = Number(req.params.id);
   const existing = await prisma.shoot.findUnique({ where: { id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
-  if (existing.createdById && existing.createdById !== req.user.id && req.user.role !== 'admin') {
+  if (req.user.role !== 'admin' && existing.createdById !== req.user.id) {
     return res.status(403).json({ error: 'forbidden' });
   }
   await prisma.shoot.delete({ where: { id } });

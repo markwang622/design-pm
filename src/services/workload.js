@@ -16,13 +16,13 @@ const SENIORITY_RANK = { senior: 0, mid: 1, junior: 2 };
 export async function workloadScore(staffId) {
   const [owned, collab] = await Promise.all([
     prisma.case.findMany({
-      where: { designerId: staffId, archived: false, status: { not: 'done' } },
+      where: { designerId: staffId, archived: false, status: { notIn: ['done', 'closed'] } },
       select: { level: true },
     }),
     prisma.case.findMany({
       where: {
         archived: false,
-        status: { not: 'done' },
+        status: { notIn: ['done', 'closed'] },
         collaborators: { some: { id: staffId } },
         NOT: { designerId: staffId },
       },
