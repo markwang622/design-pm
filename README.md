@@ -1,6 +1,20 @@
 # 藝術設計部 · 專案管理系統 (Design-PM) — Zeabur 全端封包 v3.4
 
 > 前端（SPA） + 後端（Express + Prisma） + Postgres，單一服務部署於 [Zeabur](https://zeabur.com)。
+>
+> 線上：https://artdesign.zeabur.app/
+
+## 📚 完整文件
+
+| 文件 | 內容 |
+| --- | --- |
+| [docs/system-spec.md](docs/system-spec.md) | **系統規格書**：角色權限、案件狀態機、日期/工作量/分析規則、通知規則 |
+| [docs/architecture.md](docs/architecture.md) | **技術架構**：技術棧、資料模型、API 總覽、前端架構、安全、部署 |
+| [docs/features.md](docs/features.md) | **完整功能說明**：各分頁與操作手冊 |
+| [docs/api.md](docs/api.md) | API 端點細節 |
+| [docs/local-dev.md](docs/local-dev.md) · [docs/zeabur-deploy.md](docs/zeabur-deploy.md) | 本機開發 / Zeabur 部署 |
+
+> 註：下方「功能概覽／技術棧」為早期 v3.4 摘要；最新且完整的內容以上述 `docs/` 三份文件為準（含 v3.5–v5.6 的製作物多選、子項目日誌、拍攝模組、四季主題、看板拖曳、送印中狀態等）。部署現以 **Dockerfile** 為準（已移除 zbpack.json）。
 
 ## 功能概覽
 
