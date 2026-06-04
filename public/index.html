@@ -4844,6 +4844,18 @@ function v36EnsureHistoryView() {
   document.getElementById('v36-history-level').onchange = renderHistory;
 }
 
+// Bug 修復：歷史案件須含「已封存」案，而 CASES（GET /api/cases）預設不含 archived，
+// 導致歷史清單抓不到資料、搜尋失效。改從後端 includeArchived 撈並 cache。
+window.V59_HISTORY = null;
+async function v59LoadHistory() {
+  const rows = await api.cases.listArchived();
+  window.V59_HISTORY = rows.map(normalizeCase);
+  // 補 openDrawer 需要的衍生欄位（封存案未經 decorateCases）
+  window.V59_HISTORY.forEach(c => {
+    try { const k = computeKeyDates(c.goLive); c.reviewDate = k.review; c.proofStart = k.proofStart; } catch {}
+    c.daysLeft = daysUntil(c.goLive); c.overdue = false; c.gateActive = false;
+  });
+}
 function renderHistory() {
   v36EnsureHistoryView();
   // Populate designer select once
@@ -4851,11 +4863,20 @@ function renderHistory() {
   if (dSel.children.length === 1) {
     STAFF.forEach(s => dSel.innerHTML += `<option value="${s.name}">${s.name}</option>`);
   }
+  // cache 未載入 → 先撈後端再重繪
+  if (window.V59_HISTORY === null) {
+    const w = document.getElementById('v36-history-list');
+    if (w) w.innerHTML = '<div style="padding:30px;text-align:center;color:#8C8C8C;">載入歷史案件…</div>';
+    v59LoadHistory().then(() => renderHistory()).catch(e => {
+      if (w) w.innerHTML = '<div style="padding:30px;text-align:center;color:#A32D2D;">載入失敗：' + escapeHtml(e.data?.message || e.message) + '</div>';
+    });
+    return;
+  }
   const q = (document.getElementById('v36-history-search').value || '').toLowerCase();
   const dFilter = dSel.value;
   const lFilter = document.getElementById('v36-history-level').value;
 
-  const list = CASES.filter(c =>
+  const list = window.V59_HISTORY.filter(c =>
     (FINAL_STATUS_KEYS.has(c.status) || c.archived) &&
     (!dFilter || c.designer === dFilter) &&
     (!lFilter || c.level === lFilter) &&
@@ -4875,7 +4896,7 @@ function renderHistory() {
     return;
   }
   wrap.innerHTML = list.map(c => `
-    <div class="case-card archived-case" onclick='openDrawer(CASES.find(x=>x.id===${JSON.stringify(c.id)}))'>
+    <div class="case-card archived-case" onclick='openDrawer(window.V59_HISTORY.find(x=>x.id===${JSON.stringify(c.id)}))'>
       <div class="row1">
         <div>
           <div class="case-id">${escapeHtml(c.id)}</div>
@@ -5098,6 +5119,7 @@ window.switchView = function(v) {
     currentView = 'history';
     document.querySelectorAll('div.view').forEach(x => x.classList.toggle('active', x.dataset.view === 'history'));
     renderNav();
+    window.V59_HISTORY = null; // 每次進入歷史頁重抓最新封存資料（含剛結案的）
     renderHistory();
     return;
   }
@@ -5470,8 +5492,9 @@ window.renderHistory = function() {
       const bTxt = b.textContent;
       const aId = a.querySelector('.case-id')?.textContent || '';
       const bId = b.querySelector('.case-id')?.textContent || '';
-      const aCase = CASES.find(c => c.id === aId);
-      const bCase = CASES.find(c => c.id === bId);
+      const _src = window.V59_HISTORY || CASES;
+      const aCase = _src.find(c => c.id === aId);
+      const bCase = _src.find(c => c.id === bId);
       if (!aCase || !bCase) return 0;
       switch (v37HistorySort) {
         case 'closedAsc':
