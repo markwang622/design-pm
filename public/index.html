@@ -1046,6 +1046,11 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
 .v57-dow { background:var(--glass-bg-strong,rgba(255,255,255,0.85)); text-align:center; font-size:11px; font-weight:600; color:var(--fg-muted,#8C8C8C); padding:6px 0; }
 .v57-cell { background:var(--card-bg,#fff); min-height:96px; padding:5px 6px; cursor:pointer; transition:background 0.12s; display:flex; flex-direction:column; gap:3px; }
 .v57-cell:hover { background:var(--hover-bg,#F2F2F2); }
+/* K1: 歷史搜尋高亮 + 時間快選 chip */
+.case-card mark { background:#FFE9A8; color:inherit; border-radius:2px; padding:0 1px; }
+[data-theme="dark"] .case-card mark { background:#5A4A1A; color:#F4E4B8; }
+.v60-time-chip { padding:4px 12px; border-radius:14px; font-size:12px; border:1px solid var(--glass-border,#E5E5E5); background:var(--glass-bg,rgba(255,255,255,0.5)); color:var(--fg,#1F1F1F); cursor:pointer; }
+.v60-time-chip.active { background:var(--accent,#1F8A4C); color:var(--accent-ink,#fff); border-color:var(--accent,#1F8A4C); }
 .v57-cell.v57-other { opacity:0.4; }
 .v57-cell.v57-weekend { background:#F7F7F5; }
 .v57-cell.v57-holiday { background:#FAF1E3; }
@@ -4872,43 +4877,55 @@ function renderHistory() {
     });
     return;
   }
+  v60EnsureHistoryControls(); // K1: 注入館別/製作物/時間 篩選（一次）
   const q = (document.getElementById('v36-history-search').value || '').toLowerCase();
   const dFilter = dSel.value;
   const lFilter = document.getElementById('v36-history-level').value;
+  const hFilter = document.getElementById('v60-history-hotel')?.value || '';
+  const delivFilter = document.getElementById('v60-history-deliv')?.value || '';
+  const tFilter = document.querySelector('#v60-history-time .v60-time-chip.active')?.dataset.time || 'all';
+  const now = new Date();
+  const inTime = (d) => {
+    if (tFilter === 'all' || !d) return tFilter === 'all';
+    const x = new Date(d);
+    if (tFilter === 'month') return x.getFullYear()===now.getFullYear() && x.getMonth()===now.getMonth();
+    if (tFilter === 'quarter') return x.getFullYear()===now.getFullYear() && Math.floor(x.getMonth()/3)===Math.floor(now.getMonth()/3);
+    if (tFilter === 'year') return x.getFullYear()===now.getFullYear();
+    return true;
+  };
+  const matchQ = (c) => !q || [c.id,c.name,c.sub,c.designer,c.hotel,c.cat,c.contact,c.source,c.note,(c.deliverables||[]).join(' ')]
+    .some(v => (v||'').toLowerCase().includes(q));
 
   const list = window.V59_HISTORY.filter(c =>
     (FINAL_STATUS_KEYS.has(c.status) || c.archived) &&
     (!dFilter || c.designer === dFilter) &&
     (!lFilter || c.level === lFilter) &&
-    (!q || (
-      (c.id || '').toLowerCase().includes(q) ||
-      (c.name || '').toLowerCase().includes(q) ||
-      (c.sub || '').toLowerCase().includes(q) ||
-      (c.designer || '').toLowerCase().includes(q) ||
-      (c.hotel || '').toLowerCase().includes(q)
-    ))
+    (!hFilter || c.hotel === hFilter) &&
+    (!delivFilter || (c.deliverables||[]).includes(delivFilter) || (c.cat||'').includes(delivFilter)) &&
+    inTime(c.closedOn) && matchQ(c)
   ).sort((a, b) => (b.closedOn?.getTime() || 0) - (a.closedOn?.getTime() || 0));
 
   document.getElementById('v36-history-count').textContent = `${list.length} 筆`;
   const wrap = document.getElementById('v36-history-list');
   if (!list.length) {
-    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:#8C8C8C;">無符合的案件</div>';
+    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:#8C8C8C;">無符合的案件（試試清除篩選或換關鍵字）</div>';
     return;
   }
+  const hl = (text) => { const t = escapeHtml(text || ''); if (!q) return t; try { return t.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi'), '<mark>$1</mark>'); } catch { return t; } };
   wrap.innerHTML = list.map(c => `
     <div class="case-card archived-case" onclick='openDrawer(window.V59_HISTORY.find(x=>x.id===${JSON.stringify(c.id)}))'>
       <div class="row1">
         <div>
-          <div class="case-id">${escapeHtml(c.id)}</div>
-          <div class="title">${escapeHtml(c.name)}</div>
-          <div class="sub">${escapeHtml(c.sub || '')}</div>
+          <div class="case-id">${hl(c.id)}</div>
+          <div class="title">${hl(c.name)}</div>
+          <div class="sub">${hl(c.sub || '')}</div>
         </div>
         <span class="chip status-${c.status}">${(STATUSES.find(s=>s.key===c.status)||{name:c.status}).name}</span>
       </div>
       <div class="row2">
         <span class="chip level-${c.level}">${c.level}</span>
-        <span class="chip">${escapeHtml(c.hotel||'—')}</span>
-        <span class="chip">${escapeHtml(c.designer||'—')}</span>
+        <span class="chip">${hl(c.hotel||'—')}</span>
+        <span class="chip">${hl(c.designer||'—')}</span>
       </div>
       <div class="row3">
         <span>結案 ${c.closedOn ? ymd(c.closedOn) : '—'}</span>
@@ -4916,6 +4933,42 @@ function renderHistory() {
       </div>
     </div>
   `).join('');
+}
+// K1: 動態注入 館別下拉 / 製作物下拉 / 時間快選 chip（注入一次）
+function v60EnsureHistoryControls() {
+  const headerCard = document.querySelector('div.view[data-view="history"] .card');
+  if (!headerCard || document.getElementById('v60-history-hotel')) return;
+  const filterRow = headerCard.querySelector('div');
+  if (!filterRow) return;
+  // 館別下拉
+  const hSel = document.createElement('select');
+  hSel.id = 'v60-history-hotel';
+  hSel.style.cssText = 'padding:7px 10px;border:1px solid #D4D4D4;border-radius:5px;font-size:12px;';
+  hSel.innerHTML = '<option value="">所有館別</option>' + (HOTELS||[]).map(h=>`<option value="${escapeHtml(h.name)}">${escapeHtml(h.name)}</option>`).join('');
+  hSel.onchange = renderHistory;
+  // 製作物下拉（蒐集歷史案出現過的製作物）
+  const delivSet = new Set();
+  (window.V59_HISTORY||[]).forEach(c => (c.deliverables||[]).forEach(d => delivSet.add(d)));
+  const dvSel = document.createElement('select');
+  dvSel.id = 'v60-history-deliv';
+  dvSel.style.cssText = 'padding:7px 10px;border:1px solid #D4D4D4;border-radius:5px;font-size:12px;';
+  dvSel.innerHTML = '<option value="">所有製作物</option>' + [...delivSet].sort().map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+  dvSel.onchange = renderHistory;
+  // 插入到分級下拉後
+  const lvl = document.getElementById('v36-history-level');
+  if (lvl && lvl.parentNode) { lvl.parentNode.insertBefore(hSel, lvl.nextSibling); hSel.parentNode.insertBefore(dvSel, hSel.nextSibling); }
+  else filterRow.appendChild(hSel), filterRow.appendChild(dvSel);
+  // 時間快選 chip（獨立一列）
+  const timeRow = document.createElement('div');
+  timeRow.id = 'v60-history-time';
+  timeRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;';
+  const opts = [['all','全部'],['month','本月結案'],['quarter','本季結案'],['year','今年結案']];
+  timeRow.innerHTML = opts.map(([k,l],i)=>`<button class="v60-time-chip${i===0?' active':''}" data-time="${k}">${l}</button>`).join('');
+  headerCard.appendChild(timeRow);
+  timeRow.querySelectorAll('.v60-time-chip').forEach(b => b.onclick = () => {
+    timeRow.querySelectorAll('.v60-time-chip').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); renderHistory();
+  });
 }
 
 // ─── admin 審核中心 (#21) ───────────────────────────────
