@@ -4936,7 +4936,9 @@ function renderHistory() {
 function v60FillHistoryDesigners(dSel) {
   if (!dSel) return;
   const cur = dSel.value;
-  const names = [...new Set((window.V59_HISTORY || []).map(c => c.designer).filter(Boolean))]
+  const names = [...new Set((window.V59_HISTORY || [])
+    .filter(c => FINAL_STATUS_KEYS.has(c.status) || c.archived) // 只看歷史案（已結案/封存）
+    .map(c => c.designer).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'zh-TW'));
   dSel.innerHTML = '<option value="">所有設計師</option>' + names.map(n => {
     const s = STAFF.find(x => x.name === n);
