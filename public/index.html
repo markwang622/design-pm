@@ -4863,11 +4863,7 @@ async function v59LoadHistory() {
 }
 function renderHistory() {
   v36EnsureHistoryView();
-  // Populate designer select once
   const dSel = document.getElementById('v36-history-designer');
-  if (dSel.children.length === 1) {
-    STAFF.forEach(s => dSel.innerHTML += `<option value="${s.name}">${s.name}</option>`);
-  }
   // cache 未載入 → 先撈後端再重繪
   if (window.V59_HISTORY === null) {
     const w = document.getElementById('v36-history-list');
@@ -4878,6 +4874,7 @@ function renderHistory() {
     return;
   }
   v60EnsureHistoryControls(); // K1: 注入館別/製作物/時間 篩選（一次）
+  v60FillHistoryDesigners(dSel); // 修正：設計師下拉只列歷史案實際出現者（離職標註）
   const q = (document.getElementById('v36-history-search').value || '').toLowerCase();
   const dFilter = dSel.value;
   const lFilter = document.getElementById('v36-history-level').value;
@@ -4935,6 +4932,19 @@ function renderHistory() {
   `).join('');
 }
 // K1: 動態注入 館別下拉 / 製作物下拉 / 時間快選 chip（注入一次）
+// 修正：歷史頁設計師下拉 — 只列歷史案中實際出現的設計師，離職者標「（已離職）」
+function v60FillHistoryDesigners(dSel) {
+  if (!dSel) return;
+  const cur = dSel.value;
+  const names = [...new Set((window.V59_HISTORY || []).map(c => c.designer).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'zh-TW'));
+  dSel.innerHTML = '<option value="">所有設計師</option>' + names.map(n => {
+    const s = STAFF.find(x => x.name === n);
+    const departed = s && s.active === false;
+    return `<option value="${escapeHtml(n)}">${escapeHtml(n)}${departed ? '（已離職）' : ''}</option>`;
+  }).join('');
+  if (cur && names.includes(cur)) dSel.value = cur;
+}
 function v60EnsureHistoryControls() {
   const headerCard = document.querySelector('div.view[data-view="history"] .card');
   if (!headerCard || document.getElementById('v60-history-hotel')) return;
