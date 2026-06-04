@@ -1047,6 +1047,10 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
 .v57-cell { background:var(--card-bg,#fff); min-height:96px; padding:5px 6px; cursor:pointer; transition:background 0.12s; display:flex; flex-direction:column; gap:3px; }
 .v57-cell:hover { background:var(--hover-bg,#F2F2F2); }
 .v57-cell.v57-other { opacity:0.4; }
+.v57-cell.v57-weekend { background:#F7F7F5; }
+.v57-cell.v57-holiday { background:#FAF1E3; }
+[data-theme="dark"] .v57-cell.v57-weekend { background:#14181F; }
+[data-theme="dark"] .v57-cell.v57-holiday { background:#2D2820; }
 .v57-cell.v57-today .v57-daynum { background:var(--accent,#1F8A4C); color:var(--accent-ink,#fff); border-radius:50%; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; }
 .v57-daynum { font-size:11px; color:var(--fg-dim,#595959); font-weight:500; }
 .v57-ev { font-size:10px; line-height:1.3; padding:1px 5px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-left:3px solid currentColor; }
@@ -1484,6 +1488,26 @@ function subtractWorkdays(base, n) {
   while (left > 0) { cur.setDate(cur.getDate() - 1); if (isWorkday(cur)) left--; }
   return cur;
 }
+// J1: 排程衝突偵測 — 案件關鍵日期是否落在負責人休假/出差期間
+function v58ConflictsFor(c) {
+  if (!c || c._designerId == null) return [];
+  const inRange = (d, s, e) => { const x = ymdIso(d); return x >= ymdIso(s) && x <= ymdIso(e); };
+  const periods = [
+    ...(VACATIONS || []).filter(v => v.staffId === c._designerId).map(v => ({ type: '休假', s: v.startDate, e: v.endDate })),
+    ...(TRIPS || []).filter(t => t.staffId === c._designerId).map(t => ({ type: '出差', s: t.startDate, e: t.endDate })),
+  ];
+  if (!periods.length) return [];
+  const checks = [
+    { label: '確稿日', d: c.reviewDate },
+    { label: '送印日', d: c.printDate },
+    { label: '上線日', d: c.goLive },
+  ].filter(x => x.d);
+  const out = [];
+  checks.forEach(({ label, d }) => {
+    periods.forEach(p => { if (inRange(d, p.s, p.e)) out.push(`${label} ${md(d)} 撞 ${c.designer} ${p.type}`); });
+  });
+  return out;
+}
 function computeKeyDates(goLive) {
   const review = subtractWorkdays(goLive, 3);
   const proofStart = subtractWorkdays(review, 2);
@@ -1840,6 +1864,7 @@ function makeCaseCard(c) {
       ${c.urgent ? '<span class="chip urgent">🔥 急件</span>' : ''}
       ${c.overdue ? '<span class="chip overdue">⚠ 逾期</span>' : ''}
       ${c.needsOutsourcing ? '<span class="chip" style="background:#EAE0F5;color:#6B3FA0;border-color:#D4C2EC;">📦 需發包</span>' : ''}
+      ${(()=>{const cf=v58ConflictsFor(c);return cf.length?`<span class="chip" style="background:#FCE4D6;color:#9A3B12;border-color:#F0B894;" title="${escapeHtml(cf.join('；'))}">🚨 排程衝突</span>`:'';})()}
       ${c.gateActive ? '<span class="chip gate">⏰ 待簽核</span>' : ''}
       ${(c.collaborators && c.collaborators.length) ? `<span class="chip collab">🤝 ${c.collaborators.length} 位協作</span>` : ''}
     </div>
@@ -2347,6 +2372,12 @@ function openDrawer(c) {
     `;
   } else {
     collabBar.innerHTML = '';
+  }
+  // J1: 排程衝突警示橫幅
+  const _conf = v58ConflictsFor(c);
+  if (_conf.length) {
+    collabBar.innerHTML += `<div style="margin:8px 0;padding:8px 12px;background:#FCE4D6;border:1px solid #F0B894;border-radius:6px;font-size:12px;color:#9A3B12;line-height:1.6;">
+      🚨 <b>排程衝突</b>：${_conf.map(escapeHtml).join('<br>')}<br><span style="color:#B5703F;">負責人於該期間休假/出差，請評估改期或改派。</span></div>`;
   }
 
   const grid = document.getElementById('d-grid');
@@ -7255,6 +7286,8 @@ const v57Layers = { project: true, shoot: true, leave: true };
 const V57_COLORS = {
   golive: '#1F8A4C',   // 上線日（綠）
   review: '#C79B25',   // 確稿日（金）
+  print: '#6B3FA0',    // 送印日（紫）
+  outsource: '#B5703F',// 需發包建議日（棕）
   shootOut: '#E0843F', // 外發拍攝（橘）
   shootIn: '#2BA8C4',  // 自拍（藍綠）
   vacation: '#C8584A', // 休假（紅）
@@ -7265,11 +7298,14 @@ function v57Ymd(d){ return ymdIso(d instanceof Date ? d : new Date(d)); }
 function v57CollectEvents() {
   const map = {};
   const add = (dateStr, ev) => { (map[dateStr] = map[dateStr] || []).push(ev); };
-  // 專案：上線日 + 確稿日
+  // 專案：上線日 + 確稿日 +（送印日 / 需發包建議日）
   if (v57Layers.project) {
     (CASES || []).filter(c => !c.archived).forEach(c => {
-      if (c.goLive) add(v57Ymd(c.goLive), { kind:'project', color:V57_COLORS.golive, label:`▲ 上線 ${c.name}`, onClick:()=>openDrawerById(c.id) });
+      const conflict = v58ConflictsFor(c).length ? ' 🚨' : '';
+      if (c.goLive) add(v57Ymd(c.goLive), { kind:'project', color:V57_COLORS.golive, label:`▲ 上線 ${c.name}${conflict}`, onClick:()=>openDrawerById(c.id) });
       if (c.reviewDate) add(v57Ymd(c.reviewDate), { kind:'project', color:V57_COLORS.review, label:`◆ 確稿 ${c.name}`, onClick:()=>openDrawerById(c.id) });
+      if (c.printDate) add(v57Ymd(c.printDate), { kind:'project', color:V57_COLORS.print, label:`🖨 送印 ${c.name}`, onClick:()=>openDrawerById(c.id) });
+      if (c.needsOutsourcing && c.goLive) add(v57Ymd(subtractWorkdays(c.goLive, 10)), { kind:'project', color:V57_COLORS.outsource, label:`📦 建議發包 ${c.name}`, onClick:()=>openDrawerById(c.id) });
     });
   }
   // 拍攝：起訖區間每天
@@ -7335,7 +7371,10 @@ function renderCalendar() {
       <button data-mode="month" class="${v57Mode==='month'?'active':''}">月</button>
       <button data-mode="agenda" class="${v57Mode==='agenda'?'active':''}">議程</button>
     </div>
+    <button id="v57-subscribe" class="v57-monthnav" style="padding:5px 10px;font-size:12px;border:1px solid var(--glass-border,#E5E5E5);border-radius:6px;background:var(--glass-bg,rgba(255,255,255,0.5));color:var(--fg,#1F1F1F);cursor:pointer;">📲 訂閱</button>
   `;
+  const subBtn = tb.querySelector('#v57-subscribe');
+  if (subBtn) subBtn.onclick = () => v57ShowSubscribe();
   tb.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => {
     const n = b.dataset.nav;
     if (n==='prev') v57Month = new Date(v57Month.getFullYear(), v57Month.getMonth()-1, 1);
@@ -7372,8 +7411,10 @@ function v57RenderMonth(events) {
     const evs = events[ds] || [];
     const shown = evs.slice(0,3);
     const more = evs.length - shown.length;
-    html += `<div class="v57-cell ${inMonth?'':'v57-other'} ${ds===todayStr?'v57-today':''}" data-date="${ds}">
-      <span class="v57-daynum">${d.getDate()}</span>
+    const hol = isHoliday(d), wknd = isWeekend(d); // J3: 假日/週末標示
+    const offCls = hol ? 'v57-holiday' : (wknd ? 'v57-weekend' : '');
+    html += `<div class="v57-cell ${inMonth?'':'v57-other'} ${ds===todayStr?'v57-today':''} ${offCls}" data-date="${ds}">
+      <span class="v57-daynum">${d.getDate()}${hol?' <span style="font-size:9px;color:#C0392B;">假</span>':''}</span>
       ${shown.map(e=>`<div class="v57-ev" style="color:${e.color};background:${e.color}1A;">${escapeHtml(e.label)}</div>`).join('')}
       ${more>0?`<div class="v57-more">+${more} 更多</div>`:''}
     </div>`;
@@ -7413,6 +7454,32 @@ function v57OpenDay(dateStr, evs) {
     + (evs.length ? evs.map((e,i)=>`<div class="v57-agenda-ev" data-dayev="${i}" style="margin:2px 0;"><span class="v57-dot" style="width:8px;height:8px;border-radius:50%;background:${e.color};flex-shrink:0;"></span>${escapeHtml(e.label)}</div>`).join('') : '<div style="color:var(--fg-muted,#8C8C8C);font-size:12px;padding:8px 0;">這天沒有行程</div>');
   modal.querySelector('#v57-day-close').onclick = () => { bg.classList.remove('open'); modal.style.display='none'; };
   modal.querySelectorAll('[data-dayev]').forEach(el => el.onclick = () => { bg.classList.remove('open'); modal.style.display='none'; evs[Number(el.dataset.dayev)].onClick(); });
+}
+// J2: iCal 訂閱 — 顯示訂閱網址 + 複製
+function v57ShowSubscribe() {
+  const httpsUrl = `${location.origin}/api/ical/calendar.ics?key=design-pm-cal`;
+  const webcalUrl = httpsUrl.replace(/^https?:/, 'webcal:');
+  let bg = document.getElementById('v57-sub-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id='v57-sub-bg'; bg.className='drawer-bg'; bg.style.zIndex='85'; document.body.appendChild(bg); }
+  let modal = document.getElementById('v57-sub-modal');
+  if (!modal) { modal = document.createElement('div'); modal.id='v57-sub-modal'; modal.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(520px,94%);z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);'; document.body.appendChild(modal); }
+  bg.classList.add('open'); modal.style.display='block';
+  bg.onclick = () => { bg.classList.remove('open'); modal.style.display='none'; };
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">📲 訂閱行事曆</h3><button id="v57-sub-close" style="margin-left:auto;background:transparent;border:0;font-size:20px;cursor:pointer;color:#8C8C8C;">×</button></div>
+    <p style="font-size:12px;color:var(--fg-muted,#8C8C8C);line-height:1.7;margin:0 0 12px;">把下方網址加入 Google 行事曆（「其他行事曆 → 以網址訂閱」）或 Apple 行事曆（「檔案 → 新增行事曆訂閱」），即可在手機原生行事曆看到上線日、拍攝、休假、出差。訂閱會定期自動更新。</p>
+    <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);">訂閱網址（https）</label>
+    <div style="display:flex;gap:6px;margin:3px 0 10px;">
+      <input id="v57-sub-url" readonly value="${httpsUrl}" style="flex:1;padding:7px 9px;border:1px solid var(--input-border,#D4D4D4);border-radius:5px;font-size:12px;background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);">
+      <button id="v57-sub-copy" style="padding:7px 14px;background:var(--accent,#1F8A4C);color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;">複製</button>
+    </div>
+    <a href="${webcalUrl}" style="font-size:12px;color:var(--accent,#1F8A4C);">▸ 直接用系統行事曆開啟（webcal）</a>
+  `;
+  modal.querySelector('#v57-sub-close').onclick = () => { bg.classList.remove('open'); modal.style.display='none'; };
+  modal.querySelector('#v57-sub-copy').onclick = async () => {
+    try { await navigator.clipboard.writeText(httpsUrl); showToast('✓ 已複製訂閱網址'); }
+    catch { const inp=document.getElementById('v57-sub-url'); inp.select(); document.execCommand('copy'); showToast('✓ 已複製'); }
+  };
 }
 // 註冊到 nav + switchView
 NAV_DEF.admin.push({ key: 'calendar', label: '📅 行事曆' });
