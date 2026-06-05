@@ -7370,6 +7370,7 @@ bootstrap = async function() {
 // ═══════════════════════════════════════════════════════════════
 let v57Month = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
 let v57Mode = 'month'; // 'month' | 'agenda'
+let v57Scope = 'team'; // 'team' | 'mine' — 檢視範圍：團隊（全部）/ 我的
 const v57Layers = { project: true, shoot: true, leave: true };
 const V57_COLORS = {
   golive: '#1F8A4C',   // 上線日（綠）
@@ -7386,9 +7387,15 @@ function v57Ymd(d){ return ymdIso(d instanceof Date ? d : new Date(d)); }
 function v57CollectEvents() {
   const map = {};
   const add = (dateStr, ev) => { (map[dateStr] = map[dateStr] || []).push(ev); };
+  // 範圍：mine → 只含與本人相關（負責/協作/本人拍攝/本人假勤）
+  const me = (typeof ME_NAME === 'function' ? ME_NAME() : '') || '';
+  const mine = v57Scope === 'mine' && !!me;
+  const caseMine  = (c) => !mine || c.designer === me || (c.collaborators || []).includes(me);
+  const nameMine  = (n) => !mine || n === me;
+  const shootMine = (s) => !mine || (s.createdBy && s.createdBy.name === me) || (s.photographer || '').includes(me);
   // 專案：上線日 + 確稿日 +（送印日 / 需發包建議日）
   if (v57Layers.project) {
-    (CASES || []).filter(c => !c.archived).forEach(c => {
+    (CASES || []).filter(c => !c.archived && caseMine(c)).forEach(c => {
       const conflict = v58ConflictsFor(c).length ? ' 🚨' : '';
       if (c.goLive) add(v57Ymd(c.goLive), { kind:'project', color:V57_COLORS.golive, label:`▲ 上線 ${c.name}${conflict}`, onClick:()=>openDrawerById(c.id) });
       if (c.reviewDate) add(v57Ymd(c.reviewDate), { kind:'project', color:V57_COLORS.review, label:`◆ 確稿 ${c.name}`, onClick:()=>openDrawerById(c.id) });
@@ -7398,15 +7405,15 @@ function v57CollectEvents() {
   }
   // 拍攝：起訖區間每天
   if (v57Layers.shoot) {
-    (SHOOTS || []).forEach(s => {
+    (SHOOTS || []).filter(shootMine).forEach(s => {
       const col = s.mode === 'outsource' ? V57_COLORS.shootOut : V57_COLORS.shootIn;
       v57EachDay(s.startDate, s.endDate, ds => add(ds, { kind:'shoot', color:col, label:`📷 ${V55_MODE_LABEL[s.mode]||''} ${s.desc}`, onClick:()=>v55OpenModal() }));
     });
   }
   // 假勤：休假 + 出差
   if (v57Layers.leave) {
-    (VACATIONS || []).forEach(v => v57EachDay(v.startDate, v.endDate, ds => add(ds, { kind:'leave', color:V57_COLORS.vacation, label:`🏖 ${v.staff?.name||''} ${VACATION_TYPE_LABEL[v.type]||''}`, onClick:()=>v40OpenAvailabilityModal() })));
-    (TRIPS || []).forEach(t => v57EachDay(t.startDate, t.endDate, ds => add(ds, { kind:'leave', color:V57_COLORS.trip, label:`✈ ${t.staff?.name||''} 出差 ${t.hotel||''}`, onClick:()=>v40OpenAvailabilityModal() })));
+    (VACATIONS || []).filter(v => nameMine(v.staff?.name)).forEach(v => v57EachDay(v.startDate, v.endDate, ds => add(ds, { kind:'leave', color:V57_COLORS.vacation, label:`🏖 ${v.staff?.name||''} ${VACATION_TYPE_LABEL[v.type]||''}`, onClick:()=>v40OpenAvailabilityModal() })));
+    (TRIPS || []).filter(t => nameMine(t.staff?.name)).forEach(t => v57EachDay(t.startDate, t.endDate, ds => add(ds, { kind:'leave', color:V57_COLORS.trip, label:`✈ ${t.staff?.name||''} 出差 ${t.hotel||''}`, onClick:()=>v40OpenAvailabilityModal() })));
   }
   return map;
 }
@@ -7452,6 +7459,10 @@ function renderCalendar() {
       <button data-nav="today">今天</button>
     </div>
     <span style="flex:1;"></span>
+    <div class="v57-seg" id="v57-scope-seg" title="檢視範圍">
+      <button data-scope="mine" class="${v57Scope==='mine'?'active':''}">🙋 我的</button>
+      <button data-scope="team" class="${v57Scope==='team'?'active':''}">👥 團隊</button>
+    </div>
     ${v57LayerChip('project','專案', V57_COLORS.golive)}
     ${v57LayerChip('shoot','拍攝', V57_COLORS.shootOut)}
     ${v57LayerChip('leave','假勤', V57_COLORS.vacation)}
@@ -7474,6 +7485,7 @@ function renderCalendar() {
     v57Layers[el.dataset.layer] = !v57Layers[el.dataset.layer]; renderCalendar();
   });
   tb.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { v57Mode = b.dataset.mode; renderCalendar(); });
+  tb.querySelectorAll('#v57-scope-seg [data-scope]').forEach(b => b.onclick = () => { v57Scope = b.dataset.scope; renderCalendar(); });
 
   const events = v57CollectEvents();
   const body = document.getElementById('v57-cal-body');
