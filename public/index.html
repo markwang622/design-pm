@@ -7551,6 +7551,7 @@ function v57SubUrl(scope) {
   return (scope === 'mine' && me) ? `${base}&scope=mine&staff=${encodeURIComponent(me)}` : base;
 }
 function v57ShowSubscribe() {
+  v57SubScope = 'mine'; // 每次打開預設「我的排程」（個人優先）
   let bg = document.getElementById('v57-sub-bg');
   if (!bg) { bg = document.createElement('div'); bg.id='v57-sub-bg'; bg.className='drawer-bg'; bg.style.zIndex='85'; document.body.appendChild(bg); }
   let modal = document.getElementById('v57-sub-modal');
