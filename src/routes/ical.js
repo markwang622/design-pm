@@ -37,36 +37,47 @@ function vevent({ uid, start, end, summary }) {
 router.get('/calendar.ics', async (req, res) => {
   if ((req.query.key || '') !== ICAL_KEY) return res.status(403).send('forbidden');
   try {
+    // 範圍：scope=mine&staff=<姓名> → 只含該同仁相關；否則 team（全部）
+    const who = (req.query.staff || '').trim();
+    const mine = req.query.scope === 'mine' && !!who;
+    const mineCase = (c) => !mine || c.designer?.name === who || (c.collaborators || []).some(x => x.name === who);
+    const mineName = (name) => !mine || name === who;
+    const mineShoot = (s) => !mine || s.createdBy?.name === who || (s.photographer || '').includes(who);
+
     const [cases, shoots, vacs, trips] = await Promise.all([
-      prisma.case.findMany({ where: { archived: false }, select: { id: true, title: true, goLiveDate: true }, orderBy: { goLiveDate: 'asc' } }),
-      prisma.shoot.findMany({ select: { id: true, desc: true, mode: true, startDate: true, endDate: true, photographer: true } }),
+      prisma.case.findMany({ where: { archived: false }, select: { id: true, title: true, goLiveDate: true, designer: { select: { name: true } }, collaborators: { select: { name: true } } }, orderBy: { goLiveDate: 'asc' } }),
+      prisma.shoot.findMany({ select: { id: true, desc: true, mode: true, startDate: true, endDate: true, photographer: true, createdBy: { select: { name: true } } } }),
       prisma.vacation.findMany({ include: { staff: { select: { name: true } } } }),
       prisma.businessTrip.findMany({ include: { staff: { select: { name: true } } } }),
     ]);
 
     const events = [];
     for (const c of cases) {
-      if (c.goLiveDate) events.push(vevent({ uid: `case-${c.id}-golive@design-pm`, start: c.goLiveDate, end: plusDay(c.goLiveDate), summary: `▲ 上線：${c.title}` }));
+      if (c.goLiveDate && mineCase(c)) events.push(vevent({ uid: `case-${c.id}-golive@design-pm`, start: c.goLiveDate, end: plusDay(c.goLiveDate), summary: `▲ 上線：${c.title}` }));
     }
     for (const s of shoots) {
+      if (!mineShoot(s)) continue;
       const mode = s.mode === 'outsource' ? '外發' : '自拍';
       events.push(vevent({ uid: `shoot-${s.id}@design-pm`, start: s.startDate, end: plusDay(s.endDate), summary: `📷 ${mode} ${s.desc}${s.photographer ? ' · ' + s.photographer : ''}` }));
     }
     const VAC_LABEL = { annual: '特休', sick: '病假', personal: '事假', other: '其他' };
     for (const v of vacs) {
+      if (!mineName(v.staff?.name)) continue;
       events.push(vevent({ uid: `vac-${v.id}@design-pm`, start: v.startDate, end: plusDay(v.endDate), summary: `🏖 ${v.staff?.name || ''} ${VAC_LABEL[v.type] || v.type}` }));
     }
     for (const t of trips) {
+      if (!mineName(t.staff?.name)) continue;
       events.push(vevent({ uid: `trip-${t.id}@design-pm`, start: t.startDate, end: plusDay(t.endDate), summary: `✈ ${t.staff?.name || ''} 出差 ${t.hotel || ''}` }));
     }
 
+    const calName = mine ? `藝術設計部 · ${who} 的排程` : '藝術設計部 · 團隊行事曆';
     const ics = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
       'PRODID:-//Design-PM//Calendar//ZH-TW',
       'CALSCALE:GREGORIAN',
       'METHOD:PUBLISH',
-      'X-WR-CALNAME:藝術設計部 · 行事曆',
+      `X-WR-CALNAME:${calName}`,
       'X-WR-TIMEZONE:Asia/Taipei',
       ...events,
       'END:VCALENDAR',

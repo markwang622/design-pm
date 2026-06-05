@@ -7544,30 +7544,46 @@ function v57OpenDay(dateStr, evs) {
   modal.querySelectorAll('[data-dayev]').forEach(el => el.onclick = () => { bg.classList.remove('open'); modal.style.display='none'; evs[Number(el.dataset.dayev)].onClick(); });
 }
 // J2: iCal 訂閱 — 顯示訂閱網址 + 複製
+let v57SubScope = 'mine'; // 'mine' | 'team'
+function v57SubUrl(scope) {
+  const base = `${location.origin}/api/ical/calendar.ics?key=design-pm-cal`;
+  const me = (typeof ME_NAME === 'function' ? ME_NAME() : '') || '';
+  return (scope === 'mine' && me) ? `${base}&scope=mine&staff=${encodeURIComponent(me)}` : base;
+}
 function v57ShowSubscribe() {
-  const httpsUrl = `${location.origin}/api/ical/calendar.ics?key=design-pm-cal`;
-  const webcalUrl = httpsUrl.replace(/^https?:/, 'webcal:');
   let bg = document.getElementById('v57-sub-bg');
   if (!bg) { bg = document.createElement('div'); bg.id='v57-sub-bg'; bg.className='drawer-bg'; bg.style.zIndex='85'; document.body.appendChild(bg); }
   let modal = document.getElementById('v57-sub-modal');
   if (!modal) { modal = document.createElement('div'); modal.id='v57-sub-modal'; modal.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(520px,94%);z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);'; document.body.appendChild(modal); }
   bg.classList.add('open'); modal.style.display='block';
   bg.onclick = () => { bg.classList.remove('open'); modal.style.display='none'; };
-  modal.innerHTML = `
-    <div style="display:flex;align-items:center;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">📲 訂閱行事曆</h3><button id="v57-sub-close" style="margin-left:auto;background:transparent;border:0;font-size:20px;cursor:pointer;color:#8C8C8C;">×</button></div>
-    <p style="font-size:12px;color:var(--fg-muted,#8C8C8C);line-height:1.7;margin:0 0 12px;">把下方網址加入 Google 行事曆（「其他行事曆 → 以網址訂閱」）或 Apple 行事曆（「檔案 → 新增行事曆訂閱」），即可在手機原生行事曆看到上線日、拍攝、休假、出差。訂閱會定期自動更新。</p>
-    <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);">訂閱網址（https）</label>
-    <div style="display:flex;gap:6px;margin:3px 0 10px;">
-      <input id="v57-sub-url" readonly value="${httpsUrl}" style="flex:1;padding:7px 9px;border:1px solid var(--input-border,#D4D4D4);border-radius:5px;font-size:12px;background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);">
-      <button id="v57-sub-copy" style="padding:7px 14px;background:var(--accent,#1F8A4C);color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;">複製</button>
-    </div>
-    <a href="${webcalUrl}" style="font-size:12px;color:var(--accent,#1F8A4C);">▸ 直接用系統行事曆開啟（webcal）</a>
-  `;
-  modal.querySelector('#v57-sub-close').onclick = () => { bg.classList.remove('open'); modal.style.display='none'; };
-  modal.querySelector('#v57-sub-copy').onclick = async () => {
-    try { await navigator.clipboard.writeText(httpsUrl); showToast('✓ 已複製訂閱網址'); }
-    catch { const inp=document.getElementById('v57-sub-url'); inp.select(); document.execCommand('copy'); showToast('✓ 已複製'); }
+  const me = (typeof ME_NAME === 'function' ? ME_NAME() : '') || '';
+  const v57RenderSub = () => {
+    const httpsUrl = v57SubUrl(v57SubScope);
+    const webcalUrl = httpsUrl.replace(/^https?:/, 'webcal:');
+    modal.innerHTML = `
+      <div style="display:flex;align-items:center;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">📲 訂閱行事曆</h3><button id="v57-sub-close" style="margin-left:auto;background:transparent;border:0;font-size:20px;cursor:pointer;color:#8C8C8C;">×</button></div>
+      <div class="v57-seg" style="margin-bottom:10px;">
+        <button data-scope="mine" class="${v57SubScope==='mine'?'active':''}">🙋 我的排程</button>
+        <button data-scope="team" class="${v57SubScope==='team'?'active':''}">👥 團隊排程</button>
+      </div>
+      <p style="font-size:12px;color:var(--fg-muted,#8C8C8C);line-height:1.7;margin:0 0 12px;">${v57SubScope==='mine' ? `只含 <b>${escapeHtml(me)||'你'}</b> 相關的：我負責/協作案件的上線日、我的休假/出差、我建立的拍攝。` : '包含全部同仁的上線日、拍攝、休假、出差。'}加入 Google 行事曆（「其他行事曆 → 以網址訂閱」）或 Apple 行事曆（「檔案 → 新增行事曆訂閱」），會定期自動更新。</p>
+      <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);">訂閱網址（https）</label>
+      <div style="display:flex;gap:6px;margin:3px 0 10px;">
+        <input id="v57-sub-url" readonly value="${httpsUrl}" style="flex:1;padding:7px 9px;border:1px solid var(--input-border,#D4D4D4);border-radius:5px;font-size:12px;background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);">
+        <button id="v57-sub-copy" style="padding:7px 14px;background:var(--accent,#1F8A4C);color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;">複製</button>
+      </div>
+      <a href="${webcalUrl}" style="font-size:12px;color:var(--accent,#1F8A4C);">▸ 直接用系統行事曆開啟（webcal）</a>
+    `;
+    modal.querySelector('#v57-sub-close').onclick = () => { bg.classList.remove('open'); modal.style.display='none'; };
+    modal.querySelectorAll('.v57-seg [data-scope]').forEach(b => b.onclick = () => { v57SubScope = b.dataset.scope; v57RenderSub(); });
+    modal.querySelector('#v57-sub-copy').onclick = async () => {
+      const u = v57SubUrl(v57SubScope);
+      try { await navigator.clipboard.writeText(u); showToast('✓ 已複製訂閱網址'); }
+      catch { const inp=document.getElementById('v57-sub-url'); inp.select(); document.execCommand('copy'); showToast('✓ 已複製'); }
+    };
   };
+  v57RenderSub();
 }
 // 註冊到 nav + switchView
 NAV_DEF.admin.push({ key: 'calendar', label: '📅 行事曆' });
