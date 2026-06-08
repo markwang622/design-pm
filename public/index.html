@@ -7386,6 +7386,21 @@ function v61NextWorkday(dateStr) {
   do { dt.setDate(dt.getDate() + 1); } while (!isWorkday(dt));
   return ymdIso(dt);
 }
+// 從指定日往後找 n 個工作日（建議改期用）
+function v61SuggestDates(fromStr, n) {
+  const out = []; const dt = new Date((fromStr || ymdIso(TODAY)) + 'T00:00:00');
+  let guard = 0;
+  while (out.length < n && guard < 90) { dt.setDate(dt.getDate() + 1); guard++; if (isWorkday(dt)) out.push(ymdIso(dt)); }
+  return out;
+}
+const V61_WD = ['日', '一', '二', '三', '四', '五', '六'];
+// 某日有哪些指定人員請假/出差
+function v61AwayOnDate(dateStr, people) {
+  const away = new Set();
+  (VACATIONS || []).forEach(v => { if (people.includes(v.staff?.name) && v61DateInRange(dateStr, v.startDate, v.endDate)) away.add(v.staff.name); });
+  (TRIPS || []).forEach(t => { if (people.includes(t.staff?.name) && v61DateInRange(dateStr, t.startDate, t.endDate)) away.add(t.staff.name); });
+  return [...away];
+}
 let v61EditId = null;
 let v61DraftActions = [];
 // M2: 渲染待辦清單（讀寫 v61DraftActions；編輯模式才顯示轉換按鈕）
@@ -7593,17 +7608,32 @@ async function v61RenderModal() {
     const cf = v61ConflictsFor(draft);
     box.innerHTML = cf.length ? `<div style="background:#FBE8E8;color:#9A2E2E;border-radius:4px;padding:6px 8px;font-size:11px;">🚨 衝突提醒：${cf.map(escapeHtml).join('；')}</div>` : '';
   };
-  // 假日/週末軟警示 + 一鍵順延
+  // 假日/週末軟警示 + 建議其他日期（避開與會者請假/出差）
   const holidayCheck = () => {
     const box = document.getElementById('v61-holiday-warn');
     if (!box) return;
     const d = document.getElementById('v61-date').value;
     const k = v61DayKind(d);
-    if (k.bad) {
-      const nxt = v61NextWorkday(d);
-      box.innerHTML = `<div style="background:#FFF4E5;color:#9A5B00;border:1px solid #F0C98A;border-radius:4px;padding:6px 8px;font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">⚠ ${d} 是${k.label}，通常不安排會議。<button type="button" id="v61-postpone" style="padding:3px 9px;font-size:11px;border:1px solid #9A5B00;background:transparent;color:#9A5B00;border-radius:4px;cursor:pointer;">順延到下個工作日（${nxt}）</button></div>`;
-      document.getElementById('v61-postpone').onclick = () => { document.getElementById('v61-date').value = nxt; holidayCheck(); liveCheck(); };
-    } else box.innerHTML = '';
+    if (!k.bad) { box.innerHTML = ''; return; }
+    // 收集目前主持人 + 與會者姓名，供建議日期標示是否有人不在
+    const hostId = Number(document.getElementById('v61-host').value) || null;
+    const ids = new Set([...modal.querySelectorAll('.v61-att:checked')].map(c => Number(c.value)));
+    if (hostId) ids.add(hostId);
+    const people = [...ids].map(id => (roster.find(s => s.id === id) || {}).name).filter(Boolean);
+    const suggestions = v61SuggestDates(d, 5);
+    const chips = suggestions.map(sd => {
+      const away = people.length ? v61AwayOnDate(sd, people) : [];
+      const wd = V61_WD[new Date(sd + 'T00:00:00').getDay()];
+      const col = away.length ? '#9A5B00' : '#1F8A4C';
+      const title = away.length ? `${away.join('、')} 當天請假/出差` : '與會者皆可';
+      return `<button type="button" class="v61-altdate" data-d="${sd}" title="${title}" style="margin:2px;padding:3px 9px;font-size:11px;border:1px solid ${col};background:transparent;color:${col};border-radius:12px;cursor:pointer;">${sd.slice(5)}（${wd}）${away.length ? ' ⚠' + away.length : ''}</button>`;
+    }).join('');
+    box.innerHTML = `<div style="background:#FFF4E5;color:#9A5B00;border:1px solid #F0C98A;border-radius:4px;padding:6px 8px;font-size:11px;">
+      ⚠ ${d} 是${k.label}，通常不安排會議。建議改期：
+      <div style="margin-top:4px;">${chips}</div>
+      <div style="color:#B0853A;margin-top:3px;">綠色＝與會者皆可；橘色 ⚠＝該日有人請假/出差</div>
+    </div>`;
+    box.querySelectorAll('.v61-altdate').forEach(b => b.onclick = () => { document.getElementById('v61-date').value = b.dataset.d; holidayCheck(); liveCheck(); });
   };
   ['v61-date','v61-start','v61-end','v61-host'].forEach(id => { const el=document.getElementById(id); if(el) el.onchange = liveCheck; });
   const dEl = document.getElementById('v61-date'); if (dEl) dEl.addEventListener('change', holidayCheck);
@@ -7637,7 +7667,7 @@ async function v61RenderModal() {
     if (!body.date || !body.startTime || !body.endTime) { showToast('請填日期與起訖時間', 'err'); return; }
     if (body.endTime <= body.startTime) { showToast('結束時間必須晚於開始時間', 'err'); return; }
     const dk = v61DayKind(body.date);
-    if (dk.bad && !confirm(`${body.date} 是${dk.label}，確定仍要安排會議嗎？\n（可按取消，改用「順延到下個工作日」）`)) return;
+    if (dk.bad && !confirm(`${body.date} 是${dk.label}，確定仍要安排會議嗎？\n（可按取消，改挑上方建議的其他日期）`)) return;
     try {
       const res = v61EditId ? await api.meetings.update(v61EditId, body) : await api.meetings.create(body);
       showToast(v61EditId ? '✓ 會議已更新' : (res.seriesCount > 1 ? `✓ 已安排 ${res.seriesCount} 場系列會議` : '✓ 會議已安排'));
