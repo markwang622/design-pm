@@ -107,6 +107,11 @@ model Meeting {
   type        String   @default("internal")     // internal | proposal | review | crossdept | other
   status      String   @default("scheduled")    // scheduled | confirmed | cancelled | done
   note        String   @default("")
+  seriesId      String?                         // M1: 重複會議系列 id（同系列共用）
+  minutes       String   @default("")           // M2: 會議記錄 / 結論
+  actionItems   Json?                           // M2: 待辦 [{ text, owner, done }]
+  remindMinutes Int      @default(0)             // M3: 會前提醒（分鐘，0=不提醒）
+  remindedAt    DateTime?                        // M3: 已發送提醒時間
   hostId      Int?                              // 主持人
   host        Staff?   @relation("meetingHost", fields: [hostId], references: [id])
   caseId      String?                           // 關聯案件（Case.id 為字串）
@@ -119,6 +124,7 @@ model Meeting {
 
   @@index([date])
   @@index([caseId])
+  @@index([seriesId])
   @@map("meetings")
 }
 

@@ -24,6 +24,7 @@ import shootsRouter from './routes/shoots.js'; // G2
 import meetingsRouter from './routes/meetings.js'; // v6.0
 import icalRouter from './routes/ical.js'; // J2
 import adminRouter from './routes/admin.js';
+import { startMeetingReminderLoop } from './services/meetingReminders.js'; // M3
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
@@ -196,4 +197,5 @@ app.use((err, req, res, _next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`[design-pm] listening on :${PORT}`);
+  startMeetingReminderLoop(); // M3: 會前提醒排程
 });

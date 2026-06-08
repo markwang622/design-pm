@@ -3821,6 +3821,27 @@ async function v33InjectDrawerExtras(c) {
   // ── v4.3 B: 子案件管理面板（主負責人、協作者、admin 都可改）─
   v43InjectSubItemsPanel(c, body);
 
+  // ── M5: 相關會議 ────────────────────────────────────────
+  const mtBox = document.createElement('div');
+  mtBox.className = 'v33-extra';
+  mtBox.style.cssText = 'margin-top:16px;';
+  const related = (MEETINGS || []).filter(m => m.caseId === c.id)
+    .sort((a, b) => (String(b.date) + b.startTime).localeCompare(String(a.date) + a.startTime));
+  mtBox.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <span style="font-size:13px;font-weight:500;color:#404040;">相關會議（${related.length}）</span>
+      <button id="v61-case-add" style="margin-left:auto;padding:4px 10px;font-size:11px;border:1px solid #7A5AF0;background:transparent;color:#7A5AF0;border-radius:4px;cursor:pointer;">🗓 安排會議</button>
+    </div>
+    ${related.length ? related.map(m => `
+      <div class="v61-case-mt" data-mid="${m.id}" style="padding:7px 9px;border:1px solid #E5E5E5;border-radius:5px;margin-bottom:5px;font-size:12px;cursor:pointer;">
+        <div style="font-weight:600;color:#1F1F1F;">${escapeHtml(m.title)}${m.status === 'cancelled' ? '（已取消）' : ''}</div>
+        <div style="color:#595959;margin-top:2px;">📅 ${String(m.date).slice(0, 10)} ${m.startTime}–${m.endTime}${m.host?.name ? ' · 主持 ' + escapeHtml(m.host.name) : ''}</div>
+      </div>`).join('') : '<div style="color:#8C8C8C;font-size:12px;">尚無相關會議</div>'}
+  `;
+  body.appendChild(mtBox);
+  document.getElementById('v61-case-add').onclick = () => { if (typeof v61OpenModal === 'function') v61OpenModal(c.id); };
+  mtBox.querySelectorAll('.v61-case-mt').forEach(el => el.onclick = () => { if (typeof v61OpenModal === 'function') v61OpenModal(); });
+
   // ── ChangeLog timeline ──────────────────────────────────
   const clBox = document.createElement('div');
   clBox.className = 'v33-extra';
@@ -6523,7 +6544,8 @@ api.meetings = { // v6.0
   create: (b) => fetchJson('POST', '/api/meetings', b),
   update: (id, b) => fetchJson('PATCH', `/api/meetings/${id}`, b),
   respond: (id, response) => fetchJson('POST', `/api/meetings/${id}/respond`, { response }),
-  delete: (id) => fetchJson('DELETE', `/api/meetings/${id}`),
+  actionToLog: (id, index) => fetchJson('POST', `/api/meetings/${id}/action-to-log`, { index }),
+  delete: (id, series) => fetchJson('DELETE', `/api/meetings/${id}${series ? '?series=1' : ''}`),
 };
 
 let VACATIONS = [];
@@ -7353,7 +7375,81 @@ function v61ConflictsFor(m) {
   return out;
 }
 let v61EditId = null;
-function v61OpenModal() {
+let v61DraftActions = [];
+// M2: 渲染待辦清單（讀寫 v61DraftActions；編輯模式才顯示轉換按鈕）
+function v61RenderActions() {
+  const box = document.getElementById('v61-ai-list');
+  if (!box) return;
+  const editing = v61EditId ? MEETINGS.find(m => m.id === v61EditId) : null;
+  const canConvert = !!(editing && editing.caseId);
+  box.innerHTML = v61DraftActions.length ? v61DraftActions.map((a, i) => `
+    <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px;flex-wrap:wrap;">
+      <input type="checkbox" class="v61-ai-done" data-i="${i}" ${a.done ? 'checked' : ''} title="完成">
+      <input class="v61-ai-text" data-i="${i}" value="${escapeHtml(a.text)}" placeholder="待辦內容" style="flex:1;min-width:140px;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;${a.done ? 'text-decoration:line-through;opacity:.6;' : ''}">
+      <input class="v61-ai-owner" data-i="${i}" value="${escapeHtml(a.owner)}" placeholder="負責人" style="width:80px;padding:4px 6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;">
+      ${canConvert ? `<button type="button" class="v61-ai-tolog" data-i="${i}" title="轉成關聯案件的進度日誌" style="padding:3px 7px;font-size:11px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:#1A6BAF;border-radius:4px;cursor:pointer;">→日誌</button>` : ''}
+      <button type="button" class="v61-ai-tocase" data-i="${i}" title="開立新案件（預填內容）" style="padding:3px 7px;font-size:11px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:#1F8A4C;border-radius:4px;cursor:pointer;">→案件</button>
+      <button type="button" class="v61-ai-del" data-i="${i}" style="padding:3px 7px;font-size:11px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:#9A2E2E;border-radius:4px;cursor:pointer;">✕</button>
+    </div>`).join('') : '<div style="color:#8C8C8C;font-size:11px;">尚無待辦</div>';
+  box.querySelectorAll('.v61-ai-text').forEach(el => el.oninput = () => { v61DraftActions[Number(el.dataset.i)].text = el.value; });
+  box.querySelectorAll('.v61-ai-owner').forEach(el => el.oninput = () => { v61DraftActions[Number(el.dataset.i)].owner = el.value; });
+  box.querySelectorAll('.v61-ai-done').forEach(el => el.onchange = () => { v61DraftActions[Number(el.dataset.i)].done = el.checked; v61RenderActions(); });
+  box.querySelectorAll('.v61-ai-del').forEach(el => el.onclick = () => { v61DraftActions.splice(Number(el.dataset.i), 1); v61RenderActions(); });
+  box.querySelectorAll('.v61-ai-tolog').forEach(el => el.onclick = async () => {
+    try { const r = await api.meetings.actionToLog(v61EditId, Number(el.dataset.i)); showToast('✓ 已加入案件 ' + r.caseId + ' 的進度日誌'); }
+    catch (e) { showToast('轉換失敗：' + (e.data?.message || e.message), 'err'); }
+  });
+  box.querySelectorAll('.v61-ai-tocase').forEach(el => el.onclick = () => {
+    const txt = v61DraftActions[Number(el.dataset.i)].text || '';
+    v61CloseModal();
+    if (typeof openCreateModal === 'function') { openCreateModal(); const nm = document.getElementById('f-name'); if (nm) { nm.value = txt; nm.focus(); } showToast('已開立新案件，請補齊欄位'); }
+  });
+}
+// M6: 依與會者建議空檔（工作時間 09:00–18:00，30 分鐘步進）
+function v61SuggestSlots() {
+  const modal = document.getElementById('v61-modal');
+  const date = document.getElementById('v61-date').value;
+  const box = document.getElementById('v61-slot-box');
+  if (!date) { box.innerHTML = '<span style="color:#9A2E2E;font-size:11px;">請先選日期</span>'; return; }
+  const s = document.getElementById('v61-start').value || '14:00';
+  const e = document.getElementById('v61-end').value || '15:00';
+  const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const toHHMM = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  let dur = toMin(e) - toMin(s); if (dur <= 0) dur = 60;
+  const hostId = Number(document.getElementById('v61-host').value) || null;
+  const ids = new Set([...modal.querySelectorAll('.v61-att:checked')].map(c => Number(c.value)));
+  if (hostId) ids.add(hostId);
+  const roster = (STAFF || []).filter(x => x.active);
+  const people = [...ids].map(id => (roster.find(x => x.id === id) || {}).name).filter(Boolean);
+  if (!people.length) { box.innerHTML = '<span style="color:#8C8C8C;font-size:11px;">請先選主持人或與會者</span>'; return; }
+  // 該日整天請假/出差者 → 無解
+  const awayAll = people.filter(n =>
+    (VACATIONS || []).some(v => v.staff?.name === n && v61DateInRange(date, v.startDate, v.endDate)) ||
+    (TRIPS || []).some(t => t.staff?.name === n && v61DateInRange(date, t.startDate, t.endDate)));
+  // 當天會議佔用時段（與這些人有關）
+  const busy = (MEETINGS || []).filter(m => m.id !== v61EditId && m.status !== 'cancelled' && String(m.date).slice(0, 10) === date && v61PeopleNames(m).some(n => people.includes(n)))
+    .map(m => [toMin(m.startTime), toMin(m.endTime)]);
+  const slots = [];
+  for (let st = 9 * 60; st + dur <= 18 * 60; st += 30) {
+    const en = st + dur;
+    if (!busy.some(([bs, be]) => st < be && bs < en)) slots.push(st);
+    if (slots.length >= 8) break;
+  }
+  if (awayAll.length) { box.innerHTML = `<span style="color:#9A2E2E;font-size:11px;">${awayAll.join('、')} 當天請假/出差，建議改日</span>`; return; }
+  box.innerHTML = slots.length
+    ? '<div style="font-size:11px;color:#8C8C8C;margin-bottom:3px;">可開會時段（點選自動填入，時長 ' + dur + ' 分）：</div>' + slots.map(st =>
+        `<button type="button" class="v61-slot" data-s="${toHHMM(st)}" data-e="${toHHMM(st + dur)}" style="margin:2px;padding:3px 9px;font-size:11px;border:1px solid #1F8A4C;background:transparent;color:#1F8A4C;border-radius:12px;cursor:pointer;">${toHHMM(st)}–${toHHMM(st + dur)}</button>`).join('')
+    : '<span style="color:#9A2E2E;font-size:11px;">工作時間內找不到共同空檔，建議改日或調整時長</span>';
+  box.querySelectorAll('.v61-slot').forEach(b => b.onclick = () => {
+    document.getElementById('v61-start').value = b.dataset.s;
+    document.getElementById('v61-end').value = b.dataset.e;
+    box.innerHTML = '';
+    const live = document.getElementById('v61-live-conflict'); if (live) document.getElementById('v61-host').onchange?.();
+  });
+}
+let v61PrefillCase = null;
+function v61OpenModal(prefillCaseId) {
+  v61PrefillCase = prefillCaseId || null;
   let bg = document.getElementById('v61-bg');
   if (!bg) { bg = document.createElement('div'); bg.id = 'v61-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '85'; document.body.appendChild(bg); }
   let modal = document.getElementById('v61-modal');
@@ -7383,10 +7479,12 @@ async function v61RenderModal() {
   const roster = (STAFF || []).filter(s => s.active);
   const editAttIds = editing ? new Set((editing.attendees || []).map(a => a.staffId)) : new Set();
   const hostOpts = '<option value="">（未指定）</option>' + roster.map(s => `<option value="${s.id}" ${editing && editing.host?.id === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
-  const caseOpts = '<option value="">（不關聯案件）</option>' + (CASES || []).filter(c => !c.archived).map(c => `<option value="${escapeHtml(c.id)}" ${editing && editing.caseId === c.id ? 'selected' : ''}>${escapeHtml(c.id)}｜${escapeHtml(c.name)}</option>`).join('');
+  const caseSel = editing ? editing.caseId : v61PrefillCase;
+  const caseOpts = '<option value="">（不關聯案件）</option>' + (CASES || []).filter(c => !c.archived).map(c => `<option value="${escapeHtml(c.id)}" ${caseSel === c.id ? 'selected' : ''}>${escapeHtml(c.id)}｜${escapeHtml(c.name)}</option>`).join('');
   const typeOpts = Object.entries(V61_TYPE_LABEL).map(([k,v]) => `<option value="${k}" ${(editing ? editing.type : 'internal') === k ? 'selected' : ''}>${v}</option>`).join('');
   const attBoxes = roster.map(s => `<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 8px;border:1px solid var(--input-border,#D4D4D4);border-radius:14px;cursor:pointer;">
     <input type="checkbox" class="v61-att" value="${s.id}" ${editAttIds.has(s.id) ? 'checked' : ''}>${escapeHtml(s.name)}</label>`).join('');
+  v61DraftActions = editing ? (editing.actionItems || []).map(a => ({ text: a.text || '', owner: a.owner || '', done: !!a.done })) : [];
   const sorted = MEETINGS.slice().sort((a,b) => (String(b.date)+b.startTime).localeCompare(String(a.date)+a.startTime));
   modal.innerHTML = `
     <div style="display:flex;align-items:center;margin-bottom:14px;">
@@ -7401,15 +7499,27 @@ async function v61RenderModal() {
         <label>開始 *<input id="v61-start" type="time" value="${editing ? editing.startTime : '14:00'}" step="300" style="${inputStyle}margin-top:3px;"></label>
         <label>結束 *<input id="v61-end" type="time" value="${editing ? editing.endTime : '15:00'}" step="300" style="${inputStyle}margin-top:3px;"></label>
       </div>
+      <div style="margin-top:6px;"><button type="button" id="v61-suggest" style="padding:4px 10px;font-size:11px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:#1A6BAF;border-radius:4px;cursor:pointer;">🔍 建議空檔（依與會者）</button></div>
+      <div id="v61-slot-box" style="margin-top:4px;"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;${lblStyle}margin-top:8px;">
         <label>會議類型<select id="v61-type" style="${inputStyle}margin-top:3px;">${typeOpts}</select></label>
         <label>主持人<select id="v61-host" style="${inputStyle}margin-top:3px;">${hostOpts}</select></label>
         <label>地點 / 線上連結<input id="v61-loc" value="${editing ? escapeHtml(editing.location || '') : ''}" placeholder="例：3F 會議室 / Google Meet 連結" style="${inputStyle}margin-top:3px;"></label>
         <label>關聯案件（選填）<select id="v61-case" style="${inputStyle}margin-top:3px;">${caseOpts}</select></label>
+        ${editing ? '' : `<label>重複<select id="v61-recur" style="${inputStyle}margin-top:3px;">
+          <option value="none">不重複</option><option value="weekly">每週</option><option value="biweekly">隔週</option><option value="monthly">每月</option>
+        </select></label>
+        <label>重複場次<input id="v61-recur-count" type="number" min="1" max="52" value="1" style="${inputStyle}margin-top:3px;"></label>`}
+        <label>會前提醒<select id="v61-remind" style="${inputStyle}margin-top:3px;">
+          ${[[0,'不提醒'],[10,'10 分鐘前'],[30,'30 分鐘前'],[60,'1 小時前'],[1440,'1 天前']].map(([v,l])=>`<option value="${v}" ${(editing?editing.remindMinutes:0)===v?'selected':''}>${l}</option>`).join('')}
+        </select></label>
       </div>
       <div style="${lblStyle}margin-top:8px;">與會者（內部同仁）</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">${attBoxes || '<span style="color:#8C8C8C;font-size:12px;">無可選同仁</span>'}</div>
       <label style="${lblStyle}display:block;margin-top:8px;">議程 / 說明<textarea id="v61-agenda" rows="2" placeholder="討論項目、需準備資料…" style="${inputStyle}margin-top:3px;resize:vertical;">${editing ? escapeHtml(editing.agenda || '') : ''}</textarea></label>
+      <label style="${lblStyle}display:block;margin-top:8px;">會議記錄 / 結論<textarea id="v61-minutes" rows="2" placeholder="會議結論、決議事項…" style="${inputStyle}margin-top:3px;resize:vertical;">${editing ? escapeHtml(editing.minutes || '') : ''}</textarea></label>
+      <div style="${lblStyle}margin-top:8px;display:flex;align-items:center;gap:8px;">待辦事項（Action Items）<button type="button" id="v61-ai-add" style="padding:2px 8px;font-size:11px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:4px;cursor:pointer;">＋ 新增</button></div>
+      <div id="v61-ai-list" style="margin-top:4px;"></div>
       <div id="v61-live-conflict" style="margin-top:8px;"></div>
       <div style="display:flex;gap:8px;margin-top:10px;">
         <button id="v61-save" style="padding:6px 16px;background:#1A6BAF;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">${editing ? '更新會議' : '安排會議'}</button>
@@ -7428,9 +7538,11 @@ async function v61RenderModal() {
             <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;">
               <span style="padding:2px 8px;background:#E7E0FB;color:#5B3FA0;border-radius:10px;flex-shrink:0;">${V61_TYPE_LABEL[m.type]||m.type}</span>
               <div style="flex:1;min-width:180px;">
-                <div style="font-weight:600;color:var(--fg,#1F1F1F);">${escapeHtml(m.title)}${m.case?` <span style="color:#1A6BAF;font-weight:400;">· ${escapeHtml(m.case.id)}</span>`:''}</div>
-                <div style="color:var(--fg-dim,#595959);margin-top:2px;">📅 ${String(m.date).slice(0,10)} ${m.startTime}–${m.endTime}${m.location?' · 📍 '+escapeHtml(m.location):''}${m.host?.name?' · 主持 '+escapeHtml(m.host.name):''}</div>
+                <div style="font-weight:600;color:var(--fg,#1F1F1F);">${escapeHtml(m.title)}${m.seriesId?' <span style="color:#7A5AF0;font-weight:400;">🔁系列</span>':''}${m.case?` <span style="color:#1A6BAF;font-weight:400;">· ${escapeHtml(m.case.id)}</span>`:''}</div>
+                <div style="color:var(--fg-dim,#595959);margin-top:2px;">📅 ${String(m.date).slice(0,10)} ${m.startTime}–${m.endTime}${m.location?' · 📍 '+escapeHtml(m.location):''}${m.host?.name?' · 主持 '+escapeHtml(m.host.name):''}${m.remindMinutes?' · 🔔'+m.remindMinutes+'分前':''}</div>
                 ${(m.attendees||[]).length?`<div style="color:#8C8C8C;margin-top:2px;">👥 ${m.attendees.map(a=>`${escapeHtml(a.staff?.name||'')}<span style="color:${V61_RESP_COLOR[a.response]||'#8C8C8C'};">(${V61_RESP_LABEL[a.response]||a.response})</span>`).join('、')}</div>`:''}
+                ${m.minutes?`<div style="color:#595959;margin-top:2px;">📝 ${escapeHtml(m.minutes.slice(0,80))}${m.minutes.length>80?'…':''}</div>`:''}
+                ${(m.actionItems&&m.actionItems.length)?`<div style="color:#595959;margin-top:2px;">✅ 待辦 ${m.actionItems.filter(a=>a.done).length}/${m.actionItems.length}：${m.actionItems.slice(0,3).map(a=>escapeHtml(a.text)).join('、')}${m.actionItems.length>3?'…':''}</div>`:''}
                 ${conflicts.length?`<div style="color:#9A2E2E;margin-top:3px;">🚨 ${conflicts.map(escapeHtml).join('；')}</div>`:''}
               </div>
               ${v61CanEdit(m)?`<div style="display:flex;gap:4px;flex-shrink:0;">
@@ -7466,6 +7578,9 @@ async function v61RenderModal() {
   ['v61-date','v61-start','v61-end','v61-host'].forEach(id => { const el=document.getElementById(id); if(el) el.onchange = liveCheck; });
   modal.querySelectorAll('.v61-att').forEach(c => c.onchange = liveCheck);
   liveCheck();
+  v61RenderActions();
+  document.getElementById('v61-ai-add').onclick = () => { v61DraftActions.push({ text: '', owner: '', done: false }); v61RenderActions(); };
+  const sg = document.getElementById('v61-suggest'); if (sg) sg.onclick = v61SuggestSlots;
   document.getElementById('v61-save').onclick = async () => {
     const body = {
       title: document.getElementById('v61-title').value.trim(),
@@ -7477,14 +7592,21 @@ async function v61RenderModal() {
       hostId: Number(document.getElementById('v61-host').value) || null,
       caseId: document.getElementById('v61-case').value || null,
       agenda: document.getElementById('v61-agenda').value.trim(),
+      minutes: document.getElementById('v61-minutes').value.trim(),
+      remindMinutes: Number(document.getElementById('v61-remind').value) || 0,
+      actionItems: v61DraftActions.filter(a => (a.text || '').trim()).map(a => ({ text: a.text.trim(), owner: (a.owner || '').trim(), done: !!a.done })),
       attendeeIds: [...modal.querySelectorAll('.v61-att:checked')].map(c => Number(c.value)),
     };
+    if (!v61EditId) {
+      const rec = document.getElementById('v61-recur');
+      if (rec && rec.value !== 'none') body.recurrence = { freq: rec.value, count: Math.max(1, Math.min(52, Number(document.getElementById('v61-recur-count').value) || 1)) };
+    }
     if (!body.title) { showToast('請填會議主題', 'err'); return; }
     if (!body.date || !body.startTime || !body.endTime) { showToast('請填日期與起訖時間', 'err'); return; }
     if (body.endTime <= body.startTime) { showToast('結束時間必須晚於開始時間', 'err'); return; }
     try {
       const res = v61EditId ? await api.meetings.update(v61EditId, body) : await api.meetings.create(body);
-      showToast(v61EditId ? '✓ 會議已更新' : '✓ 會議已安排');
+      showToast(v61EditId ? '✓ 會議已更新' : (res.seriesCount > 1 ? `✓ 已安排 ${res.seriesCount} 場系列會議` : '✓ 會議已安排'));
       if (res && res.conflicts && res.conflicts.length) {
         showToast('🚨 注意衝突：' + res.conflicts.map(c => `${c.staffName} ${c.detail}`).join('；'), 'err');
       }
@@ -7495,8 +7617,15 @@ async function v61RenderModal() {
   };
   modal.querySelectorAll('button[data-medit]').forEach(b => b.onclick = () => { v61EditId = Number(b.dataset.medit); v61RenderModal(); modal.scrollTop = 0; });
   modal.querySelectorAll('button[data-mdel]').forEach(b => b.onclick = async () => {
-    if (!confirm('刪除這場會議？')) return;
-    try { await api.meetings.delete(Number(b.dataset.mdel)); showToast('✓ 已刪除'); await v61RenderModal(); if (currentView === 'calendar' && typeof renderCalendar === 'function') renderCalendar(); }
+    const id = Number(b.dataset.mdel);
+    const m = MEETINGS.find(x => x.id === id);
+    let series = false;
+    if (m && m.seriesId) {
+      const ans = prompt('這是系列會議。輸入 "all" 刪除整個系列，或直接按確定只刪這一場（取消放棄）：', '');
+      if (ans === null) return;
+      series = ans.trim().toLowerCase() === 'all';
+    } else if (!confirm('刪除這場會議？')) return;
+    try { const r = await api.meetings.delete(id, series); showToast(`✓ 已刪除${r.deleted > 1 ? ' ' + r.deleted + ' 場' : ''}`); await v61RenderModal(); if (currentView === 'calendar' && typeof renderCalendar === 'function') renderCalendar(); }
     catch (e) { showToast('刪除失敗：' + (e.data?.message || e.message), 'err'); }
   });
   modal.querySelectorAll('button[data-mresp]').forEach(b => b.onclick = async () => {

@@ -33,6 +33,28 @@ function vevent({ uid, start, end, summary }) {
     'END:VEVENT',
   ].join('\r\n');
 }
+// 帶時間的事件（會議）：date@Date + "HH:MM" Taipei 牆鐘 → UTC 絕對時間
+const pad2 = (n) => String(n).padStart(2, '0');
+function utcStamp(d) {
+  const x = new Date(d);
+  return `${x.getUTCFullYear()}${pad2(x.getUTCMonth() + 1)}${pad2(x.getUTCDate())}T${pad2(x.getUTCHours())}${pad2(x.getUTCMinutes())}00Z`;
+}
+function timedEvent({ uid, dateObj, startTime, endTime, summary, location }) {
+  const ymdStr = new Date(dateObj).toISOString().slice(0, 10);
+  const startUtc = new Date(`${ymdStr}T${startTime}:00+08:00`);
+  const endUtc = new Date(`${ymdStr}T${endTime}:00+08:00`);
+  const lines = [
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `DTSTAMP:${ymd(new Date())}T000000Z`,
+    `DTSTART:${utcStamp(startUtc)}`,
+    `DTEND:${utcStamp(endUtc)}`,
+    `SUMMARY:${esc(summary)}`,
+  ];
+  if (location) lines.push(`LOCATION:${esc(location)}`);
+  lines.push('END:VEVENT');
+  return lines.join('\r\n');
+}
 
 router.get('/calendar.ics', async (req, res) => {
   if ((req.query.key || '') !== ICAL_KEY) return res.status(403).send('forbidden');
@@ -43,12 +65,14 @@ router.get('/calendar.ics', async (req, res) => {
     const mineCase = (c) => !mine || c.designer?.name === who || (c.collaborators || []).some(x => x.name === who);
     const mineName = (name) => !mine || name === who;
     const mineShoot = (s) => !mine || s.createdBy?.name === who || (s.photographer || '').includes(who);
+    const mineMeeting = (m) => !mine || m.host?.name === who || (m.attendees || []).some(a => a.staff?.name === who);
 
-    const [cases, shoots, vacs, trips] = await Promise.all([
+    const [cases, shoots, vacs, trips, meetings] = await Promise.all([
       prisma.case.findMany({ where: { archived: false }, select: { id: true, title: true, goLiveDate: true, designer: { select: { name: true } }, collaborators: { select: { name: true } } }, orderBy: { goLiveDate: 'asc' } }),
       prisma.shoot.findMany({ select: { id: true, desc: true, mode: true, startDate: true, endDate: true, photographer: true, createdBy: { select: { name: true } } } }),
       prisma.vacation.findMany({ include: { staff: { select: { name: true } } } }),
       prisma.businessTrip.findMany({ include: { staff: { select: { name: true } } } }),
+      prisma.meeting.findMany({ where: { status: { not: 'cancelled' } }, select: { id: true, title: true, date: true, startTime: true, endTime: true, location: true, host: { select: { name: true } }, attendees: { select: { staff: { select: { name: true } } } } } }),
     ]);
 
     const events = [];
@@ -68,6 +92,10 @@ router.get('/calendar.ics', async (req, res) => {
     for (const t of trips) {
       if (!mineName(t.staff?.name)) continue;
       events.push(vevent({ uid: `trip-${t.id}@design-pm`, start: t.startDate, end: plusDay(t.endDate), summary: `✈ ${t.staff?.name || ''} 出差 ${t.hotel || ''}` }));
+    }
+    for (const m of meetings) {
+      if (!mineMeeting(m)) continue;
+      events.push(timedEvent({ uid: `meeting-${m.id}@design-pm`, dateObj: m.date, startTime: m.startTime, endTime: m.endTime, summary: `🗓 ${m.title}${m.host?.name ? ' · 主持 ' + m.host.name : ''}`, location: m.location }));
     }
 
     const calName = mine ? `藝術設計部 · ${who} 的排程` : '藝術設計部 · 團隊行事曆';

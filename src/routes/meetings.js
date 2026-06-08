@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { notify } from '../services/notify.js';
+import crypto from 'node:crypto';
 
 const router = Router();
 router.use(requireAuth);
@@ -18,6 +19,7 @@ const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).transform((s) => new Dat
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:MM');
 const MEETING_TYPES = ['internal', 'proposal', 'review', 'crossdept', 'other'];
 const MEETING_STATUS = ['scheduled', 'confirmed', 'cancelled', 'done'];
+const actionItem = z.object({ text: z.string().max(300), owner: z.string().max(60).default(''), done: z.boolean().default(false) });
 
 const createSchema = z.object({
   title: z.string().min(1).max(200),
@@ -29,12 +31,34 @@ const createSchema = z.object({
   type: z.enum(MEETING_TYPES).default('internal'),
   status: z.enum(MEETING_STATUS).default('scheduled'),
   note: z.string().max(1000).default(''),
+  minutes: z.string().max(5000).default(''),
+  actionItems: z.array(actionItem).default([]),
+  remindMinutes: z.number().int().min(0).max(1440).default(0),
   hostId: z.number().int().nullable().optional(),
   caseId: z.string().max(40).nullable().optional(),
   attendeeIds: z.array(z.number().int()).default([]),
+  recurrence: z.object({
+    freq: z.enum(['none', 'weekly', 'biweekly', 'monthly']).default('none'),
+    count: z.number().int().min(1).max(52).default(1),
+  }).optional(),
 });
 
 const updateSchema = createSchema.partial();
+const RECUR_LABEL = { weekly: '每週', biweekly: '隔週', monthly: '每月' };
+
+// 依重複規則展開日期（回傳 Date 陣列；包含起始日）
+function expandDates(start, freq, count) {
+  if (!freq || freq === 'none' || count <= 1) return [new Date(start)];
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const d = new Date(start);
+    if (freq === 'weekly') d.setUTCDate(d.getUTCDate() + i * 7);
+    else if (freq === 'biweekly') d.setUTCDate(d.getUTCDate() + i * 14);
+    else if (freq === 'monthly') d.setUTCMonth(d.getUTCMonth() + i);
+    out.push(d);
+  }
+  return out;
+}
 
 const include = {
   host: { select: { id: true, name: true } },
@@ -96,32 +120,45 @@ router.post('/', async (req, res) => {
   if (b.endTime <= b.startTime) return res.status(422).json({ error: 'invalid_range', message: '結束時間必須晚於開始時間' });
 
   const attendeeIds = [...new Set(b.attendeeIds)];
-  const created = await prisma.meeting.create({
-    data: {
-      title: b.title, agenda: b.agenda, date: b.date, startTime: b.startTime, endTime: b.endTime,
-      location: b.location, type: b.type, status: b.status, note: b.note,
-      hostId: b.hostId ?? null, caseId: b.caseId || null, createdById: req.user?.id ?? null,
-      attendees: { create: attendeeIds.map((sid) => ({ staffId: sid, response: sid === b.hostId ? 'accepted' : 'pending' })) },
-    },
-    include,
+  const freq = b.recurrence?.freq || 'none';
+  const count = b.recurrence?.count || 1;
+  const dates = expandDates(b.date, freq, count);
+  const seriesId = dates.length > 1 ? crypto.randomUUID() : null;
+
+  const baseData = (d) => ({
+    title: b.title, agenda: b.agenda, date: d, startTime: b.startTime, endTime: b.endTime,
+    location: b.location, type: b.type, status: b.status, note: b.note,
+    minutes: b.minutes, actionItems: b.actionItems, remindMinutes: b.remindMinutes,
+    seriesId, hostId: b.hostId ?? null, caseId: b.caseId || null, createdById: req.user?.id ?? null,
+    attendees: { create: attendeeIds.map((sid) => ({ staffId: sid, response: sid === b.hostId ? 'accepted' : 'pending' })) },
   });
 
-  // 衝突偵測（主持人 + 與會者）
-  const staffIds = [...new Set([b.hostId, ...attendeeIds].filter(Boolean))];
-  const conflicts = await detectConflicts({ date: b.date, startTime: b.startTime, endTime: b.endTime, staffIds, excludeMeetingId: created.id });
+  // 逐筆建立（系列共用 seriesId）
+  const createdList = [];
+  for (const d of dates) createdList.push(await prisma.meeting.create({ data: baseData(d), include }));
+  const created = createdList[0];
 
-  // 通知與會者 + 主持人（排除建立者本人）
-  const dateLabel = b.date.toISOString().slice(0, 10);
+  // 衝突偵測（彙整整個系列）
+  const staffIds = [...new Set([b.hostId, ...attendeeIds].filter(Boolean))];
+  const conflicts = [];
+  for (const m of createdList) {
+    const cf = await detectConflicts({ date: m.date, startTime: m.startTime, endTime: m.endTime, staffIds, excludeMeetingId: m.id });
+    cf.forEach((c) => conflicts.push({ ...c, detail: dates.length > 1 ? `${String(m.date).slice(0, 10)} ${c.detail}` : c.detail }));
+  }
+
+  // 通知與會者 + 主持人（排除建立者本人）— 系列只通知一次
+  const dateLabel = dates[0].toISOString().slice(0, 10);
+  const recurNote = dates.length > 1 ? `（${RECUR_LABEL[freq]}，共 ${dates.length} 場）` : '';
   const recipients = [...new Set([b.hostId, ...attendeeIds].filter((id) => id && id !== req.user?.id))];
   for (const rid of recipients) {
     await notify({
       type: 'meetingInvite', recipientId: rid, relatedCaseId: b.caseId || null,
-      subject: `【會議邀請】${b.title}`,
-      body: `${req.user?.name || '有人'} 邀請您參加會議：\n\n主題：${b.title}\n時間：${dateLabel} ${b.startTime}–${b.endTime}\n地點：${b.location || '（未填）'}\n${b.agenda ? '議程：' + b.agenda + '\n' : ''}\n請至系統行事曆查看並回覆出席。`,
+      subject: `【會議邀請】${b.title}${recurNote}`,
+      body: `${req.user?.name || '有人'} 邀請您參加會議：\n\n主題：${b.title}${recurNote}\n時間：${dateLabel} ${b.startTime}–${b.endTime}\n地點：${b.location || '（未填）'}\n${b.agenda ? '議程：' + b.agenda + '\n' : ''}\n請至系統行事曆查看並回覆出席。`,
     }).catch((e) => console.warn('[meeting] notify failed:', e.message));
   }
 
-  res.status(201).json({ ...created, conflicts });
+  res.status(201).json({ ...created, conflicts, seriesCount: dates.length });
 });
 
 router.patch('/:id', async (req, res) => {
@@ -139,9 +176,11 @@ router.patch('/:id', async (req, res) => {
   if (endTime <= startTime) return res.status(422).json({ error: 'invalid_range', message: '結束時間必須晚於開始時間' });
 
   const data = {};
-  for (const k of ['title', 'agenda', 'date', 'startTime', 'endTime', 'location', 'type', 'status', 'note']) {
+  for (const k of ['title', 'agenda', 'date', 'startTime', 'endTime', 'location', 'type', 'status', 'note', 'minutes', 'actionItems', 'remindMinutes']) {
     if (b[k] !== undefined) data[k] = b[k];
   }
+  // 若改了時間，重置提醒旗標，讓提醒重新計算
+  if (b.startTime !== undefined || b.date !== undefined || b.remindMinutes !== undefined) data.remindedAt = null;
   if (b.hostId !== undefined) data.hostId = b.hostId ?? null;
   if (b.caseId !== undefined) data.caseId = b.caseId || null;
   // 與會者：若有提供則整批取代（保留既有回覆狀態）
@@ -175,6 +214,29 @@ router.post('/:id/respond', async (req, res) => {
   res.json(updated);
 });
 
+// M2: 待辦轉進度日誌 — 附到關聯案件的 logs
+router.post('/:id/action-to-log', async (req, res) => {
+  const id = Number(req.params.id);
+  const index = Number(req.body?.index);
+  const m = await prisma.meeting.findUnique({ where: { id } });
+  if (!m) return res.status(404).json({ error: 'not_found' });
+  if (!m.caseId) return res.status(422).json({ error: 'no_case', message: '此會議未關聯案件，無法轉進度日誌' });
+  const items = Array.isArray(m.actionItems) ? m.actionItems : [];
+  const item = items[index];
+  if (!item) return res.status(404).json({ error: 'no_item' });
+  const c = await prisma.case.findUnique({ where: { id: m.caseId }, select: { logs: true } });
+  if (!c) return res.status(404).json({ error: 'case_not_found' });
+  const logs = Array.isArray(c.logs) ? c.logs : [];
+  logs.push({
+    date: new Date().toISOString().slice(0, 10),
+    text: `[會議待辦] ${item.text}${item.owner ? '（' + item.owner + '）' : ''}`,
+    author: req.user?.name || '',
+    fromMeeting: m.id,
+  });
+  await prisma.case.update({ where: { id: m.caseId }, data: { logs } });
+  res.json({ ok: true, caseId: m.caseId });
+});
+
 router.delete('/:id', async (req, res) => {
   const id = Number(req.params.id);
   const existing = await prisma.meeting.findUnique({ where: { id } });
@@ -182,8 +244,13 @@ router.delete('/:id', async (req, res) => {
   if (req.user.role !== 'admin' && existing.createdById !== req.user.id && existing.hostId !== req.user.id) {
     return res.status(403).json({ error: 'forbidden' });
   }
+  // ?series=1 且屬於系列 → 刪除整個系列
+  if (req.query.series === '1' && existing.seriesId) {
+    const r = await prisma.meeting.deleteMany({ where: { seriesId: existing.seriesId } });
+    return res.json({ ok: true, deleted: r.count });
+  }
   await prisma.meeting.delete({ where: { id } });
-  res.json({ ok: true });
+  res.json({ ok: true, deleted: 1 });
 });
 
 export default router;
