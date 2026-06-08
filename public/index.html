@@ -2230,7 +2230,7 @@ function renderDashboard() {
     <div class="kpi"><div class="label">本月總件數</div><div class="value">${total}</div><div class="sub">含進行中與已結案</div></div>
     <div class="kpi"><div class="label">進行中 / 確稿中</div><div class="value">${doing}</div></div>
     <div class="kpi"><div class="label">已結案</div><div class="value">${done}</div><div class="sub">${total > 0 ? '達成率 ' + completionRate + '%' : '無資料'}</div></div>
-    <div class="kpi alert"><div class="label">逾期</div><div class="value">${overdue}</div><div class="sub">需關切</div></div>
+    <div class="kpi alert" id="kpi-overdue" style="cursor:pointer;" title="點擊查看逾期清單"><div class="label">逾期</div><div class="value">${overdue}</div><div class="sub">點擊查看清單</div></div>
     <div class="kpi urgent"><div class="label">急件</div><div class="value">${urgent}</div></div>
     <div class="kpi gate"><div class="label">確稿待簽核中</div><div class="value">${gate}</div><div class="sub">待你審核</div></div>
   `;
@@ -2282,8 +2282,9 @@ function renderDashboard() {
   document.getElementById('activity').innerHTML = acts.map(x => `<li><span class="time">${x.t}</span> · <b>${x.a}</b> ${x.n}</li>`).join('');
   const reviewing = live.filter(c => c.status === 'review').map(c => ({...c, why:'待你審核'}));
   const gated = live.filter(c => c.gateActive).map(c => ({...c, why:'待簽核中'}));
-  const att = [...reviewing, ...gated, ...live.filter(c => c.overdue).map(c => ({...c, why:'已逾期'})), ...live.filter(c => c.urgent && c.status !== 'done').map(c => ({...c, why:'急件'}))]
-    .filter((c,i,arr) => arr.findIndex(x => x.id === c.id) === i).slice(0,7);
+  // 逾期排最前（最該關切，避免被待審核/待簽核擠掉）
+  const att = [...live.filter(c => c.overdue).map(c => ({...c, why:'已逾期'})), ...reviewing, ...gated, ...live.filter(c => c.urgent && c.status !== 'done').map(c => ({...c, why:'急件'}))]
+    .filter((c,i,arr) => arr.findIndex(x => x.id === c.id) === i).slice(0,10);
   document.getElementById('attention').innerHTML = att.map(c => `
     <div style="padding: 8px 0; border-bottom: 1px solid #F2F2F2; font-size: 12px; cursor:pointer;" onclick="openDrawerById('${c.id}')">
       <div style="color: #1F1F1F; font-weight: 500;">${c.name}</div>
@@ -2296,6 +2297,48 @@ function renderDashboard() {
       </div>
     </div>
   `).join('') || '<div style="color:#8C8C8C;font-size:12px;">無</div>';
+  // 逾期 KPI 卡 → 點開全部門逾期清單
+  const ovBtn = document.getElementById('kpi-overdue');
+  if (ovBtn) ovBtn.onclick = () => v62ShowOverdue();
+}
+
+// 全部門逾期清單彈窗（按逾期天數排序，附負責人）
+function v62ShowOverdue() {
+  const items = CASES.filter(c => !c.archived && c.overdue)
+    .slice().sort((a, b) => a.daysLeft - b.daysLeft); // daysLeft 越負 = 逾期越久，排最前
+  let bg = document.getElementById('v62-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id = 'v62-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '85'; document.body.appendChild(bg); }
+  let modal = document.getElementById('v62-modal');
+  if (!modal) {
+    modal = document.createElement('div'); modal.id = 'v62-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(640px,94%);max-height:84vh;overflow-y:auto;z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);';
+    document.body.appendChild(modal);
+  }
+  bg.classList.add('open'); modal.style.display = 'block';
+  const close = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
+  bg.onclick = close;
+  // 依負責人彙整數量
+  const byDes = {};
+  items.forEach(c => { byDes[c.designer] = (byDes[c.designer] || 0) + 1; });
+  const desSummary = Object.entries(byDes).sort((a, b) => b[1] - a[1]).map(([d, n]) => `${escapeHtml(d)} ${n}`).join('、');
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:12px;">
+      <h3 style="margin:0;font-size:16px;color:#A32D2D;">⚠ 逾期案件（${items.length}）</h3>
+      <button id="v62-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    ${items.length ? `<div style="font-size:11px;color:#8C8C8C;margin-bottom:8px;">依逾期天數排序 · ${desSummary}</div>` : ''}
+    ${items.length ? items.map(c => `
+      <div class="v62-row" data-id="${escapeHtml(c.id)}" style="display:flex;align-items:center;gap:10px;padding:9px 8px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;cursor:pointer;">
+        <span style="background:#FCEBEB;color:#A32D2D;border:1px solid #F09595;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">逾期 ${-c.daysLeft} 天</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;color:var(--fg,#1F1F1F);">${escapeHtml(c.name)} <span style="color:#8C8C8C;font-weight:400;font-size:11px;">${escapeHtml(c.id)}</span></div>
+          <div style="color:var(--fg-dim,#595959);margin-top:2px;">${escapeHtml(c.designer)} · ${escapeHtml(c.hotel || '—')} · 上線 ${md(c.goLive)} · ${(STATUSES.find(s => s.key === c.status) || {}).name || c.status}${c.urgent ? ' · <span style="color:#C0392B;">急件</span>' : ''}</div>
+        </div>
+        <span style="color:#8C8C8C;flex-shrink:0;">開啟 ›</span>
+      </div>`).join('') : '<div style="color:#1F8A4C;font-size:13px;padding:10px 0;">🎉 目前沒有逾期案件</div>'}
+  `;
+  document.getElementById('v62-close').onclick = close;
+  modal.querySelectorAll('.v62-row').forEach(el => el.onclick = () => { close(); openDrawerById(el.dataset.id); });
 }
 
 // ============== Staff view ==============
