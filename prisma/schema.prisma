@@ -34,6 +34,9 @@ model Staff {
   vacations         Vacation[]      // v4.0
   businessTrips     BusinessTrip[]  // v4.0
   createdShoots     Shoot[]         @relation("shootCreator") // G2
+  hostedMeetings     Meeting[]         @relation("meetingHost")    // v6.0
+  createdMeetings    Meeting[]         @relation("meetingCreator") // v6.0
+  meetingAttendances MeetingAttendee[] @relation("meetingAttendee")// v6.0
 
   @@map("staff")
 }
@@ -92,6 +95,48 @@ model Shoot {
   @@map("shoots")
 }
 
+// v6.0: 會議（日期 + 起訖時間；僅內部與會者；可關聯案件）
+model Meeting {
+  id          Int      @id @default(autoincrement())
+  title       String                            // 會議主題
+  agenda      String   @default("")             // 議程 / 說明
+  date        DateTime @db.Date                 // 會議日期
+  startTime   String                            // 起始時間 "HH:MM"（Asia/Taipei 牆鐘時間）
+  endTime     String                            // 結束時間 "HH:MM"
+  location    String   @default("")             // 地點 / 線上連結（純文字）
+  type        String   @default("internal")     // internal | proposal | review | crossdept | other
+  status      String   @default("scheduled")    // scheduled | confirmed | cancelled | done
+  note        String   @default("")
+  hostId      Int?                              // 主持人
+  host        Staff?   @relation("meetingHost", fields: [hostId], references: [id])
+  caseId      String?                           // 關聯案件（Case.id 為字串）
+  case        Case?    @relation(fields: [caseId], references: [id])
+  createdById Int?
+  createdBy   Staff?   @relation("meetingCreator", fields: [createdById], references: [id])
+  attendees   MeetingAttendee[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([date])
+  @@index([caseId])
+  @@map("meetings")
+}
+
+// v6.0: 會議與會者（含出席回覆狀態）
+model MeetingAttendee {
+  id        Int     @id @default(autoincrement())
+  meetingId Int
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  staffId   Int
+  staff     Staff   @relation("meetingAttendee", fields: [staffId], references: [id], onDelete: Cascade)
+  response  String  @default("pending") // pending | accepted | declined | tentative
+  required  Boolean @default(true)
+
+  @@unique([meetingId, staffId])
+  @@index([staffId])
+  @@map("meeting_attendees")
+}
+
 model Case {
   id            String   @id // e.g., "SS-2026-04-001"
   title         String
@@ -133,6 +178,7 @@ model Case {
 
   transferLogs TransferLog[]
   changeLogs   ChangeLog[]
+  meetings     Meeting[] // v6.0
 
   @@index([status])
   @@index([archived])

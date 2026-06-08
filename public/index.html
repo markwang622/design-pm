@@ -6518,6 +6518,13 @@ api.shoots = {
   update: (id, b) => fetchJson('PATCH', `/api/shoots/${id}`, b),
   delete: (id) => fetchJson('DELETE', `/api/shoots/${id}`),
 };
+api.meetings = { // v6.0
+  list: (q) => fetchJson('GET', '/api/meetings' + (q ? '?' + new URLSearchParams(q) : '')),
+  create: (b) => fetchJson('POST', '/api/meetings', b),
+  update: (id, b) => fetchJson('PATCH', `/api/meetings/${id}`, b),
+  respond: (id, response) => fetchJson('POST', `/api/meetings/${id}/respond`, { response }),
+  delete: (id) => fetchJson('DELETE', `/api/meetings/${id}`),
+};
 
 let VACATIONS = [];
 let TRIPS = [];
@@ -7305,6 +7312,206 @@ bootstrap = async function() {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v6.0 會議排程模組（modal：建立/清單/編輯 + 衝突偵測）▼▼▼
+// 時間制事件（日期 + 起訖時間）；僅內部與會者；可關聯案件。
+// ═══════════════════════════════════════════════════════════════
+let MEETINGS = [];
+const V61_TYPE_LABEL = { internal: '內部討論', proposal: '提案會議', review: '確稿會議', crossdept: '跨部門', other: '其他' };
+const V61_RESP_LABEL = { pending: '待回覆', accepted: '接受', declined: '婉拒', tentative: '待定' };
+const V61_RESP_COLOR = { pending: '#8C8C8C', accepted: '#1F8A4C', declined: '#9A2E2E', tentative: '#C79B25' };
+async function v61LoadMeetings() {
+  try { MEETINGS = await api.meetings.list(); } catch (e) { console.warn('meetings load failed', e); }
+}
+function v61CanEdit(m) {
+  if (ME && ME.role === 'admin') return true;
+  if (!ME) return false;
+  return m.createdBy?.id === ME.id || m.host?.id === ME.id;
+}
+function v61PeopleNames(m) {
+  const s = new Set();
+  if (m.host?.name) s.add(m.host.name);
+  (m.attendees || []).forEach(a => a.staff?.name && s.add(a.staff.name));
+  return [...s];
+}
+// 前端衝突偵測（沿用已載入的 VACATIONS / TRIPS / MEETINGS）
+function v61DateInRange(day, s, e) { return day >= String(s).slice(0,10) && day <= String(e).slice(0,10); }
+function v61Overlap(aS, aE, bS, bE) { return aS < bE && bS < aE; }
+function v61ConflictsFor(m) {
+  const day = String(m.date).slice(0,10);
+  const people = v61PeopleNames(m);
+  const out = [];
+  if (!people.length) return out;
+  (VACATIONS || []).forEach(v => { if (people.includes(v.staff?.name) && v61DateInRange(day, v.startDate, v.endDate)) out.push(`${v.staff.name} 當天請假`); });
+  (TRIPS || []).forEach(t => { if (people.includes(t.staff?.name) && v61DateInRange(day, t.startDate, t.endDate)) out.push(`${t.staff.name} 當天出差`); });
+  (MEETINGS || []).forEach(o => {
+    if (o.id === m.id || o.status === 'cancelled') return;
+    if (String(o.date).slice(0,10) !== day) return;
+    if (!v61Overlap(m.startTime, m.endTime, o.startTime, o.endTime)) return;
+    const shared = v61PeopleNames(o).filter(n => people.includes(n));
+    if (shared.length) out.push(`${shared.join('、')} 與「${o.title}」(${o.startTime}–${o.endTime}) 時段重疊`);
+  });
+  return out;
+}
+let v61EditId = null;
+function v61OpenModal() {
+  let bg = document.getElementById('v61-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id = 'v61-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '85'; document.body.appendChild(bg); }
+  let modal = document.getElementById('v61-modal');
+  if (!modal) {
+    modal = document.createElement('div'); modal.id = 'v61-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(720px,94%);max-height:86vh;overflow-y:auto;z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);';
+    document.body.appendChild(modal);
+  }
+  bg.classList.add('open'); modal.style.display = 'block';
+  bg.onclick = () => v61CloseModal();
+  v61EditId = null;
+  v61RenderModal();
+}
+function v61CloseModal() {
+  document.getElementById('v61-bg')?.classList.remove('open');
+  const m = document.getElementById('v61-modal'); if (m) m.style.display = 'none';
+  v61EditId = null;
+}
+async function v61RenderModal() {
+  const modal = document.getElementById('v61-modal');
+  if (!modal) return;
+  await v61LoadMeetings();
+  const inputStyle = 'width:100%;padding:6px 8px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;box-sizing:border-box;';
+  const lblStyle = 'font-size:11px;color:var(--fg-muted,#8C8C8C);';
+  const today = ymdIso(TODAY);
+  const editing = v61EditId ? MEETINGS.find(m => m.id === v61EditId) : null;
+  const roster = (STAFF || []).filter(s => s.active);
+  const editAttIds = editing ? new Set((editing.attendees || []).map(a => a.staffId)) : new Set();
+  const hostOpts = '<option value="">（未指定）</option>' + roster.map(s => `<option value="${s.id}" ${editing && editing.host?.id === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
+  const caseOpts = '<option value="">（不關聯案件）</option>' + (CASES || []).filter(c => !c.archived).map(c => `<option value="${escapeHtml(c.id)}" ${editing && editing.caseId === c.id ? 'selected' : ''}>${escapeHtml(c.id)}｜${escapeHtml(c.name)}</option>`).join('');
+  const typeOpts = Object.entries(V61_TYPE_LABEL).map(([k,v]) => `<option value="${k}" ${(editing ? editing.type : 'internal') === k ? 'selected' : ''}>${v}</option>`).join('');
+  const attBoxes = roster.map(s => `<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 8px;border:1px solid var(--input-border,#D4D4D4);border-radius:14px;cursor:pointer;">
+    <input type="checkbox" class="v61-att" value="${s.id}" ${editAttIds.has(s.id) ? 'checked' : ''}>${escapeHtml(s.name)}</label>`).join('');
+  const sorted = MEETINGS.slice().sort((a,b) => (String(b.date)+b.startTime).localeCompare(String(a.date)+a.startTime));
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:16px;">🗓 會議排程</h3>
+      <button id="v61-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    <div style="border:1px solid var(--card-border,#E5E5E5);border-radius:6px;padding:12px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:500;margin-bottom:8px;">${editing ? '✎ 編輯會議' : '＋ 安排會議'}</div>
+      <label style="${lblStyle}">會議主題 *<input id="v61-title" value="${editing ? escapeHtml(editing.title) : ''}" placeholder="例：母親節 EDM 提案討論" style="${inputStyle}margin-top:3px;"></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;${lblStyle}margin-top:8px;">
+        <label>日期 *<input id="v61-date" type="date" value="${editing ? String(editing.date).slice(0,10) : today}" style="${inputStyle}margin-top:3px;"></label>
+        <label>開始 *<input id="v61-start" type="time" value="${editing ? editing.startTime : '14:00'}" step="300" style="${inputStyle}margin-top:3px;"></label>
+        <label>結束 *<input id="v61-end" type="time" value="${editing ? editing.endTime : '15:00'}" step="300" style="${inputStyle}margin-top:3px;"></label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;${lblStyle}margin-top:8px;">
+        <label>會議類型<select id="v61-type" style="${inputStyle}margin-top:3px;">${typeOpts}</select></label>
+        <label>主持人<select id="v61-host" style="${inputStyle}margin-top:3px;">${hostOpts}</select></label>
+        <label>地點 / 線上連結<input id="v61-loc" value="${editing ? escapeHtml(editing.location || '') : ''}" placeholder="例：3F 會議室 / Google Meet 連結" style="${inputStyle}margin-top:3px;"></label>
+        <label>關聯案件（選填）<select id="v61-case" style="${inputStyle}margin-top:3px;">${caseOpts}</select></label>
+      </div>
+      <div style="${lblStyle}margin-top:8px;">與會者（內部同仁）</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">${attBoxes || '<span style="color:#8C8C8C;font-size:12px;">無可選同仁</span>'}</div>
+      <label style="${lblStyle}display:block;margin-top:8px;">議程 / 說明<textarea id="v61-agenda" rows="2" placeholder="討論項目、需準備資料…" style="${inputStyle}margin-top:3px;resize:vertical;">${editing ? escapeHtml(editing.agenda || '') : ''}</textarea></label>
+      <div id="v61-live-conflict" style="margin-top:8px;"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button id="v61-save" style="padding:6px 16px;background:#1A6BAF;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">${editing ? '更新會議' : '安排會議'}</button>
+        ${editing ? '<button id="v61-cancel-edit" style="padding:6px 14px;background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:4px;cursor:pointer;font-size:12px;">取消編輯</button>' : ''}
+      </div>
+    </div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:6px;">會議清單（${sorted.length}）</div>
+    <div>
+      ${sorted.length === 0 ? '<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">尚無會議</div>' :
+        sorted.map(m => {
+          const conflicts = v61ConflictsFor(m);
+          const mine = ME && (m.host?.id === ME.id || (m.attendees||[]).some(a => a.staffId === ME.id));
+          const myResp = mine ? (m.attendees||[]).find(a => a.staffId === ME.id)?.response : null;
+          return `
+          <div style="padding:8px 6px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;${m.status==='cancelled'?'opacity:.5;text-decoration:line-through;':''}">
+            <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+              <span style="padding:2px 8px;background:#E7E0FB;color:#5B3FA0;border-radius:10px;flex-shrink:0;">${V61_TYPE_LABEL[m.type]||m.type}</span>
+              <div style="flex:1;min-width:180px;">
+                <div style="font-weight:600;color:var(--fg,#1F1F1F);">${escapeHtml(m.title)}${m.case?` <span style="color:#1A6BAF;font-weight:400;">· ${escapeHtml(m.case.id)}</span>`:''}</div>
+                <div style="color:var(--fg-dim,#595959);margin-top:2px;">📅 ${String(m.date).slice(0,10)} ${m.startTime}–${m.endTime}${m.location?' · 📍 '+escapeHtml(m.location):''}${m.host?.name?' · 主持 '+escapeHtml(m.host.name):''}</div>
+                ${(m.attendees||[]).length?`<div style="color:#8C8C8C;margin-top:2px;">👥 ${m.attendees.map(a=>`${escapeHtml(a.staff?.name||'')}<span style="color:${V61_RESP_COLOR[a.response]||'#8C8C8C'};">(${V61_RESP_LABEL[a.response]||a.response})</span>`).join('、')}</div>`:''}
+                ${conflicts.length?`<div style="color:#9A2E2E;margin-top:3px;">🚨 ${conflicts.map(escapeHtml).join('；')}</div>`:''}
+              </div>
+              ${v61CanEdit(m)?`<div style="display:flex;gap:4px;flex-shrink:0;">
+                <button data-medit="${m.id}" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">編輯</button>
+                <button data-mdel="${m.id}" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:#9A2E2E;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">刪除</button>
+              </div>`:''}
+            </div>
+            ${mine?`<div style="margin-top:5px;display:flex;gap:5px;align-items:center;">
+              <span style="color:#8C8C8C;">我的出席：</span>
+              ${['accepted','tentative','declined'].map(r=>`<button data-mresp="${m.id}" data-r="${r}" style="padding:2px 8px;border-radius:10px;font-size:11px;cursor:pointer;border:1px solid ${myResp===r?V61_RESP_COLOR[r]:'var(--input-border,#D4D4D4)'};background:${myResp===r?V61_RESP_COLOR[r]:'transparent'};color:${myResp===r?'#fff':'var(--fg,#1F1F1F)'};">${V61_RESP_LABEL[r]}</button>`).join('')}
+            </div>`:''}
+          </div>`;
+        }).join('')
+      }
+    </div>
+  `;
+  document.getElementById('v61-close').onclick = () => v61CloseModal();
+  const cancelEdit = document.getElementById('v61-cancel-edit');
+  if (cancelEdit) cancelEdit.onclick = () => { v61EditId = null; v61RenderModal(); };
+  // 即時衝突預覽
+  const liveCheck = () => {
+    const draft = {
+      id: v61EditId, date: document.getElementById('v61-date').value,
+      startTime: document.getElementById('v61-start').value, endTime: document.getElementById('v61-end').value,
+      host: { id: Number(document.getElementById('v61-host').value) || null, name: (roster.find(s=>s.id===Number(document.getElementById('v61-host').value))||{}).name },
+      attendees: [...modal.querySelectorAll('.v61-att:checked')].map(c => { const id=Number(c.value); return { staffId:id, staff:{ name:(roster.find(s=>s.id===id)||{}).name } }; }),
+    };
+    const box = document.getElementById('v61-live-conflict');
+    if (!draft.date || !draft.startTime || !draft.endTime || draft.endTime <= draft.startTime) { box.innerHTML = ''; return; }
+    const cf = v61ConflictsFor(draft);
+    box.innerHTML = cf.length ? `<div style="background:#FBE8E8;color:#9A2E2E;border-radius:4px;padding:6px 8px;font-size:11px;">🚨 衝突提醒：${cf.map(escapeHtml).join('；')}</div>` : '';
+  };
+  ['v61-date','v61-start','v61-end','v61-host'].forEach(id => { const el=document.getElementById(id); if(el) el.onchange = liveCheck; });
+  modal.querySelectorAll('.v61-att').forEach(c => c.onchange = liveCheck);
+  liveCheck();
+  document.getElementById('v61-save').onclick = async () => {
+    const body = {
+      title: document.getElementById('v61-title').value.trim(),
+      date: document.getElementById('v61-date').value,
+      startTime: document.getElementById('v61-start').value,
+      endTime: document.getElementById('v61-end').value,
+      type: document.getElementById('v61-type').value,
+      location: document.getElementById('v61-loc').value.trim(),
+      hostId: Number(document.getElementById('v61-host').value) || null,
+      caseId: document.getElementById('v61-case').value || null,
+      agenda: document.getElementById('v61-agenda').value.trim(),
+      attendeeIds: [...modal.querySelectorAll('.v61-att:checked')].map(c => Number(c.value)),
+    };
+    if (!body.title) { showToast('請填會議主題', 'err'); return; }
+    if (!body.date || !body.startTime || !body.endTime) { showToast('請填日期與起訖時間', 'err'); return; }
+    if (body.endTime <= body.startTime) { showToast('結束時間必須晚於開始時間', 'err'); return; }
+    try {
+      const res = v61EditId ? await api.meetings.update(v61EditId, body) : await api.meetings.create(body);
+      showToast(v61EditId ? '✓ 會議已更新' : '✓ 會議已安排');
+      if (res && res.conflicts && res.conflicts.length) {
+        showToast('🚨 注意衝突：' + res.conflicts.map(c => `${c.staffName} ${c.detail}`).join('；'), 'err');
+      }
+      v61EditId = null;
+      await v61RenderModal();
+      if (currentView === 'calendar' && typeof renderCalendar === 'function') renderCalendar();
+    } catch (e) { showToast('儲存失敗：' + (e.data?.message || e.message), 'err'); }
+  };
+  modal.querySelectorAll('button[data-medit]').forEach(b => b.onclick = () => { v61EditId = Number(b.dataset.medit); v61RenderModal(); modal.scrollTop = 0; });
+  modal.querySelectorAll('button[data-mdel]').forEach(b => b.onclick = async () => {
+    if (!confirm('刪除這場會議？')) return;
+    try { await api.meetings.delete(Number(b.dataset.mdel)); showToast('✓ 已刪除'); await v61RenderModal(); if (currentView === 'calendar' && typeof renderCalendar === 'function') renderCalendar(); }
+    catch (e) { showToast('刪除失敗：' + (e.data?.message || e.message), 'err'); }
+  });
+  modal.querySelectorAll('button[data-mresp]').forEach(b => b.onclick = async () => {
+    try { await api.meetings.respond(Number(b.dataset.mresp), b.dataset.r); showToast('✓ 已回覆出席'); await v61RenderModal(); }
+    catch (e) { showToast('回覆失敗：' + (e.data?.message || e.message), 'err'); }
+  });
+}
+// 開機載入會議
+const _v61OrigBootstrap = bootstrap;
+bootstrap = async function() {
+  await _v61OrigBootstrap();
+  await v61LoadMeetings();
+};
+
+// ═══════════════════════════════════════════════════════════════
 // ▼▼▼ v5.6 右下角浮動動作鈕（建立專案 / 休假出差 / 拍攝）▼▼▼
 // 把 topbar 三顆高頻按鈕收進右下角 speed-dial，讓上方更清爽。
 // ═══════════════════════════════════════════════════════════════
@@ -7338,6 +7545,7 @@ function v56BuildFab() {
   // 動作：圖示 / 標籤 / 對應函數
   const acts = [
     { ico: '＋', label: '建立專案', fn: () => (typeof openCreateModal === 'function') && openCreateModal() },
+    { ico: '🗓', label: '會議', fn: () => (typeof v61OpenModal === 'function') && v61OpenModal() },
     { ico: '📅', label: '休假 / 出差', fn: () => (typeof v40OpenAvailabilityModal === 'function') && v40OpenAvailabilityModal() },
     { ico: '📷', label: '拍攝', fn: () => (typeof v55OpenModal === 'function') && v55OpenModal() },
   ];
@@ -7371,12 +7579,13 @@ bootstrap = async function() {
 let v57Month = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
 let v57Mode = 'month'; // 'month' | 'agenda'
 let v57Scope = 'team'; // 'team' | 'mine' — 檢視範圍：團隊（全部）/ 我的
-const v57Layers = { project: true, shoot: true, leave: true };
+const v57Layers = { project: true, meeting: true, shoot: true, leave: true };
 const V57_COLORS = {
   golive: '#1F8A4C',   // 上線日（綠）
   review: '#C79B25',   // 確稿日（金）
   print: '#6B3FA0',    // 送印日（紫）
   outsource: '#B5703F',// 需發包建議日（棕）
+  meeting: '#7A5AF0',  // 會議（靛紫）
   shootOut: '#E0843F', // 外發拍攝（橘）
   shootIn: '#2BA8C4',  // 自拍（藍綠）
   vacation: '#C8584A', // 休假（紅）
@@ -7393,6 +7602,7 @@ function v57CollectEvents() {
   const caseMine  = (c) => !mine || c.designer === me || (c.collaborators || []).includes(me);
   const nameMine  = (n) => !mine || n === me;
   const shootMine = (s) => !mine || (s.createdBy && s.createdBy.name === me) || (s.photographer || '').includes(me);
+  const meetingMine = (m) => !mine || m.host?.name === me || (m.attendees || []).some(a => a.staff?.name === me);
   // 專案：上線日 + 確稿日 +（送印日 / 需發包建議日）
   if (v57Layers.project) {
     (CASES || []).filter(c => !c.archived && caseMine(c)).forEach(c => {
@@ -7401,6 +7611,14 @@ function v57CollectEvents() {
       if (c.reviewDate) add(v57Ymd(c.reviewDate), { kind:'project', color:V57_COLORS.review, label:`◆ 確稿 ${c.name}`, onClick:()=>openDrawerById(c.id) });
       if (c.printDate) add(v57Ymd(c.printDate), { kind:'project', color:V57_COLORS.print, label:`🖨 送印 ${c.name}`, onClick:()=>openDrawerById(c.id) });
       if (c.needsOutsourcing && c.goLive) add(v57Ymd(subtractWorkdays(c.goLive, 10)), { kind:'project', color:V57_COLORS.outsource, label:`📦 建議發包 ${c.name}`, onClick:()=>openDrawerById(c.id) });
+    });
+  }
+  // 會議：單日，顯示起始時間
+  if (v57Layers.meeting) {
+    (MEETINGS || []).filter(meetingMine).forEach(m => {
+      if (m.status === 'cancelled') return;
+      const cf = (typeof v61ConflictsFor === 'function' && v61ConflictsFor(m).length) ? ' 🚨' : '';
+      add(v57Ymd(m.date), { kind:'meeting', color:V57_COLORS.meeting, label:`🗓 ${m.startTime} ${m.title}${cf}`, onClick:()=>v61OpenModal() });
     });
   }
   // 拍攝：起訖區間每天
@@ -7464,6 +7682,7 @@ function renderCalendar() {
       <button data-scope="team" class="${v57Scope==='team'?'active':''}">👥 團隊</button>
     </div>
     ${v57LayerChip('project','專案', V57_COLORS.golive)}
+    ${v57LayerChip('meeting','會議', V57_COLORS.meeting)}
     ${v57LayerChip('shoot','拍攝', V57_COLORS.shootOut)}
     ${v57LayerChip('leave','假勤', V57_COLORS.vacation)}
     <div class="v57-seg">
