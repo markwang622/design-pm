@@ -17,6 +17,21 @@ router.use(requireAuth);
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).transform((s) => new Date(s + 'T00:00:00Z'));
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:MM');
+
+// 假日/週末判斷（與前端 TW_HOLIDAYS_2026 同步）— 伺服器端把關，避免前端被繞過
+const TW_HOLIDAYS = new Set([
+  '2026/01/01',
+  '2026/02/14', '2026/02/15', '2026/02/16', '2026/02/17', '2026/02/18', '2026/02/19', '2026/02/20', '2026/02/21', '2026/02/22',
+  '2026/02/27', '2026/02/28', '2026/03/01',
+  '2026/04/03', '2026/04/04', '2026/04/05', '2026/04/06',
+  '2026/05/01',
+  '2026/06/19', '2026/06/20', '2026/06/21',
+  '2026/09/25', '2026/09/26', '2026/09/27',
+  '2026/10/09', '2026/10/10', '2026/10/11',
+]);
+const pad0 = (n) => String(n).padStart(2, '0');
+function ymdSlash(d) { const x = new Date(d); return `${x.getUTCFullYear()}/${pad0(x.getUTCMonth() + 1)}/${pad0(x.getUTCDate())}`; }
+function dayBadKind(d) { const x = new Date(d); const wd = x.getUTCDay(); if (TW_HOLIDAYS.has(ymdSlash(x))) return '國定假日'; if (wd === 0 || wd === 6) return '週末'; return null; }
 const MEETING_TYPES = ['internal', 'proposal', 'review', 'crossdept', 'other'];
 const MEETING_STATUS = ['scheduled', 'confirmed', 'cancelled', 'done'];
 const actionItem = z.object({ text: z.string().max(300), owner: z.string().max(60).default(''), done: z.boolean().default(false) });
@@ -37,6 +52,7 @@ const createSchema = z.object({
   hostId: z.number().int().nullable().optional(),
   caseId: z.string().max(40).nullable().optional(),
   attendeeIds: z.array(z.number().int()).default([]),
+  allowHoliday: z.boolean().default(false), // 明確確認後才允許排在假日/週末
   recurrence: z.object({
     freq: z.enum(['none', 'weekly', 'biweekly', 'monthly']).default('none'),
     count: z.number().int().min(1).max(52).default(1),
@@ -123,6 +139,13 @@ router.post('/', async (req, res) => {
   const freq = b.recurrence?.freq || 'none';
   const count = b.recurrence?.count || 1;
   const dates = expandDates(b.date, freq, count);
+  // 假日/週末把關：除非明確 allowHoliday，否則拒絕
+  if (!b.allowHoliday) {
+    const bad = dates.map((d) => ({ d, kind: dayBadKind(d) })).filter((x) => x.kind);
+    if (bad.length) {
+      return res.status(422).json({ error: 'holiday', message: `${bad.map((x) => `${ymdSlash(x.d).replace(/\//g, '-')}（${x.kind}）`).join('、')} 為假日/週末，預設不安排會議。如確定仍要安排，請於確認後再送出。`, badDates: bad.map((x) => ({ date: ymdSlash(x.d).replace(/\//g, '-'), kind: x.kind })) });
+    }
+  }
   const seriesId = dates.length > 1 ? crypto.randomUUID() : null;
 
   const baseData = (d) => ({
@@ -174,6 +197,11 @@ router.patch('/:id', async (req, res) => {
   const startTime = b.startTime ?? existing.startTime;
   const endTime = b.endTime ?? existing.endTime;
   if (endTime <= startTime) return res.status(422).json({ error: 'invalid_range', message: '結束時間必須晚於開始時間' });
+  // 假日把關（編輯時若把日期改到假日/週末）
+  if (b.date !== undefined && !b.allowHoliday) {
+    const kind = dayBadKind(b.date);
+    if (kind) return res.status(422).json({ error: 'holiday', message: `${ymdSlash(b.date).replace(/\//g, '-')}（${kind}）為假日/週末，預設不安排會議。如確定仍要安排，請於確認後再送出。`, badDates: [{ date: ymdSlash(b.date).replace(/\//g, '-'), kind }] });
+  }
 
   const data = {};
   for (const k of ['title', 'agenda', 'date', 'startTime', 'endTime', 'location', 'type', 'status', 'note', 'minutes', 'actionItems', 'remindMinutes']) {

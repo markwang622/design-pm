@@ -7572,7 +7572,7 @@ async function v61RenderModal() {
               <span style="padding:2px 8px;background:#E7E0FB;color:#5B3FA0;border-radius:10px;flex-shrink:0;">${V61_TYPE_LABEL[m.type]||m.type}</span>
               <div style="flex:1;min-width:180px;">
                 <div style="font-weight:600;color:var(--fg,#1F1F1F);">${escapeHtml(m.title)}${m.seriesId?' <span style="color:#7A5AF0;font-weight:400;">🔁系列</span>':''}${m.case?` <span style="color:#1A6BAF;font-weight:400;">· ${escapeHtml(m.case.id)}</span>`:''}</div>
-                <div style="color:var(--fg-dim,#595959);margin-top:2px;">📅 ${String(m.date).slice(0,10)} ${m.startTime}–${m.endTime}${m.location?' · 📍 '+escapeHtml(m.location):''}${m.host?.name?' · 主持 '+escapeHtml(m.host.name):''}${m.remindMinutes?' · 🔔'+m.remindMinutes+'分前':''}</div>
+                <div style="color:var(--fg-dim,#595959);margin-top:2px;">📅 ${String(m.date).slice(0,10)} ${m.startTime}–${m.endTime}${(()=>{const dk=v61DayKind(String(m.date).slice(0,10));return dk.bad?` <span style="color:#fff;background:#C8584A;border-radius:8px;padding:0 6px;font-size:10px;">${dk.label}</span>`:'';})()}${m.location?' · 📍 '+escapeHtml(m.location):''}${m.host?.name?' · 主持 '+escapeHtml(m.host.name):''}${m.remindMinutes?' · 🔔'+m.remindMinutes+'分前':''}</div>
                 ${(m.attendees||[]).length?`<div style="color:#8C8C8C;margin-top:2px;">👥 ${m.attendees.map(a=>`${escapeHtml(a.staff?.name||'')}<span style="color:${V61_RESP_COLOR[a.response]||'#8C8C8C'};">(${V61_RESP_LABEL[a.response]||a.response})</span>`).join('、')}</div>`:''}
                 ${m.minutes?`<div style="color:#595959;margin-top:2px;">📝 ${escapeHtml(m.minutes.slice(0,80))}${m.minutes.length>80?'…':''}</div>`:''}
                 ${(m.actionItems&&m.actionItems.length)?`<div style="color:#595959;margin-top:2px;">✅ 待辦 ${m.actionItems.filter(a=>a.done).length}/${m.actionItems.length}：${m.actionItems.slice(0,3).map(a=>escapeHtml(a.text)).join('、')}${m.actionItems.length>3?'…':''}</div>`:''}
@@ -7667,9 +7667,23 @@ async function v61RenderModal() {
     if (!body.date || !body.startTime || !body.endTime) { showToast('請填日期與起訖時間', 'err'); return; }
     if (body.endTime <= body.startTime) { showToast('結束時間必須晚於開始時間', 'err'); return; }
     const dk = v61DayKind(body.date);
-    if (dk.bad && !confirm(`${body.date} 是${dk.label}，確定仍要安排會議嗎？\n（可按取消，改挑上方建議的其他日期）`)) return;
+    if (dk.bad) {
+      if (!confirm(`${body.date} 是${dk.label}，確定仍要安排會議嗎？\n（可按取消，改挑上方建議的其他日期）`)) return;
+      body.allowHoliday = true; // 使用者已明確確認
+    }
+    const doSave = async () => v61EditId ? api.meetings.update(v61EditId, body) : api.meetings.create(body);
     try {
-      const res = v61EditId ? await api.meetings.update(v61EditId, body) : await api.meetings.create(body);
+      let res;
+      try {
+        res = await doSave();
+      } catch (e1) {
+        // 伺服器假日把關（例如重複系列中某場落在假日）→ 詢問是否仍要建立
+        if (e1.data?.error === 'holiday') {
+          if (!confirm(`${e1.data.message}\n仍要安排嗎？`)) return;
+          body.allowHoliday = true;
+          res = await doSave();
+        } else throw e1;
+      }
       showToast(v61EditId ? '✓ 會議已更新' : (res.seriesCount > 1 ? `✓ 已安排 ${res.seriesCount} 場系列會議` : '✓ 會議已安排'));
       if (res && res.conflicts && res.conflicts.length) {
         showToast('🚨 注意衝突：' + res.conflicts.map(c => `${c.staffName} ${c.detail}`).join('；'), 'err');
