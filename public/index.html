@@ -2231,8 +2231,8 @@ function renderDashboard() {
     <div class="kpi"><div class="label">進行中 / 確稿中</div><div class="value">${doing}</div></div>
     <div class="kpi"><div class="label">已結案</div><div class="value">${done}</div><div class="sub">${total > 0 ? '達成率 ' + completionRate + '%' : '無資料'}</div></div>
     <div class="kpi alert" id="kpi-overdue" style="cursor:pointer;" title="點擊查看逾期清單"><div class="label">逾期</div><div class="value">${overdue}</div><div class="sub">點擊查看清單</div></div>
-    <div class="kpi urgent"><div class="label">急件</div><div class="value">${urgent}</div></div>
-    <div class="kpi gate"><div class="label">確稿待簽核中</div><div class="value">${gate}</div><div class="sub">待你審核</div></div>
+    <div class="kpi urgent" id="kpi-urgent" style="cursor:pointer;" title="點擊查看急件清單"><div class="label">急件</div><div class="value">${urgent}</div><div class="sub">點擊查看清單</div></div>
+    <div class="kpi gate" id="kpi-gate" style="cursor:pointer;" title="點擊查看待簽核清單"><div class="label">確稿待簽核中</div><div class="value">${gate}</div><div class="sub">點擊查看清單</div></div>
   `;
   const wl = document.getElementById('workload');
   wl.innerHTML = '';
@@ -2297,15 +2297,42 @@ function renderDashboard() {
       </div>
     </div>
   `).join('') || '<div style="color:#8C8C8C;font-size:12px;">無</div>';
-  // 逾期 KPI 卡 → 點開全部門逾期清單
+  // KPI 卡 → 點開對應清單（逾期 / 急件 / 待簽核）
   const ovBtn = document.getElementById('kpi-overdue');
-  if (ovBtn) ovBtn.onclick = () => v62ShowOverdue();
+  if (ovBtn) ovBtn.onclick = () => v62ShowCaseList('overdue');
+  const ugBtn = document.getElementById('kpi-urgent');
+  if (ugBtn) ugBtn.onclick = () => v62ShowCaseList('urgent');
+  const gtBtn = document.getElementById('kpi-gate');
+  if (gtBtn) gtBtn.onclick = () => v62ShowCaseList('gate');
 }
 
-// 全部門逾期清單彈窗（按逾期天數排序，附負責人）
-function v62ShowOverdue() {
-  const items = CASES.filter(c => !c.archived && c.overdue)
-    .slice().sort((a, b) => a.daysLeft - b.daysLeft); // daysLeft 越負 = 逾期越久，排最前
+// 共用：總覽 KPI 卡點開的案件清單彈窗
+const V62_KINDS = {
+  overdue: {
+    icon: '⚠', title: '逾期案件', color: '#A32D2D', note: '依逾期天數排序',
+    filter: c => c.overdue,
+    sort: (a, b) => a.daysLeft - b.daysLeft,
+    badge: c => `<span style="background:#FCEBEB;color:#A32D2D;border:1px solid #F09595;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">逾期 ${-c.daysLeft} 天</span>`,
+    empty: '🎉 目前沒有逾期案件',
+  },
+  urgent: {
+    icon: '🔥', title: '急件', color: '#B5532A', note: '依上線日排序（近→遠）',
+    filter: c => c.urgent && !FINAL_STATUS_KEYS.has(c.status),
+    sort: (a, b) => a.daysLeft - b.daysLeft,
+    badge: c => `<span style="background:#FBEAE0;color:#B5532A;border:1px solid #EDC3A8;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">${c.overdue ? '逾期 ' + (-c.daysLeft) + ' 天' : c.daysLeft === 0 ? '今天上線' : '剩 ' + c.daysLeft + ' 天'}</span>`,
+    empty: '目前沒有急件',
+  },
+  gate: {
+    icon: '⏰', title: '確稿待簽核中', color: '#8A6D1B', note: '依上線日排序（近→遠）',
+    filter: c => c.status === 'review' || c.status === 'review_done',
+    sort: (a, b) => a.goLive - b.goLive,
+    badge: c => `<span style="background:#FBF3DC;color:#8A6D1B;border:1px solid #E6D49A;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">${(STATUSES.find(s => s.key === c.status) || {}).name || c.status}</span>`,
+    empty: '目前沒有待簽核案件',
+  },
+};
+function v62ShowCaseList(kind) {
+  const cfg = V62_KINDS[kind] || V62_KINDS.overdue;
+  const items = CASES.filter(c => !c.archived && cfg.filter(c)).slice().sort(cfg.sort);
   let bg = document.getElementById('v62-bg');
   if (!bg) { bg = document.createElement('div'); bg.id = 'v62-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '85'; document.body.appendChild(bg); }
   let modal = document.getElementById('v62-modal');
@@ -2317,29 +2344,30 @@ function v62ShowOverdue() {
   bg.classList.add('open'); modal.style.display = 'block';
   const close = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
   bg.onclick = close;
-  // 依負責人彙整數量
   const byDes = {};
   items.forEach(c => { byDes[c.designer] = (byDes[c.designer] || 0) + 1; });
   const desSummary = Object.entries(byDes).sort((a, b) => b[1] - a[1]).map(([d, n]) => `${escapeHtml(d)} ${n}`).join('、');
   modal.innerHTML = `
     <div style="display:flex;align-items:center;margin-bottom:12px;">
-      <h3 style="margin:0;font-size:16px;color:#A32D2D;">⚠ 逾期案件（${items.length}）</h3>
+      <h3 style="margin:0;font-size:16px;color:${cfg.color};">${cfg.icon} ${cfg.title}（${items.length}）</h3>
       <button id="v62-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
     </div>
-    ${items.length ? `<div style="font-size:11px;color:#8C8C8C;margin-bottom:8px;">依逾期天數排序 · ${desSummary}</div>` : ''}
+    ${items.length ? `<div style="font-size:11px;color:#8C8C8C;margin-bottom:8px;">${cfg.note} · ${desSummary}</div>` : ''}
     ${items.length ? items.map(c => `
       <div class="v62-row" data-id="${escapeHtml(c.id)}" style="display:flex;align-items:center;gap:10px;padding:9px 8px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;cursor:pointer;">
-        <span style="background:#FCEBEB;color:#A32D2D;border:1px solid #F09595;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">逾期 ${-c.daysLeft} 天</span>
+        ${cfg.badge(c)}
         <div style="flex:1;min-width:0;">
           <div style="font-weight:600;color:var(--fg,#1F1F1F);">${escapeHtml(c.name)} <span style="color:#8C8C8C;font-weight:400;font-size:11px;">${escapeHtml(c.id)}</span></div>
-          <div style="color:var(--fg-dim,#595959);margin-top:2px;">${escapeHtml(c.designer)} · ${escapeHtml(c.hotel || '—')} · 上線 ${md(c.goLive)} · ${(STATUSES.find(s => s.key === c.status) || {}).name || c.status}${c.urgent ? ' · <span style="color:#C0392B;">急件</span>' : ''}</div>
+          <div style="color:var(--fg-dim,#595959);margin-top:2px;">${escapeHtml(c.designer)} · ${escapeHtml(c.hotel || '—')} · 上線 ${md(c.goLive)} · ${(STATUSES.find(s => s.key === c.status) || {}).name || c.status}${c.urgent && kind !== 'urgent' ? ' · <span style="color:#C0392B;">急件</span>' : ''}</div>
         </div>
         <span style="color:#8C8C8C;flex-shrink:0;">開啟 ›</span>
-      </div>`).join('') : '<div style="color:#1F8A4C;font-size:13px;padding:10px 0;">🎉 目前沒有逾期案件</div>'}
+      </div>`).join('') : `<div style="color:#1F8A4C;font-size:13px;padding:10px 0;">${cfg.empty}</div>`}
   `;
   document.getElementById('v62-close').onclick = close;
   modal.querySelectorAll('.v62-row').forEach(el => el.onclick = () => { close(); openDrawerById(el.dataset.id); });
 }
+// 相容舊呼叫
+function v62ShowOverdue() { v62ShowCaseList('overdue'); }
 
 // ============== Staff view ==============
 function renderStaff() {
