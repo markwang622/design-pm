@@ -7471,6 +7471,11 @@ function v61CloseModal() {
 async function v61RenderModal() {
   const modal = document.getElementById('v61-modal');
   if (!modal) return;
+  // 保險：若資料尚未載入（頁面剛開啟即打開會議視窗），先補載案件/同仁，避免關聯下拉與與會者為空
+  try {
+    if (!(CASES || []).length && typeof reloadAllCases === 'function') await reloadAllCases();
+    if (!(STAFF || []).length) { try { STAFF = (await api.staff.list()).map(normalizeStaff); } catch (e) {} }
+  } catch (e) { console.warn('v61 ensure data failed', e); }
   await v61LoadMeetings();
   const inputStyle = 'width:100%;padding:6px 8px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;box-sizing:border-box;';
   const lblStyle = 'font-size:11px;color:var(--fg-muted,#8C8C8C);';
