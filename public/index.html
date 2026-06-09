@@ -3138,15 +3138,6 @@ if (roleSwitchEl) {
     switchView(currentView);
   });
 }
-// admin 專用：在角色切換列加入「👁 觀察者」預覽按鈕（讓主管檢查觀察者實際看到什麼）
-function v63AddObserverPreviewBtn() {
-  const rs = document.getElementById('role-switch');
-  if (!rs || ME.role !== 'admin' || rs.querySelector('[data-role="observer"]')) return;
-  const b = document.createElement('button');
-  b.dataset.role = 'observer';
-  b.textContent = '👁 觀察者';
-  rs.appendChild(b);
-}
 
 // ═══════════════════════════════════════════════════════════════
 // ▼▼▼ API ADAPTER — wires prototype to /api/* REST endpoints ▼▼▼
@@ -3316,7 +3307,6 @@ async function bootstrap() {
     } catch (e) { console.warn('header wire failed', e); }
     // 5. activate correct role button
     try {
-      v63AddObserverPreviewBtn(); // admin 多一顆「👁 觀察者」預覽
       document.querySelectorAll('.role-switch button').forEach(b => {
         b.classList.toggle('active', b.dataset.role === currentRole);
       });
@@ -5294,21 +5284,34 @@ function v36BuildUserMenu() {
   const adminBtn = document.createElement('button');
   adminBtn.className = (currentRole === 'admin' && !v36ViewAsName) ? 'active' : '';
   adminBtn.textContent = `${ME.name} (Admin)`;
-  adminBtn.onclick = () => { v36ViewAsName = null; currentRole = 'admin'; currentView = 'dashboard'; v36BuildUserMenu(); renderNav(); switchView(currentView); };
+  adminBtn.onclick = () => { v36ViewAsName = null; currentRole = 'admin'; currentView = 'dashboard'; document.body.classList.remove('observer-mode'); v36BuildUserMenu(); renderNav(); switchView(currentView); };
   rs.appendChild(adminBtn);
 
   const sel = document.createElement('select');
   sel.style.cssText = 'background:#2B2B2B;color:#FAFAFA;border:1px solid #595959;border-left:none;padding:6px 8px;font-size:12px;cursor:pointer;';
   sel.innerHTML = '<option value="">— 切換到成員視角 —</option>' +
-    STAFF.filter(s => s.active && s.id !== ME.id).map(s => `<option value="${s.name}" ${v36ViewAsName === s.name ? 'selected' : ''}>${s.name}</option>`).join('');
+    STAFF.filter(s => s.active && s.id !== ME.id && s.role !== 'observer').map(s => `<option value="${s.name}" ${v36ViewAsName === s.name ? 'selected' : ''}>${s.name}</option>`).join('');
   sel.onchange = () => {
     if (!sel.value) { v36ViewAsName = null; currentRole = 'admin'; }
     else { v36ViewAsName = sel.value; currentRole = 'designer'; currentView = 'personal'; }
+    document.body.classList.remove('observer-mode');
     v36BuildUserMenu();
     renderNav();
     switchView(currentView);
   };
   rs.appendChild(sel);
+
+  // 👁 觀察者（唯讀）預覽 — 讓 admin 檢查觀察者實際看到什麼
+  const obsBtn = document.createElement('button');
+  obsBtn.className = (currentRole === 'observer') ? 'active' : '';
+  obsBtn.textContent = '👁 觀察者';
+  obsBtn.title = '以觀察者（唯讀）視角預覽';
+  obsBtn.onclick = () => {
+    v36ViewAsName = null; currentRole = 'observer'; currentView = 'dashboard';
+    document.body.classList.add('observer-mode');
+    v36BuildUserMenu(); renderNav(); switchView(currentView);
+  };
+  rs.appendChild(obsBtn);
 }
 
 // Override ME_NAME so render functions use the impersonated name when view-as is on
