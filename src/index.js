@@ -112,6 +112,24 @@ const apiLimiter = rateLimit({
 });
 app.use('/api', apiLimiter);
 
+// 觀察者（observer）角色：唯讀。擋掉所有非 GET 的 API 寫入（auth 流程除外）。
+// 真正的權限防線在伺服器端——前端只是不顯示編輯入口。
+import jwtGuard from 'jsonwebtoken';
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  if (req.path.startsWith('/auth')) return next(); // 登入/登出/改密碼/me
+  const token = req.cookies?.designpm_token;
+  if (token) {
+    try {
+      const u = jwtGuard.verify(token, process.env.JWT_SECRET || 'change-me-in-prod');
+      if (u.role === 'observer') {
+        return res.status(403).json({ error: 'read_only', message: '觀察者帳號為唯讀，無法執行此操作。' });
+      }
+    } catch { /* token 無效 → 交由下游 requireAuth 處理 */ }
+  }
+  next();
+});
+
 // Main API
 app.use('/api/cases', casesRouter);
 app.use('/api/staff', staffRouter);

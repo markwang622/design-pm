@@ -348,6 +348,27 @@ h1, h2, h3, h4 { font-weight: 500; }
 }
 .role-switch button:last-child { border-right: none; }
 .role-switch button.active { background: #FAFAFA; color: #1F1F1F; font-weight: 500; }
+/* 觀察者唯讀模式：隱藏所有編輯入口（後端另有強制把關） */
+/* 角色切換列只對「真觀察者帳號」隱藏；admin 預覽時保留以便切回 */
+body.real-observer #role-switch { display: none !important; }
+body.observer-mode #create-btn,
+body.observer-mode .create-btn,
+body.observer-mode #v56-fab,
+body.observer-mode #v56-fab-backdrop,
+body.observer-mode .drawer .drawer-actions,
+body.observer-mode .drawer .log-add,
+body.observer-mode .drawer .status-change,
+body.observer-mode .drawer #d-archive,
+body.observer-mode .drawer #d-closure,
+body.observer-mode .drawer #d-subitems button,
+body.observer-mode .drawer #d-subitems input,
+body.observer-mode .drawer #d-subitems select,
+body.observer-mode .drawer #d-subitems textarea,
+body.observer-mode .v33-extra button,
+body.observer-mode .v33-extra input,
+body.observer-mode .v33-extra select,
+body.observer-mode .v33-extra textarea { display: none !important; }
+body.observer-mode .v61-case-mt { pointer-events: none !important; }
 .create-btn {
   background: #FAFAFA; color: #1F1F1F;
   padding: 6px 14px; border-radius: 6px;
@@ -1423,6 +1444,11 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
         <option value="senior">資深 Senior（5 年以上）</option>
       </select></label>
       <label>到職日<input type="date" id="sa-joined"></label>
+      <label class="span2">角色 *<select id="sa-role">
+        <option value="member" selected>成員（設計師，可建立/編輯自己的案件）</option>
+        <option value="observer">觀察者（唯讀：只看總覽與行事曆，不能更動）</option>
+        <option value="admin">管理員（完整權限）</option>
+      </select></label>
     </div>
     <div class="notify-preview">
       ✉ 送出後系統會：(1) 寄帳號啟用信給新成員；(2) 將其加入建立專案／轉派／協作者下拉清單；(3) 通知 Mark。
@@ -1696,7 +1722,14 @@ const NAV_DEF = {
     {key:'staff', label:'人員'},
     {key:'notif', label:'通知'},
   ],
+  // 觀察者（唯讀）：只看總覽 + 行事曆
+  observer: [
+    {key:'dashboard', label:'總覽'},
+    {key:'calendar', label:'📅 行事曆'},
+  ],
 };
+// 觀察者唯讀模式：真觀察者帳號，或 admin 切到「觀察者預覽」時皆成立（以 currentRole 判定）
+const IS_OBSERVER = () => (typeof currentRole !== 'undefined' && currentRole === 'observer');
 function renderNav() {
   const nav = document.getElementById('nav');
   nav.innerHTML = '';
@@ -3099,10 +3132,20 @@ if (roleSwitchEl) {
     document.querySelectorAll('.role-switch button').forEach(b => b.classList.remove('active'));
     e.target.classList.add('active');
     currentRole = e.target.dataset.role;
-    currentView = currentRole === 'admin' ? 'dashboard' : 'personal';
+    currentView = (currentRole === 'admin' || currentRole === 'observer') ? 'dashboard' : 'personal';
+    document.body.classList.toggle('observer-mode', currentRole === 'observer'); // 預覽唯讀
     renderNav();
     switchView(currentView);
   });
+}
+// admin 專用：在角色切換列加入「👁 觀察者」預覽按鈕（讓主管檢查觀察者實際看到什麼）
+function v63AddObserverPreviewBtn() {
+  const rs = document.getElementById('role-switch');
+  if (!rs || ME.role !== 'admin' || rs.querySelector('[data-role="observer"]')) return;
+  const b = document.createElement('button');
+  b.dataset.role = 'observer';
+  b.textContent = '👁 觀察者';
+  rs.appendChild(b);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3110,6 +3153,12 @@ if (roleSwitchEl) {
 // ═══════════════════════════════════════════════════════════════
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 async function fetchJson(method, url, body) {
+  // 觀察者唯讀：前端攔截所有寫入（後端另有強制把關，這層只是讓誤觸有友善提示）
+  if (typeof IS_OBSERVER === 'function' && IS_OBSERVER() && !['GET', 'HEAD'].includes(method.toUpperCase()) && !/\/api\/auth\//.test(url)) {
+    if (typeof showToast === 'function') showToast('觀察者帳號為唯讀，無法進行更動', 'err');
+    const err = new Error('read_only'); err.data = { error: 'read_only', message: '觀察者帳號為唯讀' }; err.status = 403;
+    throw err;
+  }
   const opts = { method, credentials: 'include', headers: JSON_HEADERS };
   if (body !== undefined) opts.body = JSON.stringify(body);
   const r = await fetch(url, opts);
@@ -3246,8 +3295,10 @@ async function bootstrap() {
       STAFF = []; CASES = [];
     }
     // 3. set default role + view from login
-    currentRole = ME.role === 'admin' ? 'admin' : 'designer';
-    currentView = currentRole === 'admin' ? 'dashboard' : 'personal';
+    currentRole = ME.role === 'admin' ? 'admin' : (ME.role === 'observer' ? 'observer' : 'designer');
+    currentView = (currentRole === 'admin' || currentRole === 'observer') ? 'dashboard' : 'personal';
+    // 觀察者：啟用全域唯讀模式（隱藏編輯入口；後端另有強制把關）
+    if (ME.role === 'observer') document.body.classList.add('observer-mode', 'real-observer');
     // 4. wire header identity + logout
     try {
       const hdr = document.querySelector('header .sub') || document.querySelector('header');
@@ -3255,7 +3306,7 @@ async function bootstrap() {
         const badge = document.createElement('span');
         badge.id = 'user-badge';
         badge.style.cssText = 'margin-left:12px;font-size:12px;color:#6B6B6B;';
-        badge.innerHTML = `👤 ${ME.name} · ${ME.role === 'admin' ? '管理員' : '設計師'} <button id="logout-btn" style="margin-left:8px;padding:3px 8px;font-size:11px;background:#F5F5F5;border:1px solid #D4D4D4;border-radius:4px;cursor:pointer;">登出</button>`;
+        badge.innerHTML = `👤 ${ME.name} · ${ME.role === 'admin' ? '管理員' : ME.role === 'observer' ? '觀察者（唯讀）' : '設計師'} <button id="logout-btn" style="margin-left:8px;padding:3px 8px;font-size:11px;background:#F5F5F5;border:1px solid #D4D4D4;border-radius:4px;cursor:pointer;">登出</button>`;
         hdr.appendChild(badge);
         document.getElementById('logout-btn').onclick = async () => {
           try { await api.logout(); } catch {}
@@ -3265,6 +3316,7 @@ async function bootstrap() {
     } catch (e) { console.warn('header wire failed', e); }
     // 5. activate correct role button
     try {
+      v63AddObserverPreviewBtn(); // admin 多一顆「👁 觀察者」預覽
       document.querySelectorAll('.role-switch button').forEach(b => {
         b.classList.toggle('active', b.dataset.role === currentRole);
       });
@@ -3630,8 +3682,9 @@ if (saBtn) {
     if (!name || !email) { showToast('請填姓名與 Email', 'err'); return; }
     if (STAFF.some(s => s.name === name)) { showToast('姓名重複，請用另一個名字', 'err'); return; }
     const joined = ymdIso(joinedStr ? new Date(joinedStr) : new Date(TODAY));
+    const role = document.getElementById('sa-role')?.value || 'member';
     try {
-      const created = await api.staff.create({ name, email, seniority, joined, role: 'member' });
+      const created = await api.staff.create({ name, email, seniority, joined, role });
       STAFF.push(normalizeStaff(created));
       if (created.tempPassword) {
         showToast(`✓ ${name} 已加入部門 · 預設密碼：${created.tempPassword}`);
@@ -3868,6 +3921,7 @@ async function v33InjectDrawerExtras(c) {
   }
 
   // ── Edit-dates panel ────────────────────────────────────
+  if (!(typeof IS_OBSERVER === 'function' && IS_OBSERVER())) {
   const editPanel = document.createElement('div');
   editPanel.className = 'v33-extra';
   editPanel.style.cssText = 'margin:14px 0;padding:12px;background:#F8F8F8;border:1px solid #E5E5E5;border-radius:6px;';
@@ -3888,6 +3942,7 @@ async function v33InjectDrawerExtras(c) {
   `;
   body.appendChild(editPanel);
   document.getElementById('v33-save-edit').onclick = () => v33SaveEdit(c);
+  }
 
   // ── v4.3 B: 子案件管理面板（主負責人、協作者、admin 都可改）─
   v43InjectSubItemsPanel(c, body);
@@ -6492,7 +6547,8 @@ const v38MobileCSS = `
 // (Sunny/Milo etc are designers; Mark is admin. Many widgets pulled Mark by mistake.)
 const _v38OrigActiveDesigners = window.activeDesigners;
 window.activeDesigners = function() {
-  return STAFF.filter(s => s.active && s.role !== 'admin').map(s => s.name);
+  // 排除 admin 與 observer（觀察者不是設計師，不可被派案/列入工作量）
+  return STAFF.filter(s => s.active && s.role !== 'admin' && s.role !== 'observer').map(s => s.name);
 };
 // allDesigners may include Mark for legacy uses (kanban filter etc), keep as-is.
 
@@ -6634,6 +6690,7 @@ const VACATION_TYPE_LABEL = {
 };
 
 function v40OpenAvailabilityModal() {
+  if (typeof IS_OBSERVER === 'function' && IS_OBSERVER()) { showToast('觀察者帳號為唯讀，無法開啟休假/出差編輯', 'err'); return; }
   let bg = document.getElementById('v40-avail-bg');
   if (!bg) {
     bg = document.createElement('div');
@@ -7249,6 +7306,7 @@ function v55InjectShootButton() {
 }
 let v55EditId = null;
 function v55OpenModal() {
+  if (typeof IS_OBSERVER === 'function' && IS_OBSERVER()) { showToast('觀察者帳號為唯讀，無法開啟拍攝編輯', 'err'); return; }
   let bg = document.getElementById('v55-shoot-bg');
   if (!bg) { bg = document.createElement('div'); bg.id = 'v55-shoot-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '85'; document.body.appendChild(bg); }
   let modal = document.getElementById('v55-shoot-modal');
@@ -7547,6 +7605,7 @@ function v61SuggestSlots() {
 }
 let v61PrefillCase = null;
 function v61OpenModal(prefillCaseId) {
+  if (typeof IS_OBSERVER === 'function' && IS_OBSERVER()) { showToast('觀察者帳號為唯讀，無法開啟會議編輯', 'err'); return; }
   v61PrefillCase = prefillCaseId || null;
   let bg = document.getElementById('v61-bg');
   if (!bg) { bg = document.createElement('div'); bg.id = 'v61-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '85'; document.body.appendChild(bg); }
@@ -7579,7 +7638,7 @@ async function v61RenderModal() {
   const lblStyle = 'font-size:11px;color:var(--fg-muted,#8C8C8C);';
   const today = ymdIso(TODAY);
   const editing = v61EditId ? MEETINGS.find(m => m.id === v61EditId) : null;
-  const roster = (STAFF || []).filter(s => s.active);
+  const roster = (STAFF || []).filter(s => s.active && s.role !== 'observer');
   const editAttIds = editing ? new Set((editing.attendees || []).map(a => a.staffId)) : new Set();
   const hostOpts = '<option value="">（未指定）</option>' + roster.map(s => `<option value="${s.id}" ${editing && editing.host?.id === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
   const caseSel = editing ? editing.caseId : v61PrefillCase;
@@ -7808,6 +7867,7 @@ function v56ToggleFab() {
   if (bd) bd.classList.toggle('open', willOpen);
 }
 function v56BuildFab() {
+  if (typeof IS_OBSERVER === 'function' && IS_OBSERVER()) return; // 觀察者無建立入口
   if (document.getElementById('v56-fab')) return;
   // 隱藏 topbar 原本三按鈕（保留元素與既有事件綁定，只是不顯示）
   ['create-btn'].forEach(id => document.getElementById(id)?.classList.add('v56-moved-to-fab'));

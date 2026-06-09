@@ -51,7 +51,7 @@ const createSchema = z.object({
   joined: dateStr,
   seniority: z.enum(['senior', 'mid', 'junior']),
   roleTitle: z.string().optional(),
-  role: z.enum(['admin', 'member']).default('member'),
+  role: z.enum(['admin', 'member', 'observer']).default('member'),
   color: colorSchema.optional(), // v4.8
 });
 
@@ -109,7 +109,7 @@ const updateSchema = z.object({
   email: z.string().email().optional(),
   seniority: z.enum(['senior', 'mid', 'junior']).optional(),
   roleTitle: z.string().optional(),
-  role: z.enum(['admin', 'member']).optional(),
+  role: z.enum(['admin', 'member', 'observer']).optional(),
   // v3.4: admin-only password reset for OTHER users
   resetPassword: z.string().min(8).optional(),
   // v4.8: 個人色 palette key（或 null 清空）
