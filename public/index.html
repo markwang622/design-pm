@@ -773,6 +773,18 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
 }
 .item-editor-row button.rm:hover { background: #FCEBEB; }
 .self-toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #404040; margin-bottom: 10px; }
+/* 建立專案：進階選項收合區 */
+.form-advanced { margin-top: 14px; border-top: 1px dashed var(--card-border, #E5E5E5); padding-top: 10px; }
+.form-advanced > summary { cursor: pointer; font-size: 13px; color: var(--accent, #1F8A4C); font-weight: 500; list-style: none; user-select: none; padding: 4px 0; }
+.form-advanced > summary::-webkit-details-marker { display: none; }
+.form-advanced > summary::before { content: '▸ '; display: inline-block; transition: transform 0.15s; }
+.form-advanced[open] > summary::before { content: '▾ '; }
+[data-theme="dark"] .form-advanced { border-top-color: var(--card-border); }
+/* 術語提示 ⓘ（hover 顯示說明） */
+.tip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid #BFBFBF; color: #8C8C8C; font-size: 10px; font-style: normal; font-weight: 600; cursor: help; margin-left: 5px; vertical-align: middle; line-height: 1; }
+.tip:hover { border-color: #1F8A4C; color: #1F8A4C; }
+.tip:hover::after { content: attr(data-tip); position: absolute; bottom: 150%; left: 50%; transform: translateX(-50%); background: #1F1F1F; color: #fff; padding: 8px 10px; border-radius: 6px; font-size: 11px; font-weight: 400; line-height: 1.6; text-align: left; width: max-content; max-width: 250px; white-space: normal; z-index: 300; box-shadow: 0 6px 18px rgba(0,0,0,0.22); pointer-events: none; }
+.tip:hover::before { content: ''; position: absolute; bottom: 150%; left: 50%; transform: translate(-50%, 100%); border: 5px solid transparent; border-top-color: #1F1F1F; z-index: 300; pointer-events: none; }
 
 .collab-picker {
   display: flex; flex-wrap: wrap; gap: 6px;
@@ -1178,7 +1190,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
       <div class="kpi-row" id="admin-kpi"></div>
       <div class="grid-2">
         <div class="card">
-          <div class="section-title">設計師工作量（含協作，權重＝分級難度）<span style="font-size: 11px; color: #8C8C8C;">主案 ×100% · 協作 ×40%</span></div>
+          <div class="section-title">設計師工作量（含協作，權重＝分級難度）<i class="tip" data-tip="工作量分數＝每個進行中案件的（分級權重 × 角色係數）加總。分級 SS=5·S=4·A=3·B=2·C/D=1；主負責 ×1.0、協作 ×0.4。分數 ≥10 視為超載。">ⓘ</i><span style="font-size: 11px; color: #8C8C8C;">主案 ×100% · 協作 ×40%</span></div>
           <div class="bar-list" id="workload"></div>
         </div>
         <div class="card">
@@ -1336,7 +1348,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
       </div>
     </div>
     <div class="status-change">
-      <span style="font-size: 13px; color: #595959;">變更狀態：</span>
+      <span style="font-size: 13px; color: #595959;">變更狀態：</span><i class="tip" data-tip="流程：尚未開始→等待中→進行中→確稿中→(送印中)→確稿完成→已結案。推到「確稿完成」會通知 admin，由 admin 在審核中心通過才正式結案歸檔。">ⓘ</i>
       <select id="d-status">
         <option value="todo">尚未開始</option>
         <option value="wait">等待中</option>
@@ -1362,33 +1374,40 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
   </div>
   <div class="modal-body">
     <label class="self-toggle"><input type="checkbox" id="f-self"> 我（設計師）自己接這個專案，不需要指派負責人</label>
+    <!-- 基本（必填）—— 一眼填完 -->
     <div class="form-grid">
       <label class="span2">專案名稱 *<input id="f-name" placeholder="e.g. 5 月母親節整體行銷"></label>
       <label>館別 *<select id="f-hotel"></select></label>
       <label>需求單位 *<select id="f-unit"></select></label>
-      <label class="span2">案件聯絡人（選填）<input id="f-contact" placeholder="例：行銷 陳經理 / 都會餐廳 王小姐 — 寫給自己看，方便找誰校稿"></label>
-      <label class="span2">文案路徑（選填）<input id="f-copypath" placeholder="行銷提供的文案連結 / 路徑，例：/設計部共用/文案/2026Q2/…"></label>
-      <label class="span2">專案來源 / 需求單號（選填）<input id="f-source" placeholder="例：需求單 #2026-0612 / 行銷月會 / 客戶來信"></label>
-      <label>分級 *<select id="f-level"></select></label>
+      <label>分級 *<i class="tip" data-tip="案件規模／重要度，SS 最大、D 最小，會影響工作量計分（SS=5·S=4·A=3·B=2·C/D=1）。不確定時選 A/B 即可，事後可改。">ⓘ</i><select id="f-level"></select></label>
       <label id="f-designer-wrap">負責設計 *<select id="f-designer"></select></label>
       <label>需求派發日 *<input type="date" id="f-dispatch"></label>
-      <label>文案收件日（可選填）<input type="date" id="f-copy"></label>
-      <label>印刷送印日（選填）<input type="date" id="f-print"></label>
       <label>上線日 *<input type="date" id="f-golive"></label>
-      <label class="span2">製作物項目（可複選）
-        <div class="collab-picker" id="f-deliverables"></div>
-        <div class="collab-picker-hint">點擊選取本專案包含的製作物；可多選。需要細部追蹤（負責人／日期／狀態）再用下方子案件。</div>
-      </label>
-      <label class="span2" id="f-deliv-other-wrap" style="display:none;">其他製作物（自訂，逗號分隔）<input type="text" id="f-deliv-other" placeholder="例如：影片剪輯、活動規劃"></label>
       <label class="span2 check"><input type="checkbox" id="f-urgent"> 標記為急件（🔥）</label>
-      <label class="span2 check"><input type="checkbox" id="f-outsource"> 📦 需發包（需預留 7–10 個工作天）</label>
-      <label class="span2">
-        協作者（可複選，大案可 2–3 人共做）
-        <div class="collab-picker" id="f-collab"></div>
-        <div class="collab-picker-hint">點擊可切換；協作者會收到 Email 邀請，進度日誌共寫；工作量計分以 ×40% 計入。</div>
-      </label>
-      <label class="span2">備註 <textarea id="f-note" placeholder="背景、參考、溝通重點…"></textarea></label>
     </div>
+    <!-- 進階（選填）—— 預設收合，降低第一眼壓力 -->
+    <details class="form-advanced">
+      <summary>⚙ 進階選項（選填）— 聯絡人、製作物、協作者、印刷日、備註…</summary>
+      <div class="form-grid" style="margin-top:10px;">
+        <label class="span2">案件聯絡人<input id="f-contact" placeholder="例：行銷 陳經理 / 都會餐廳 王小姐 — 寫給自己看，方便找誰校稿"></label>
+        <label class="span2">文案路徑<input id="f-copypath" placeholder="行銷提供的文案連結 / 路徑，例：/設計部共用/文案/2026Q2/…"></label>
+        <label class="span2">專案來源 / 需求單號<input id="f-source" placeholder="例：需求單 #2026-0612 / 行銷月會 / 客戶來信"></label>
+        <label>文案收件日<input type="date" id="f-copy"></label>
+        <label>印刷送印日<input type="date" id="f-print"></label>
+        <label class="span2">製作物項目（可複選）
+          <div class="collab-picker" id="f-deliverables"></div>
+          <div class="collab-picker-hint">點擊選取本專案包含的製作物；可多選。需要細部追蹤（負責人／日期／狀態）再用下方子案件。</div>
+        </label>
+        <label class="span2" id="f-deliv-other-wrap" style="display:none;">其他製作物（自訂，逗號分隔）<input type="text" id="f-deliv-other" placeholder="例如：影片剪輯、活動規劃"></label>
+        <label class="span2 check"><input type="checkbox" id="f-outsource"> 📦 需發包（需預留 7–10 個工作天）</label>
+        <label class="span2">
+          協作者（可複選，大案可 2–3 人共做）
+          <div class="collab-picker" id="f-collab"></div>
+          <div class="collab-picker-hint">點擊可切換；協作者會收到 Email 邀請，進度日誌共寫；工作量計分以 ×40% 計入。</div>
+        </label>
+        <label class="span2">備註 <textarea id="f-note" placeholder="背景、參考、溝通重點…"></textarea></label>
+      </div>
+    </details>
     <div class="items-editor">
       <div class="items-editor-head">
         <span>執行項目（子案件）— 一個專案可以有多個不同類型</span>
