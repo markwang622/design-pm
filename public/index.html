@@ -1819,6 +1819,25 @@ function renderPersonal() {
     const col = sortCases(base.filter(c => c.designer !== ME_NAME() && (c.collaborators||[]).includes(ME_NAME())));
     // admin（非 view-as）會看到全部案件，補「其他案件」區塊避免漏顯示
     const other = sortCases(base.filter(c => c.designer !== ME_NAME() && !(c.collaborators||[]).includes(ME_NAME())));
+    // 新人空狀態：完全沒有案子時給可操作引導
+    if (personalFilter === 'all' && !mine.length && !col.length && !other.length) {
+      const hint = document.createElement('div');
+      hint.style.cssText = 'grid-column:1/-1;text-align:center;padding:32px 16px;color:var(--fg-dim,#595959);';
+      const isAdmin = currentRole === 'admin';
+      hint.innerHTML = `<div style="font-size:34px;margin-bottom:8px;">🗂️</div>
+        <div style="font-size:15px;font-weight:600;color:var(--fg,#1F1F1F);margin-bottom:4px;">還沒有指派給你的案件</div>
+        <div style="font-size:12px;margin-bottom:14px;">${isAdmin ? '點右下角 ＋ 建立第一個專案，或先逛逛看板與行事曆。' : '可以先看看「看板」掌握全部門進度，或打開「行事曆」。'}</div>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+          ${isAdmin ? '<button id="v64-empty-create" style="padding:7px 16px;font-size:12px;border:none;background:#1F8A4C;color:#fff;border-radius:6px;cursor:pointer;">＋ 建立專案</button>' : ''}
+          <button id="v64-empty-kanban" style="padding:7px 16px;font-size:12px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:6px;cursor:pointer;">看板</button>
+          <button id="v64-empty-help" style="padding:7px 16px;font-size:12px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:6px;cursor:pointer;">📖 使用指南</button>
+        </div>`;
+      listEl.appendChild(hint);
+      const cb = document.getElementById('v64-empty-create'); if (cb) cb.onclick = () => (typeof openCreateModal === 'function') && openCreateModal();
+      document.getElementById('v64-empty-kanban').onclick = () => switchView('kanban');
+      document.getElementById('v64-empty-help').onclick = () => (typeof v64OpenHelp === 'function') && v64OpenHelp();
+      return;
+    }
     listEl.appendChild(v53SectionDivider('🙋 個人負責', mine.length));
     if (mine.length) mine.forEach(c => listEl.appendChild(makeCaseCard(c)));
     else listEl.appendChild(v53EmptyHint('目前沒有個人負責的案件'));
@@ -2260,13 +2279,26 @@ function renderDashboard() {
   const completionRate = total > 0 ? Math.round(done / total * 100) : 0;
   // v4.1 (B2): 拿掉「VS 上月 +X」假數據（之前是寫死 total*0.12）
   document.getElementById('admin-kpi').innerHTML = `
-    <div class="kpi"><div class="label">本月總件數</div><div class="value">${total}</div><div class="sub">含進行中與已結案</div></div>
+    <div class="kpi"><div class="label">在辦案件</div><div class="value">${total}</div><div class="sub">尚未結案</div></div>
     <div class="kpi"><div class="label">進行中 / 確稿中</div><div class="value">${doing}</div></div>
-    <div class="kpi"><div class="label">已結案</div><div class="value">${done}</div><div class="sub">${total > 0 ? '達成率 ' + completionRate + '%' : '無資料'}</div></div>
+    <div class="kpi" id="kpi-closed" style="cursor:pointer;" title="點擊查看本月結案清單"><div class="label">本月結案</div><div class="value" id="kpi-closed-val">…</div><div class="sub" id="kpi-closed-sub">計算中…</div></div>
     <div class="kpi alert" id="kpi-overdue" style="cursor:pointer;" title="點擊查看逾期清單"><div class="label">逾期</div><div class="value">${overdue}</div><div class="sub">點擊查看清單</div></div>
     <div class="kpi urgent" id="kpi-urgent" style="cursor:pointer;" title="點擊查看急件清單"><div class="label">急件</div><div class="value">${urgent}</div><div class="sub">點擊查看清單</div></div>
     <div class="kpi gate" id="kpi-gate" style="cursor:pointer;" title="點擊查看待簽核清單"><div class="label">確稿待簽核中</div><div class="value">${gate}</div><div class="sub">點擊查看清單</div></div>
   `;
+  // 本月結案：結案即自動封存，故需從封存資料計算（否則永遠是 0）
+  v62LoadClosed().then(closed => {
+    const ym = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, '0')}`;
+    const thisMonth = closed.filter(c => c.closedOn && ymdIso(c.closedOn).slice(0, 7) === ym);
+    const rate = (thisMonth.length + doing) > 0 ? Math.round(thisMonth.length / (thisMonth.length + doing) * 100) : 0;
+    const vEl = document.getElementById('kpi-closed-val'); const sEl = document.getElementById('kpi-closed-sub');
+    if (vEl) vEl.textContent = thisMonth.length;
+    if (sEl) sEl.textContent = `累計 ${closed.length} 件 · 達成率 ${rate}%`;
+    const cEl = document.getElementById('kpi-closed');
+    if (cEl) cEl.onclick = () => v62ShowClosed(thisMonth);
+  }).catch(() => {
+    const sEl = document.getElementById('kpi-closed-sub'); if (sEl) sEl.textContent = '載入失敗';
+  });
   const wl = document.getElementById('workload');
   wl.innerHTML = '';
   const wlData = activeDesigners().map(dn => ({name:dn, score:workloadScore(dn), count: activeCasesOf(dn).length}));
@@ -7849,6 +7881,171 @@ const _v61OrigBootstrap = bootstrap;
 bootstrap = async function() {
   await _v61OrigBootstrap();
   await v61LoadMeetings();
+};
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v6.4 新人指引（歡迎面板 + 指南中心 + 空狀態） ▼▼▼
+// 首次登入跳歡迎面板（localStorage 記住）；右上角 ? 隨時開指南中心。
+// ═══════════════════════════════════════════════════════════════
+const V64_KEY = 'dpm_onboarded_v1';
+function v64Role() { return ME?.role === 'admin' ? 'admin' : ME?.role === 'observer' ? 'observer' : 'designer'; }
+const V64_ROLE_LABEL = { admin: '管理員', designer: '設計師', observer: '觀察者（唯讀）' };
+
+// 角色化的「3 個第一步」
+function v64FirstSteps(role) {
+  if (role === 'admin') return [
+    ['＋ 建立並派發專案', '點右下角藍色圓鈕 →「建立專案」，填基本資料、選負責設計師即可派單。'],
+    ['看部門狀況', '「總覽」一眼掌握逾期 / 急件 / 待簽核（卡片可點開清單）與每個人的工作量。'],
+    ['管理人員與審核', '「人員」新增成員、處理離職移轉；「審核中心」通過設計師送來的確稿。'],
+  ];
+  if (role === 'observer') return [
+    ['你是唯讀觀察者', '可以看「總覽」與「行事曆」，點開任何案件看完整細節，但不能更動任何資料。'],
+    ['看部門進度', '「總覽」看逾期 / 急件 / 結案；點 KPI 卡可展開清單。'],
+    ['看行事曆', '上線日、確稿日、拍攝、休假、會議都在「行事曆」，可切「我的 / 團隊」。'],
+  ];
+  return [ // designer
+    ['看「我的任務」', '這裡只列你負責或協作的案子，分「個人負責 / 協作參與」兩區。'],
+    ['更新進度', '在看板把卡片拖到下一個狀態，或點開案件寫「進度日誌」。'],
+    ['登錄行程', '右下角圓鈕可登記休假 / 出差 / 拍攝；行事曆會自動顯示並做衝突提醒。'],
+  ];
+}
+
+function v64StatusFlowHtml() {
+  const steps = ['尚未開始', '等待中', '進行中', '確稿中', '送印中', '確稿完成', '已結案'];
+  const note = { '確稿中': '送客戶/主管審稿', '送印中': '已送印刷廠（選填）', '確稿完成': '等主管審核', '已結案': '審核通過自動歸檔' };
+  return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:11px;">` +
+    steps.map((s, i) => `<span style="background:#EEF2F6;color:#2B4A66;border-radius:10px;padding:2px 8px;">${s}</span>${i < steps.length - 1 ? '<span style="color:#B0B0B0;">→</span>' : ''}`).join('') +
+    `</div><div style="margin-top:6px;font-size:11px;color:#8C8C8C;line-height:1.7;">` +
+    Object.entries(note).map(([k, v]) => `<b>${k}</b>＝${v}`).join('　·　') + `</div>`;
+}
+
+function v64GlossaryHtml() {
+  const rows = [
+    ['確稿', '把稿子送出去等客戶或主管確認'],
+    ['送印中', '已送印刷廠的選填階段'],
+    ['需發包', '此案要外包，系統會幫你預留工作天'],
+    ['館別 / 需求單位', '哪個館、哪個部門提出的需求'],
+    ['製作物', '此案要產出什麼（DM、EDM、主視覺…，可多選）'],
+    ['分級 SS·S·A·B·C·D', '案件規模 / 重要度，會影響工作量計分'],
+    ['工作量分數', '依分級 × 角色 × 準時 × 急件加權算出，≥10 視為超載'],
+  ];
+  return `<table style="width:100%;border-collapse:collapse;font-size:12px;">` +
+    rows.map(([t, d]) => `<tr><td style="padding:4px 8px 4px 0;font-weight:600;white-space:nowrap;vertical-align:top;color:var(--fg,#1F1F1F);">${t}</td><td style="padding:4px 0;color:var(--fg-dim,#595959);">${d}</td></tr>`).join('') +
+    `</table>`;
+}
+
+function v64PageGuideHtml(role) {
+  const all = [
+    ['總覽', '部門整體：件數、逾期、急件、工作量（KPI 卡可點開清單）'],
+    ['看板', '用狀態欄位看所有案子，卡片可直接拖曳換狀態'],
+    ['甘特圖', '時間軸看每個人的案子排程，上方有休假/出差/拍攝'],
+    ['我的任務', '只看自己負責 / 協作的案子'],
+    ['行事曆', '上線日/確稿日/拍攝/休假/會議；可切「我的 / 團隊」、可訂閱'],
+    ['人員', '（管理員）成員、工作量、離職移轉'],
+    ['審核中心', '（管理員）通過設計師送出的確稿'],
+    ['歷史案件', '已結案 / 封存的案子，可搜尋'],
+    ['右下角 ＋', '快速建立：專案 / 會議 / 休假出差 / 拍攝'],
+  ];
+  let pages = all;
+  if (role === 'designer') pages = all.filter(p => !['人員', '審核中心'].includes(p[0]));
+  if (role === 'observer') pages = all.filter(p => ['總覽', '行事曆'].includes(p[0]));
+  return `<table style="width:100%;border-collapse:collapse;font-size:12px;">` +
+    pages.map(([t, d]) => `<tr><td style="padding:4px 8px 4px 0;font-weight:600;white-space:nowrap;vertical-align:top;color:var(--fg,#1F1F1F);">${t}</td><td style="padding:4px 0;color:var(--fg-dim,#595959);">${d}</td></tr>`).join('') +
+    `</table>`;
+}
+
+function v64Section(title, bodyHtml, open) {
+  return `<details ${open ? 'open' : ''} style="border:1px solid var(--card-border,#E5E5E5);border-radius:6px;margin-bottom:8px;">
+    <summary style="cursor:pointer;padding:10px 12px;font-size:13px;font-weight:600;color:var(--fg,#1F1F1F);">${title}</summary>
+    <div style="padding:0 12px 12px;">${bodyHtml}</div>
+  </details>`;
+}
+
+function v64OpenHelp() {
+  const role = v64Role();
+  let bg = document.getElementById('v64-help-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id = 'v64-help-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '95'; document.body.appendChild(bg); }
+  let panel = document.getElementById('v64-help');
+  if (!panel) {
+    panel = document.createElement('div'); panel.id = 'v64-help';
+    panel.style.cssText = 'position:fixed;top:0;right:0;height:100%;width:min(460px,94%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);z-index:96;box-shadow:-8px 0 28px rgba(0,0,0,0.18);overflow-y:auto;padding:18px;box-sizing:border-box;';
+    document.body.appendChild(panel);
+  }
+  bg.classList.add('open'); panel.style.display = 'block';
+  const close = () => { bg.classList.remove('open'); panel.style.display = 'none'; };
+  bg.onclick = close;
+  const steps = v64FirstSteps(role);
+  panel.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:17px;">📖 使用指南 <span style="font-size:12px;color:#8C8C8C;font-weight:400;">· ${V64_ROLE_LABEL[role]}</span></h3>
+      <button id="v64-help-close" style="margin-left:auto;background:transparent;border:0;font-size:24px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    ${v64Section('① 這是什麼系統？', `<div style="font-size:12px;color:var(--fg-dim,#595959);line-height:1.8;">把每個設計案從接單到結案的<b>進度、時程、人力</b>集中管理。<br>🗂 每個設計需求 = 一個<b>案件</b>（有負責人、時程、狀態）<br>📅 系統幫你算上線/確稿/送印的工作天並提醒卡關<br>👥 誰在忙、誰有空、誰逾期，一眼看到</div>`, true)}
+    ${v64Section('② 你的前三步', `<ol style="margin:0;padding-left:18px;font-size:12px;color:var(--fg-dim,#595959);line-height:1.7;">${steps.map(s => `<li style="margin-bottom:6px;"><b style="color:var(--fg,#1F1F1F);">${s[0]}</b><br>${s[1]}</li>`).join('')}</ol>`, true)}
+    ${v64Section('③ 案件狀態流程', v64StatusFlowHtml())}
+    ${v64Section('④ 名詞對照', v64GlossaryHtml())}
+    ${v64Section('⑤ 各分頁在做什麼', v64PageGuideHtml(role))}
+    ${role !== 'observer' ? v64Section('⑥ 小提醒', `<div style="font-size:12px;color:var(--fg-dim,#595959);line-height:1.8;">• 很多地方<b>可點 / 可拖曳</b>：KPI 卡、看板卡片、案件卡、行事曆事件。<br>• 建立專案只有少數必填，其他選填可之後再補。<br>• Email 通知需設定 SMTP 才會真的寄信；未設定時仍會寫進站內通知。</div>`) : ''}
+    <div style="margin-top:10px;text-align:center;"><button id="v64-help-replay" style="padding:6px 14px;font-size:12px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:6px;cursor:pointer;">重看歡迎導覽</button></div>
+  `;
+  document.getElementById('v64-help-close').onclick = close;
+  document.getElementById('v64-help-replay').onclick = () => { close(); v64ShowWelcome(); };
+}
+
+function v64ShowWelcome() {
+  const role = v64Role();
+  const steps = v64FirstSteps(role);
+  let bg = document.getElementById('v64-wel-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id = 'v64-wel-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '97'; document.body.appendChild(bg); }
+  let modal = document.getElementById('v64-wel');
+  if (!modal) {
+    modal = document.createElement('div'); modal.id = 'v64-wel';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:10px;padding:24px;width:min(540px,94%);max-height:88vh;overflow-y:auto;z-index:98;box-shadow:0 16px 40px rgba(0,0,0,0.22);';
+    document.body.appendChild(modal);
+  }
+  bg.classList.add('open'); modal.style.display = 'block';
+  const done = () => { try { localStorage.setItem(V64_KEY, '1'); } catch (e) {} bg.classList.remove('open'); modal.style.display = 'none'; };
+  bg.onclick = done;
+  modal.innerHTML = `
+    <div style="font-size:22px;margin-bottom:4px;">👋 歡迎使用藝術設計部專案管理系統</div>
+    <div style="font-size:13px;color:var(--fg-dim,#595959);margin-bottom:16px;">嗨 ${ME?.name || ''}（${V64_ROLE_LABEL[role]}）！先花一分鐘帶你抓重點。這套系統把每個設計案的<b>進度、時程、人力</b>集中管理。</div>
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px;">你可以從這三步開始：</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px;">
+      ${steps.map((s, i) => `<div style="display:flex;gap:10px;align-items:flex-start;">
+        <div style="flex-shrink:0;width:24px;height:24px;border-radius:50%;background:#1F8A4C;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;">${i + 1}</div>
+        <div style="font-size:12px;line-height:1.6;"><b style="font-size:13px;">${s[0]}</b><br><span style="color:var(--fg-dim,#595959);">${s[1]}</span></div>
+      </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;">
+      <span style="font-size:11px;color:#8C8C8C;margin-right:auto;">右上角 <b>？</b> 隨時可重看完整指南</span>
+      <button id="v64-wel-guide" style="padding:8px 14px;font-size:12px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:6px;cursor:pointer;">看完整指南</button>
+      <button id="v64-wel-start" style="padding:8px 18px;font-size:12px;border:none;background:#1F8A4C;color:#fff;border-radius:6px;cursor:pointer;">開始使用 →</button>
+    </div>
+  `;
+  document.getElementById('v64-wel-start').onclick = done;
+  document.getElementById('v64-wel-guide').onclick = () => { done(); v64OpenHelp(); };
+}
+
+function v64InjectHelpBtn() {
+  const tb = document.querySelector('.topbar');
+  if (!tb || document.getElementById('v64-help-btn')) return;
+  const b = document.createElement('button');
+  b.id = 'v64-help-btn';
+  b.textContent = '？';
+  b.title = '使用指南';
+  b.style.cssText = 'margin-left:8px;width:28px;height:28px;border-radius:50%;border:1px solid #595959;background:transparent;color:var(--topbar-fg,#FAFAFA);cursor:pointer;font-size:14px;flex-shrink:0;';
+  b.onclick = () => v64OpenHelp();
+  const rs = document.getElementById('role-switch');
+  if (rs) tb.insertBefore(b, rs); else tb.appendChild(b);
+}
+
+const _v64OrigBootstrap = bootstrap;
+bootstrap = async function() {
+  await _v64OrigBootstrap();
+  try {
+    v64InjectHelpBtn();
+    if (!localStorage.getItem(V64_KEY)) setTimeout(v64ShowWelcome, 600);
+  } catch (e) { console.warn('v64 onboarding init failed', e); }
 };
 
 // ═══════════════════════════════════════════════════════════════
