@@ -2434,6 +2434,45 @@ function v62ShowCaseList(kind) {
 // 相容舊呼叫
 function v62ShowOverdue() { v62ShowCaseList('overdue'); }
 
+// 本月結案：從封存資料計算（結案即自動封存，不在 CASES 中，否則永遠 0）
+async function v62LoadClosed() {
+  const raw = await api.cases.listArchived();
+  return raw.map(normalizeCase).filter(c => c.archived || FINAL_STATUS_KEYS.has(c.status));
+}
+function v62ShowClosed(items) {
+  const list = (items || []).slice().sort((a, b) => (b.closedOn ? +new Date(b.closedOn) : 0) - (a.closedOn ? +new Date(a.closedOn) : 0));
+  let bg = document.getElementById('v62-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id = 'v62-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '85'; document.body.appendChild(bg); }
+  let modal = document.getElementById('v62-modal');
+  if (!modal) {
+    modal = document.createElement('div'); modal.id = 'v62-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(640px,94%);max-height:84vh;overflow-y:auto;z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);';
+    document.body.appendChild(modal);
+  }
+  bg.classList.add('open'); modal.style.display = 'block';
+  const close = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
+  bg.onclick = close;
+  const byDes = {};
+  list.forEach(c => { byDes[c.designer] = (byDes[c.designer] || 0) + 1; });
+  const desSummary = Object.entries(byDes).sort((a, b) => b[1] - a[1]).map(([d, n]) => `${escapeHtml(d)} ${n}`).join('、');
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:12px;">
+      <h3 style="margin:0;font-size:16px;color:#1F8A4C;">✅ 本月結案（${list.length}）</h3>
+      <button id="v62-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    ${list.length ? `<div style="font-size:11px;color:#8C8C8C;margin-bottom:8px;">依結案日排序 · ${desSummary}</div>` : ''}
+    ${list.length ? list.map(c => `
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 8px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;">
+        <span style="background:#E4F3DD;color:#3A6E2A;border:1px solid #B7DDA6;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">${c.closedOn ? md(new Date(c.closedOn)) : '—'} 結案</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;color:var(--fg,#1F1F1F);">${escapeHtml(c.name)} <span style="color:#8C8C8C;font-weight:400;font-size:11px;">${escapeHtml(c.id)}</span></div>
+          <div style="color:var(--fg-dim,#595959);margin-top:2px;">${escapeHtml(c.designer)} · ${escapeHtml(c.hotel || '—')}${c.actualWorkdays != null ? ' · 實作 ' + c.actualWorkdays + ' 工作天' : ''}</div>
+        </div>
+      </div>`).join('') : '<div style="color:#8C8C8C;font-size:13px;padding:10px 0;">本月尚無結案</div>'}
+  `;
+  document.getElementById('v62-close').onclick = close;
+}
+
 // ============== Staff view ==============
 function renderStaff() {
   const active = STAFF.filter(s => s.active);
