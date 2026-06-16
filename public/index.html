@@ -409,6 +409,10 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
 .kpi .label { font-size: 12px; color: #8C8C8C; margin-bottom: 6px; }
 .kpi .value { font-size: 26px; font-weight: 500; color: #1F1F1F; line-height: 1.2; }
 .kpi .sub { font-size: 11px; color: #8C8C8C; margin-top: 4px; }
+/* 可點的 KPI 卡（總覽逾期/急件/待簽核/結案、我的任務篩選）給 hover 浮起，提示可點 */
+.kpi[id^="kpi-"], .kpi[data-kf] { transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease; }
+.kpi[id^="kpi-"]:hover, .kpi[data-kf]:hover { transform: translateY(-2px); box-shadow: 0 5px 16px rgba(0,0,0,0.09); border-color: #D0D0D0; }
+.v62-row:hover, .v61-case-mt:hover { background: rgba(0,0,0,0.035); }
 .kpi.alert { background: #FFF5F5; border-color: #EFC0C0; }
 .kpi.alert .value { color: #A32D2D; }
 .kpi.urgent { background: #FFF8F0; border-color: #F0CFA0; }
@@ -455,8 +459,9 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
 .kb-card:active { cursor: grabbing; }
 .kb-col-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 500; color: #404040; padding: 0 4px 10px; border-bottom: 1px solid #E5E5E5; margin-bottom: 10px; }
 .kb-col-head .count { background: #fff; color: #595959; border-radius: 10px; padding: 1px 8px; font-size: 10px; }
-.kb-card { background: #fff; border: 1px solid #E5E5E5; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; font-size: 12px; border-left: 3px solid transparent; }
-.kb-card:hover { border-color: #BFBFBF; }
+.kb-card { background: #fff; border: 1px solid #E5E5E5; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: grab; font-size: 12px; border-left: 3px solid transparent; transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease; }
+.kb-card:hover { border-color: #BFBFBF; transform: translateY(-1px); box-shadow: 0 3px 10px rgba(0,0,0,0.07); }
+.kb-card:active { cursor: grabbing; }
 .kb-card.urgent { border-left-color: #D85A30; }
 .kb-card.s-todo { background: #fff; }
 .kb-card.s-wait { background: #F6F3EE; border-color: #D9CEBF; }
