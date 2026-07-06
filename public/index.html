@@ -813,6 +813,17 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
 [data-theme="dark"] #drawer #v33-changelog-list > div * { color: #DCDCDC !important; }
 /* 建立專案：Email 通知區塊淺底 */
 [data-theme="dark"] .notify-preview { background: rgba(255,255,255,0.04) !important; }
+/* 甘特群組設計師名（深字深底）+ label 內協作 chip 淺底 */
+[data-theme="dark"] .gantt-group-head .g-label, [data-theme="dark"] .gantt-group-head .g-label * { color: var(--fg,#EDEDED) !important; }
+[data-theme="dark"] .gantt-row .label .chip.collab { background: rgba(255,255,255,0.08) !important; color: #C8C8C8 !important; }
+/* 離職同仁列淺底 */
+[data-theme="dark"] .staff-row.inactive { background: rgba(255,255,255,0.03) !important; }
+/* Email 通知預覽：容器已深色但內文寫死深字 → 內文改淺、表頭底透明 */
+[data-theme="dark"] .email-preview .ep-body, [data-theme="dark"] .email-preview .ep-body *,
+[data-theme="dark"] .email-preview .ep-head, [data-theme="dark"] .email-preview .ep-head * { color: var(--fg,#E4E4E4) !important; }
+[data-theme="dark"] .email-preview .ep-head { background: transparent !important; border-color: var(--card-border,#333) !important; }
+/* 個人檔案 modal 取消鈕（白底白字） */
+[data-theme="dark"] #v34-pf-cancel { background: transparent !important; color: var(--fg,#EDEDED) !important; border-color: var(--card-border,#3a3d48) !important; }
 
 .collab-picker {
   display: flex; flex-wrap: wrap; gap: 6px;
