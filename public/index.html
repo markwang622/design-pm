@@ -786,6 +786,34 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
 .tip:hover::after { content: attr(data-tip); position: absolute; bottom: 150%; left: 50%; transform: translateX(-50%); background: #1F1F1F; color: #fff; padding: 8px 10px; border-radius: 6px; font-size: 11px; font-weight: 400; line-height: 1.6; text-align: left; width: max-content; max-width: 250px; white-space: normal; z-index: 300; box-shadow: 0 6px 18px rgba(0,0,0,0.22); pointer-events: none; }
 .tip:hover::before { content: ''; position: absolute; bottom: 150%; left: 50%; transform: translate(-50%, 100%); border: 5px solid transparent; border-top-color: #1F1F1F; z-index: 300; pointer-events: none; }
 
+/* ═══ 深色模式修正：pre-glassmorphism 元件寫死顏色（掃描實測補齊） ═══ */
+/* 編輯個人檔案 / 修改密碼 modal（底色寫死白、繼承淺色字 → 白底白字） */
+[data-theme="dark"] #v34-profile-modal { background: var(--card-bg,#181d24) !important; }
+[data-theme="dark"] #v34-profile-modal #v48-color-section,
+[data-theme="dark"] #v34-profile-modal #v34-pf-pwsection { border-top-color: var(--card-border,#333) !important; }
+/* 案件卡標題（深字印深底 → 看不見） */
+[data-theme="dark"] .case-card .title { color: var(--fg,#EDEDED) !important; }
+/* 人員名單 */
+[data-theme="dark"] .s-name .n-primary { color: var(--fg,#EDEDED) !important; }
+[data-theme="dark"] .staff-row.head > div { color: var(--fg-muted,#AEB4BD) !important; }
+[data-theme="dark"] .staff-row [class*="seniority"] { color: var(--fg-muted,#AEB4BD) !important; }
+/* 通知標題 */
+[data-theme="dark"] .notif-row .n-title { color: var(--fg,#EDEDED) !important; }
+/* 甘特：列標籤（淺底）文字改深、群組計數改亮 */
+[data-theme="dark"] .gantt-row .p-name { color: #1F2937 !important; }
+[data-theme="dark"] .gantt-group-head .g-count { color: var(--fg,#EDEDED) !important; }
+/* 案件抽屜子面板（進度日誌 / 子案件 / 變更記錄 / 調整時程 原用寫死淺色） */
+[data-theme="dark"] #drawer .log-add { background: rgba(255,255,255,0.05) !important; }
+[data-theme="dark"] #drawer .log-note { color: #E8E8E8 !important; }
+[data-theme="dark"] #drawer .si-n { color: #EDEDED !important; }
+[data-theme="dark"] #drawer .v43-collapse-toggle { background: rgba(255,255,255,0.06) !important; color: #EDEDED !important; }
+[data-theme="dark"] #drawer .v33-extra { background: rgba(255,255,255,0.04) !important; }
+[data-theme="dark"] #drawer #v33-changelog-list > div { background: rgba(255,255,255,0.05) !important; }
+[data-theme="dark"] #drawer #v33-changelog-list > div,
+[data-theme="dark"] #drawer #v33-changelog-list > div * { color: #DCDCDC !important; }
+/* 建立專案：Email 通知區塊淺底 */
+[data-theme="dark"] .notify-preview { background: rgba(255,255,255,0.04) !important; }
+
 .collab-picker {
   display: flex; flex-wrap: wrap; gap: 6px;
   padding: 10px 12px; border: 1px solid #E5E5E5; border-radius: 6px; background: #fff;
