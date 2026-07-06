@@ -799,8 +799,8 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
 [data-theme="dark"] .staff-row [class*="seniority"] { color: var(--fg-muted,#AEB4BD) !important; }
 /* 通知標題 */
 [data-theme="dark"] .notif-row .n-title { color: var(--fg,#EDEDED) !important; }
-/* 甘特：列標籤（淺底）文字改深、群組計數改亮 */
-[data-theme="dark"] .gantt-row .p-name { color: #1F2937 !important; }
+/* 甘特：列底色寫死 #FAFAFA 未適配深色（淺底＋淺字看不見）；群組計數改亮 */
+[data-theme="dark"] .gantt-row { background: transparent !important; }
 [data-theme="dark"] .gantt-group-head .g-count { color: var(--fg,#EDEDED) !important; }
 /* 案件抽屜子面板（進度日誌 / 子案件 / 變更記錄 / 調整時程 原用寫死淺色） */
 [data-theme="dark"] #drawer .log-add { background: rgba(255,255,255,0.05) !important; }
