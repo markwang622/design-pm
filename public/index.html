@@ -6854,11 +6854,34 @@ function v40CloseAvailabilityModal() {
   if (m) m.style.display = 'none';
 }
 
+// v6.5: 出差封存/已結束
+let v65TripTab = 'active';
+function v65TripEnded(t) { return !!t.archived || String(t.endDate).slice(0, 10) < ymdIso(TODAY); }
+window.v65SetTripTab = function(tab) {
+  v65TripTab = tab;
+  const m = document.getElementById('v40-avail-modal');
+  if (m) v40RenderAvailabilityModal(m);
+};
+window.v40ArchiveTrip = async function(id, val) {
+  try {
+    await api.businessTrips.update(id, { archived: val });
+    await v40LoadAvailability();
+    showToast(val ? '✓ 已封存（前台隱藏，資料保留）' : '✓ 已還原');
+    const m = document.getElementById('v40-avail-modal');
+    if (m && m.style.display !== 'none') v40RenderAvailabilityModal(m);
+    if (currentView === 'calendar' && typeof renderCalendar === 'function') renderCalendar();
+    if (currentView === 'gantt') renderGantt();
+  } catch (e) { showToast('操作失敗：' + (e.data?.message || e.message), 'err'); }
+};
 async function v40RenderAvailabilityModal(modal) {
   await v40LoadAvailability();
   const myVac = VACATIONS.filter(v => v.staffId === ME.id);
   const myTrips = TRIPS.filter(t => t.staffId === ME.id);
   const today = new Date().toISOString().slice(0, 10);
+  // v6.5: 出差「進行中｜已結束」— 已結束 = 過了結束日 或 手動封存
+  const tripActive = myTrips.filter(t => !v65TripEnded(t)).sort((a,b) => a.startDate < b.startDate ? -1 : 1);
+  const tripEnded = myTrips.filter(t => v65TripEnded(t)).sort((a,b) => a.startDate > b.startDate ? -1 : 1);
+  const tripShown = v65TripTab === 'ended' ? tripEnded : tripActive;
   const inputStyle = 'width:100%;padding:6px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;';
   modal.innerHTML = `
     <div style="display:flex;align-items:center;margin-bottom:14px;">
@@ -6903,16 +6926,23 @@ async function v40RenderAvailabilityModal(modal) {
       <input id="v40-trip-note" placeholder="備註（可選）" style="${inputStyle}margin-top:6px;font-size:12px;">
       <button id="v40-trip-add" style="margin-top:8px;padding:6px 14px;background:#1F6FEB;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">新增出差</button>
     </div>
-    <div style="font-size:13px;font-weight:500;margin-bottom:6px;">我的出差（${myTrips.length}）</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <span style="font-size:13px;font-weight:500;">我的出差</span>
+      <div class="v57-seg" style="margin-left:auto;">
+        <button onclick="v65SetTripTab('active')" class="${v65TripTab==='active'?'active':''}">進行中 (${tripActive.length})</button>
+        <button onclick="v65SetTripTab('ended')" class="${v65TripTab==='ended'?'active':''}">已結束 (${tripEnded.length})</button>
+      </div>
+    </div>
     <div>
-      ${myTrips.length === 0 ? '<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">尚無出差紀錄</div>' :
-        myTrips.map(t => `
-          <div style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;flex-wrap:wrap;">
+      ${tripShown.length === 0 ? `<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">${v65TripTab==='ended'?'尚無已結束的出差':'目前沒有進行中/未來的出差'}</div>` :
+        tripShown.map(t => `
+          <div style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;flex-wrap:wrap;${v65TripTab==='ended'?'opacity:.72;':''}">
             <span style="display:inline-block;padding:2px 8px;background:#D6E8F8;color:#1E5A85;border-radius:3px;">${escapeHtml(t.hotel)}</span>
             <span>${t.startDate.slice(0,10)} → ${t.endDate.slice(0,10)}</span>
-            <span style="color:#404040;flex:1;">${escapeHtml(t.task)}</span>
-            ${t.note ? `<span style="color:#8C8C8C;">（${escapeHtml(t.note)}）</span>` : ''}
-            <button onclick="v40DeleteTrip(${t.id})" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">刪除</button>
+            <span style="color:var(--fg-dim,#404040);flex:1;">${escapeHtml(t.task)}</span>
+            ${t.archived ? '<span style="color:#8C8C8C;font-size:11px;">已封存</span>' : ''}
+            <button onclick="v40ArchiveTrip(${t.id}, ${t.archived ? 'false' : 'true'})" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">${t.archived ? '還原' : '封存'}</button>
+            <button onclick="v40DeleteTrip(${t.id})" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:#9A2E2E;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">刪除</button>
           </div>
         `).join('')
       }
@@ -7005,7 +7035,7 @@ function v40RenderKanbanAvailability() {
     return s <= in7days && e >= today;
   };
   const activeVac = VACATIONS.filter(v => isInRange(v.startDate, v.endDate));
-  const activeTrips = TRIPS.filter(t => isInRange(t.startDate, t.endDate));
+  const activeTrips = TRIPS.filter(t => !t.archived && isInRange(t.startDate, t.endDate)); // v6.5: 排除封存出差
   let strip = document.getElementById('v40-kanban-avail');
   if (!activeVac.length && !activeTrips.length) {
     if (strip) strip.remove();
@@ -7368,7 +7398,7 @@ function v40RenderGanttAvailability() {
     return s <= horizon && e >= today;
   };
   const activeVac = VACATIONS.filter(v => isInRange(v.startDate, v.endDate));
-  const activeTrips = TRIPS.filter(t => isInRange(t.startDate, t.endDate));
+  const activeTrips = TRIPS.filter(t => !t.archived && isInRange(t.startDate, t.endDate)); // v6.5: 排除封存出差
   let strip = document.getElementById('v40-gantt-avail');
   if (!activeVac.length && !activeTrips.length) {
     if (strip) strip.remove();
@@ -7784,7 +7814,11 @@ async function v61RenderModal() {
   const attBoxes = roster.map(s => `<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 8px;border:1px solid var(--input-border,#D4D4D4);border-radius:14px;cursor:pointer;">
     <input type="checkbox" class="v61-att" value="${s.id}" ${editAttIds.has(s.id) ? 'checked' : ''}>${escapeHtml(s.name)}</label>`).join('');
   v61DraftActions = editing ? (editing.actionItems || []).map(a => ({ text: a.text || '', owner: a.owner || '', done: !!a.done })) : [];
-  const sorted = MEETINGS.slice().sort((a,b) => (String(b.date)+b.startTime).localeCompare(String(a.date)+a.startTime));
+  // v6.5: 會議「進行中｜已結束」— 已結束 = 過了日期 或 已取消 或 手動封存
+  const _mtgKey = (m) => String(m.date) + m.startTime;
+  const mtgActive = MEETINGS.filter(m => !v65MeetingEnded(m)).sort((a,b) => _mtgKey(a).localeCompare(_mtgKey(b)));   // 近→遠
+  const mtgEnded = MEETINGS.filter(m => v65MeetingEnded(m)).sort((a,b) => _mtgKey(b).localeCompare(_mtgKey(a)));    // 新→舊
+  const sorted = v65MeetingTab === 'ended' ? mtgEnded : mtgActive;
   modal.innerHTML = `
     <div style="display:flex;align-items:center;margin-bottom:14px;">
       <h3 style="margin:0;font-size:16px;">🗓 會議排程</h3>
@@ -7826,9 +7860,15 @@ async function v61RenderModal() {
         ${editing ? '<button id="v61-cancel-edit" style="padding:6px 14px;background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:4px;cursor:pointer;font-size:12px;">取消編輯</button>' : ''}
       </div>
     </div>
-    <div style="font-size:13px;font-weight:500;margin-bottom:6px;">會議清單（${sorted.length}）</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <span style="font-size:13px;font-weight:500;">會議清單</span>
+      <div class="v57-seg" style="margin-left:auto;">
+        <button onclick="v65SetMeetingTab('active')" class="${v65MeetingTab==='active'?'active':''}">進行中 (${mtgActive.length})</button>
+        <button onclick="v65SetMeetingTab('ended')" class="${v65MeetingTab==='ended'?'active':''}">已結束 (${mtgEnded.length})</button>
+      </div>
+    </div>
     <div>
-      ${sorted.length === 0 ? '<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">尚無會議</div>' :
+      ${sorted.length === 0 ? `<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">${v65MeetingTab==='ended'?'尚無已結束的會議':'目前沒有進行中/未來的會議'}</div>` :
         sorted.map(m => {
           const conflicts = v61ConflictsFor(m);
           const mine = ME && (m.host?.id === ME.id || (m.attendees||[]).some(a => a.staffId === ME.id));
@@ -7845,8 +7885,9 @@ async function v61RenderModal() {
                 ${(m.actionItems&&m.actionItems.length)?`<div style="color:#595959;margin-top:2px;">✅ 待辦 ${m.actionItems.filter(a=>a.done).length}/${m.actionItems.length}：${m.actionItems.slice(0,3).map(a=>escapeHtml(a.text)).join('、')}${m.actionItems.length>3?'…':''}</div>`:''}
                 ${conflicts.length?`<div style="color:#9A2E2E;margin-top:3px;">🚨 ${conflicts.map(escapeHtml).join('；')}</div>`:''}
               </div>
-              ${v61CanEdit(m)?`<div style="display:flex;gap:4px;flex-shrink:0;">
+              ${v61CanEdit(m)?`<div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;">
                 <button data-medit="${m.id}" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">編輯</button>
+                <button data-march="${m.id}" data-mav="${m.archived?'0':'1'}" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">${m.archived?'還原':'封存'}</button>
                 <button data-mdel="${m.id}" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:#9A2E2E;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">刪除</button>
               </div>`:''}
             </div>
@@ -7977,7 +8018,20 @@ async function v61RenderModal() {
     try { await api.meetings.respond(Number(b.dataset.mresp), b.dataset.r); showToast('✓ 已回覆出席'); await v61RenderModal(); }
     catch (e) { showToast('回覆失敗：' + (e.data?.message || e.message), 'err'); }
   });
+  modal.querySelectorAll('button[data-march]').forEach(b => b.onclick = async () => {
+    const val = b.dataset.mav === '1';
+    try {
+      await api.meetings.update(Number(b.dataset.march), { archived: val });
+      showToast(val ? '✓ 已封存（前台隱藏，資料保留）' : '✓ 已還原');
+      await v61RenderModal();
+      if (currentView === 'calendar' && typeof renderCalendar === 'function') renderCalendar();
+    } catch (e) { showToast('操作失敗：' + (e.data?.message || e.message), 'err'); }
+  });
 }
+// v6.5: 會議封存/已結束
+let v65MeetingTab = 'active';
+function v65MeetingEnded(m) { return !!m.archived || m.status === 'cancelled' || String(m.date).slice(0, 10) < ymdIso(TODAY); }
+window.v65SetMeetingTab = function(tab) { v65MeetingTab = tab; if (typeof v61RenderModal === 'function') v61RenderModal(); };
 // 開機載入會議
 const _v61OrigBootstrap = bootstrap;
 bootstrap = async function() {
@@ -8256,7 +8310,7 @@ function v57CollectEvents() {
   // 會議：單日，顯示起始時間
   if (v57Layers.meeting) {
     (MEETINGS || []).filter(meetingMine).forEach(m => {
-      if (m.status === 'cancelled') return;
+      if (m.status === 'cancelled' || m.archived) return;
       const cf = (typeof v61ConflictsFor === 'function' && v61ConflictsFor(m).length) ? ' 🚨' : '';
       add(v57Ymd(m.date), { kind:'meeting', color:V57_COLORS.meeting, label:`🗓 ${m.startTime} ${m.title}${cf}`, onClick:()=>v61OpenModal() });
     });
@@ -8271,7 +8325,7 @@ function v57CollectEvents() {
   // 假勤：休假 + 出差
   if (v57Layers.leave) {
     (VACATIONS || []).filter(v => nameMine(v.staff?.name)).forEach(v => v57EachDay(v.startDate, v.endDate, ds => add(ds, { kind:'leave', color:V57_COLORS.vacation, label:`🏖 ${v.staff?.name||''} ${VACATION_TYPE_LABEL[v.type]||''}`, onClick:()=>v40OpenAvailabilityModal() })));
-    (TRIPS || []).filter(t => nameMine(t.staff?.name)).forEach(t => v57EachDay(t.startDate, t.endDate, ds => add(ds, { kind:'leave', color:V57_COLORS.trip, label:`✈ ${t.staff?.name||''} 出差 ${t.hotel||''}`, onClick:()=>v40OpenAvailabilityModal() })));
+    (TRIPS || []).filter(t => nameMine(t.staff?.name) && !t.archived).forEach(t => v57EachDay(t.startDate, t.endDate, ds => add(ds, { kind:'leave', color:V57_COLORS.trip, label:`✈ ${t.staff?.name||''} 出差 ${t.hotel||''}`, onClick:()=>v40OpenAvailabilityModal() })));
   }
   return map;
 }

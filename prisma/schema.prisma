@@ -68,6 +68,7 @@ model BusinessTrip {
   hotel     String   // 出差館別
   task      String   // 任務說明
   note      String   @default("")
+  archived  Boolean  @default(false) // v6.5: 手動封存（過期自動視為已結束，此為額外手動收起）
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -112,6 +113,7 @@ model Meeting {
   actionItems   Json?                           // M2: 待辦 [{ text, owner, done }]
   remindMinutes Int      @default(0)             // M3: 會前提醒（分鐘，0=不提醒）
   remindedAt    DateTime?                        // M3: 已發送提醒時間
+  archived      Boolean  @default(false)         // v6.5: 手動封存（過期自動視為已結束）
   hostId      Int?                              // 主持人
   host        Staff?   @relation("meetingHost", fields: [hostId], references: [id])
   caseId      String?                           // 關聯案件（Case.id 為字串）

@@ -52,6 +52,7 @@ const createSchema = z.object({
   hostId: z.number().int().nullable().optional(),
   caseId: z.string().max(40).nullable().optional(),
   attendeeIds: z.array(z.number().int()).default([]),
+  archived: z.boolean().default(false), // v6.5: 手動封存/還原
   allowHoliday: z.boolean().default(false), // 明確確認後才允許排在假日/週末
   recurrence: z.object({
     freq: z.enum(['none', 'weekly', 'biweekly', 'monthly']).default('none'),
@@ -204,7 +205,7 @@ router.patch('/:id', async (req, res) => {
   }
 
   const data = {};
-  for (const k of ['title', 'agenda', 'date', 'startTime', 'endTime', 'location', 'type', 'status', 'note', 'minutes', 'actionItems', 'remindMinutes']) {
+  for (const k of ['title', 'agenda', 'date', 'startTime', 'endTime', 'location', 'type', 'status', 'note', 'minutes', 'actionItems', 'remindMinutes', 'archived']) {
     if (b[k] !== undefined) data[k] = b[k];
   }
   // 若改了時間，重置提醒旗標，讓提醒重新計算

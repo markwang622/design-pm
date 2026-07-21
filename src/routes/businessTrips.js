@@ -26,6 +26,7 @@ const updateSchema = z.object({
   hotel: z.string().min(1).optional(),
   task: z.string().min(1).optional(),
   note: z.string().optional(),
+  archived: z.boolean().optional(), // v6.5: 手動封存/還原
 });
 
 const include = {
