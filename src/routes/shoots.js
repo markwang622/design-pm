@@ -30,6 +30,7 @@ const updateSchema = z.object({
   photographer: z.string().max(120).optional(),
   hotel: z.string().max(60).optional().nullable(),
   note: z.string().max(500).optional(),
+  archived: z.boolean().optional(), // v6.6: 手動封存/還原
 });
 
 const include = {

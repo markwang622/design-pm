@@ -87,6 +87,7 @@ model Shoot {
   photographer String   @default("")       // 攝影師（自由文字，可填同事或外部工作室）
   hotel        String?                      // 拍攝地點 / 館別（選填）
   note         String   @default("")
+  archived     Boolean  @default(false)     // v6.6: 手動封存（過期自動視為已結束）
   createdById  Int?                         // 建立者（權限用）
   createdBy    Staff?   @relation("shootCreator", fields: [createdById], references: [id])
   createdAt    DateTime @default(now())

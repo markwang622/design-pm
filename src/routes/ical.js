@@ -71,8 +71,8 @@ router.get('/calendar.ics', async (req, res) => {
       prisma.case.findMany({ where: { archived: false }, select: { id: true, title: true, goLiveDate: true, designer: { select: { name: true } }, collaborators: { select: { name: true } } }, orderBy: { goLiveDate: 'asc' } }),
       prisma.shoot.findMany({ select: { id: true, desc: true, mode: true, startDate: true, endDate: true, photographer: true, createdBy: { select: { name: true } } } }),
       prisma.vacation.findMany({ include: { staff: { select: { name: true } } } }),
-      prisma.businessTrip.findMany({ where: { archived: false }, include: { staff: { select: { name: true } } } }),
-      prisma.meeting.findMany({ where: { status: { not: 'cancelled' }, archived: false }, select: { id: true, title: true, date: true, startTime: true, endTime: true, location: true, host: { select: { name: true } }, attendees: { select: { staff: { select: { name: true } } } } } }),
+      prisma.businessTrip.findMany({ include: { staff: { select: { name: true } } } }),
+      prisma.meeting.findMany({ where: { status: { not: 'cancelled' } }, select: { id: true, title: true, date: true, startTime: true, endTime: true, location: true, host: { select: { name: true } }, attendees: { select: { staff: { select: { name: true } } } } } }),
     ]);
 
     const events = [];

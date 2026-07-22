@@ -7502,6 +7502,10 @@ async function v55RenderModal() {
   const hotelOpts = '<option value="">（不指定地點）</option>' + (typeof HOTELS !== 'undefined' ? HOTELS : []).map(h => `<option value="${escapeHtml(h.name)}" ${editing && editing.hotel === h.name ? 'selected' : ''}>${escapeHtml(h.name)}</option>`).join('');
   // 依起始日排序（近→遠）
   const sorted = SHOOTS.slice().sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+  // v6.6: 進行中 / 已結束（過期或手動封存）分頁
+  const shootActive = sorted.filter(s => !v65ShootEnded(s));
+  const shootEnded = sorted.filter(s => v65ShootEnded(s));
+  const shootShown = v65ShootTab === 'ended' ? shootEnded : shootActive;
   modal.innerHTML = `
     <div style="display:flex;align-items:center;margin-bottom:14px;">
       <h3 style="margin:0;font-size:16px;">📷 拍攝行程</h3>
@@ -7526,19 +7530,27 @@ async function v55RenderModal() {
         ${editing ? '<button id="v55-cancel-edit" style="padding:6px 14px;background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:4px;cursor:pointer;font-size:12px;">取消編輯</button>' : ''}
       </div>
     </div>
-    <div style="font-size:13px;font-weight:500;margin-bottom:6px;">全部拍攝行程（${sorted.length}）</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <span style="font-size:13px;font-weight:500;">拍攝行程</span>
+      <div class="v57-seg" style="margin-left:auto;">
+        <button onclick="v65SetShootTab('active')" class="${v65ShootTab==='active'?'active':''}">進行中 (${shootActive.length})</button>
+        <button onclick="v65SetShootTab('ended')" class="${v65ShootTab==='ended'?'active':''}">已結束 (${shootEnded.length})</button>
+      </div>
+    </div>
     <div>
-      ${sorted.length === 0 ? '<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">尚無拍攝行程</div>' :
-        sorted.map(s => `
-          <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 6px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;flex-wrap:wrap;">
+      ${shootShown.length === 0 ? `<div style="color:#8C8C8C;font-size:12px;padding:8px 0;">${v65ShootTab==='ended'?'尚無已結束的拍攝':'目前沒有進行中/未來的拍攝'}</div>` :
+        shootShown.map(s => `
+          <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 6px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;flex-wrap:wrap;${v65ShootTab==='ended'?'opacity:.72;':''}">
             <span style="padding:2px 8px;background:${s.mode === 'outsource' ? '#FBE0D0' : '#D6EEFB'};color:${s.mode === 'outsource' ? '#8B4513' : '#1A6BAF'};border-radius:10px;min-width:52px;text-align:center;flex-shrink:0;">📷 ${V55_MODE_LABEL[s.mode] || s.mode}</span>
             <div style="flex:1;min-width:160px;">
               <div style="font-weight:500;color:var(--fg,#1F1F1F);">${escapeHtml(s.desc)}</div>
               <div style="color:var(--fg-dim,#595959);margin-top:2px;">${s.startDate.slice(0,10)} → ${s.endDate.slice(0,10)}${s.hotel ? ' · ' + escapeHtml(s.hotel) : ''}${s.photographer ? ' · 👤 ' + escapeHtml(s.photographer) : ''}</div>
               ${s.note ? `<div style="color:#8C8C8C;margin-top:2px;">${escapeHtml(s.note)}</div>` : ''}
             </div>
+            ${s.archived ? '<span style="color:#8C8C8C;font-size:11px;align-self:center;">已封存</span>' : ''}
             ${v55CanEdit(s) ? `
               <div style="display:flex;gap:4px;flex-shrink:0;">
+                <button data-sarch="${s.id}" data-sav="${s.archived?'0':'1'}" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">${s.archived?'還原':'封存'}</button>
                 <button data-sedit="${s.id}" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">編輯</button>
                 <button data-sdel="${s.id}" style="background:transparent;border:1px solid var(--input-border,#D4D4D4);color:#9A2E2E;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">刪除</button>
               </div>` : ''}
@@ -7576,7 +7588,21 @@ async function v55RenderModal() {
     try { await api.shoots.delete(Number(b.dataset.sdel)); showToast('✓ 已刪除'); await v55RenderModal(); if (currentView === 'gantt') renderGantt(); }
     catch (e) { showToast('刪除失敗：' + (e.data?.message || e.message), 'err'); }
   });
+  // v6.6: 封存 / 還原（資料保留，只從其他頁籤收起；行事曆仍顯示）
+  modal.querySelectorAll('button[data-sarch]').forEach(b => b.onclick = async () => {
+    const val = b.dataset.sav === '1';
+    try {
+      await api.shoots.update(Number(b.dataset.sarch), { archived: val });
+      showToast(val ? '✓ 已封存（行事曆仍保留）' : '✓ 已還原');
+      await v55RenderModal();
+      if (currentView === 'gantt') renderGantt();
+    } catch (e) { showToast('操作失敗：' + (e.data?.message || e.message), 'err'); }
+  });
 }
+// v6.6: 拍攝「進行中 / 已結束」分頁狀態
+let v65ShootTab = 'active';
+function v65ShootEnded(s) { return !!s.archived || String(s.endDate).slice(0, 10) < ymdIso(TODAY); }
+window.v65SetShootTab = function(tab) { v65ShootTab = tab; if (typeof v55RenderModal === 'function') v55RenderModal(); };
 // 甘特圖上方「拍攝行程」區塊（未來 60 天）
 function v55RenderGanttShoots() {
   const ganttView = document.querySelector('div.view[data-view="gantt"]');
@@ -7584,6 +7610,7 @@ function v55RenderGanttShoots() {
   const today = new Date(); today.setHours(0,0,0,0);
   const horizon = new Date(today.getTime() + 60 * 24 * 3600 * 1000);
   const active = SHOOTS.filter(s => {
+    if (s.archived) return false; // v6.6: 封存的不出現在甘特行程條（行事曆仍顯示）
     const st = new Date(s.startDate); st.setHours(0,0,0,0);
     const en = new Date(s.endDate); en.setHours(0,0,0,0);
     return st <= horizon && en >= today;
@@ -8310,7 +8337,7 @@ function v57CollectEvents() {
   // 會議：單日，顯示起始時間
   if (v57Layers.meeting) {
     (MEETINGS || []).filter(meetingMine).forEach(m => {
-      if (m.status === 'cancelled' || m.archived) return;
+      if (m.status === 'cancelled') return; // v6.6: 封存的仍在行事曆顯示（歷史紀錄），只從其他頁籤收起
       const cf = (typeof v61ConflictsFor === 'function' && v61ConflictsFor(m).length) ? ' 🚨' : '';
       add(v57Ymd(m.date), { kind:'meeting', color:V57_COLORS.meeting, label:`🗓 ${m.startTime} ${m.title}${cf}`, onClick:()=>v61OpenModal() });
     });
@@ -8325,7 +8352,7 @@ function v57CollectEvents() {
   // 假勤：休假 + 出差
   if (v57Layers.leave) {
     (VACATIONS || []).filter(v => nameMine(v.staff?.name)).forEach(v => v57EachDay(v.startDate, v.endDate, ds => add(ds, { kind:'leave', color:V57_COLORS.vacation, label:`🏖 ${v.staff?.name||''} ${VACATION_TYPE_LABEL[v.type]||''}`, onClick:()=>v40OpenAvailabilityModal() })));
-    (TRIPS || []).filter(t => nameMine(t.staff?.name) && !t.archived).forEach(t => v57EachDay(t.startDate, t.endDate, ds => add(ds, { kind:'leave', color:V57_COLORS.trip, label:`✈ ${t.staff?.name||''} 出差 ${t.hotel||''}`, onClick:()=>v40OpenAvailabilityModal() })));
+    (TRIPS || []).filter(t => nameMine(t.staff?.name)).forEach(t => v57EachDay(t.startDate, t.endDate, ds => add(ds, { kind:'leave', color:V57_COLORS.trip, label:`✈ ${t.staff?.name||''} 出差 ${t.hotel||''}`, onClick:()=>v40OpenAvailabilityModal() })));
   }
   return map;
 }
