@@ -11,6 +11,7 @@
     "migrate:dev": "prisma migrate dev",
     "generate": "prisma generate",
     "seed": "node prisma/seed.js",
+  "demo-seed": "node prisma/demo-seed.js",
     "postinstall": "prisma generate",
     "prebuild": "prisma generate",
     "build": "echo \"no-op build (Prisma client generated via postinstall)\""
