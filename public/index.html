@@ -9364,6 +9364,22 @@ function v69InRange(c) {
   if (v69Range === 'year') return new Date(ref).getFullYear() === TODAY.getFullYear();
   return (TODAY - new Date(ref)) / V69_DAY <= 90; // 近 90 天
 }
+// v7.0: 逾期責任歸屬——依案件「當下狀態」判斷球在誰手上
+//   設計部：尚未開始 / 進行中          → 我們自己要追
+//   等外部：等待中 / 確稿中 / 送印中    → 需求端或廠商未回
+//   等主管：確稿完成（待 admin 審核）   → 主管自己要簽
+const V70_BLAME = {
+  todo: 'design', doing: 'design',
+  wait: 'external', review: 'external', print: 'external',
+  review_done: 'manager',
+};
+const V70_BLAME_META = {
+  design:   { label: '🎨 設計部處理中', color: '#1A6BAF', note: '球在設計部，需追進度或重新排程' },
+  external: { label: '⏸ 等外部回覆',    color: '#8A6D1B', note: '等需求端確稿／回覆，或等印刷廠' },
+  manager:  { label: '👤 等主管審核',    color: '#6B3FA0', note: '已送審，等主管在審核中心通過' },
+};
+const v70BlameOf = (c) => V70_BLAME[c.status] || 'design';
+
 function v69Median(arr) {
   if (!arr.length) return null;
   const s = arr.slice().sort((a, b) => a - b);
@@ -9375,13 +9391,17 @@ function v69Aggregate(cases) {
   const by = {};
   cases.forEach(c => {
     const u = c.unit || '（未填）';
-    if (!by[u]) by[u] = { unit: u, n: 0, open: 0, overdue: 0, urgent: 0, cycles: [], revise: 0, blocked: 0, scope: 0 };
+    if (!by[u]) by[u] = { unit: u, n: 0, open: 0, overdue: 0, urgent: 0, cycles: [], revise: 0, blocked: 0, scope: 0, odDesign: 0, odExternal: 0, odManager: 0 };
     const g = by[u];
     g.n++;
     const isClosed = FINAL_STATUS_KEYS.has(c.status) || c.archived;
     if (!isClosed) {
       g.open++;
-      if (c.goLive && new Date(c.goLive) < TODAY) g.overdue++;
+      if (c.goLive && new Date(c.goLive) < TODAY) {
+        g.overdue++;
+        const b = v70BlameOf(c); // v7.0 責任歸屬
+        if (b === 'design') g.odDesign++; else if (b === 'external') g.odExternal++; else g.odManager++;
+      }
     }
     if (c.urgent) g.urgent++;
     if (c.closedOn && c.dispatch) {
@@ -9425,6 +9445,7 @@ function v69EnsureView() {
       <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-bottom:12px;">
         逾期率＝未結案且已過上線日 ÷ 進行中案件。交付天數＝派發日→結案日中位數。高於部門平均者標紅。
         <br>樣本不足者（進行中 &lt; 3 件、已結案 &lt; 3 件）不標紅，交付天數後加 <b>*</b> 表示樣本少、僅供參考。
+        <br>逾期欄的 <span style="color:#8A6D1B;">(N 外)</span> ＝其中 N 件卡在需求端／廠商（確稿中·等待中·送印中），不是設計部沒做。
       </div>
       <div id="v69-body">載入中…</div>`;
   }
@@ -9454,6 +9475,12 @@ async function renderRequesterAnalytics() {
   const allCycles = [].concat(...rows.map(r => r.cycles));
   const deptCycle = v69Median(allCycles);
   const totalRevise = rows.reduce((s, r) => s + r.revise, 0);
+
+  // v7.0: 逾期案件依責任歸屬分組
+  const odCases = cases.filter(c => !(FINAL_STATUS_KEYS.has(c.status) || c.archived) && c.goLive && new Date(c.goLive) < TODAY);
+  const blame = { design: [], external: [], manager: [] };
+  odCases.forEach(c => blame[v70BlameOf(c)].push(c));
+  Object.keys(blame).forEach(k => blame[k].sort((a, b) => new Date(a.goLive) - new Date(b.goLive)));
 
   const pct = (x) => (x * 100).toFixed(0) + '%';
   const cell = (v, bad) => `<td style="padding:7px 8px;text-align:right;${bad ? 'color:#C0392B;font-weight:600;' : ''}">${v}</td>`;
@@ -9489,7 +9516,7 @@ async function renderRequesterAnalytics() {
             <td style="padding:7px 8px;font-weight:600;color:var(--fg,#1F1F1F);">${escapeHtml(r.unit)}</td>
             ${cell(r.n)}
             ${cell(r.open)}
-            ${cell(r.overdue)}
+            ${cell(r.overdue ? `${r.overdue}${r.odExternal ? ` <span style="color:#8A6D1B;font-size:10px;font-weight:400;">(${r.odExternal} 外)</span>` : ''}` : 0)}
             ${cell(r.open ? pct(r.overdueRate) : '—', r.open >= 3 && r.overdueRate > deptOverdueRate)}
             ${cell(r.urgent)}
             ${cell(r.medianCycle != null ? (r.cycles.length < 3 ? r.medianCycle + '<span style="color:#8C8C8C;font-weight:400;font-size:10px;">*</span>' : r.medianCycle) : '—',
@@ -9499,8 +9526,27 @@ async function renderRequesterAnalytics() {
       </tbody>
     </table>
     </div>
+    ${odCases.length ? `
+      <div style="margin-top:22px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px;">⏱ 逾期責任歸屬（${odCases.length} 件逾期）</div>
+        <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-bottom:10px;">
+          依案件「當下狀態」判斷球在誰手上。這是回答「逾期是誰的責任」最直接的依據。
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+          ${['design', 'external', 'manager'].map(k => {
+            const m = V70_BLAME_META[k], n = blame[k].length;
+            const p = odCases.length ? Math.round(n / odCases.length * 100) : 0;
+            return `<div class="v70-blame" data-blame="${k}" style="flex:1;min-width:190px;border:1px solid ${n ? m.color : 'var(--card-border,#E5E5E5)'};border-radius:8px;padding:10px 12px;cursor:${n ? 'pointer' : 'default'};opacity:${n ? 1 : .55};">
+              <div style="font-size:12px;color:${m.color};font-weight:600;">${m.label}</div>
+              <div style="font-size:24px;font-weight:500;margin:2px 0;">${n} <span style="font-size:12px;color:var(--fg-muted,#8C8C8C);font-weight:400;">件 · ${p}%</span></div>
+              <div style="font-size:10px;color:var(--fg-muted,#8C8C8C);line-height:1.5;">${m.note}</div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div id="v70-blame-list"></div>
+      </div>` : ''}
     ${outliers.length ? `
-      <div style="margin-top:20px;">
+      <div style="margin-top:22px;">
         <div style="font-size:13px;font-weight:600;margin-bottom:4px;">⚠ 異常長週期案件（超過中位數 3 倍＝${deptCycle * 3} 天）</div>
         <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-bottom:8px;">這類案件多半卡在等待外部回覆，值得逐案檢視卡點。</div>
         ${outliers.map(c => {
@@ -9518,6 +9564,31 @@ async function renderRequesterAnalytics() {
   `;
   body.querySelectorAll('.v69-out').forEach(el => el.onclick = () => openDrawerById(el.dataset.id));
   body.querySelectorAll('.v69-row').forEach(el => el.onclick = () => v69ShowUnit(el.dataset.unit));
+  // v7.0: 點責任卡片 → 展開該組逾期案件
+  let v70Open = null;
+  body.querySelectorAll('.v70-blame').forEach(el => el.onclick = () => {
+    const k = el.dataset.blame;
+    if (!blame[k].length) return;
+    v70Open = (v70Open === k) ? null : k;
+    const list = document.getElementById('v70-blame-list');
+    if (!list) return;
+    if (!v70Open) { list.innerHTML = ''; return; }
+    const m = V70_BLAME_META[k];
+    list.innerHTML = `<div style="font-size:11px;color:${m.color};font-weight:600;margin:6px 0 4px;">${m.label}（${blame[k].length} 件）</div>` +
+      blame[k].map(c => {
+        const d = Math.round((TODAY - new Date(c.goLive)) / V69_DAY);
+        return `<div class="v70-crow" data-id="${escapeHtml(c.id)}" style="display:flex;gap:10px;align-items:center;padding:7px 8px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;cursor:pointer;">
+          <span style="background:#FCEBEB;color:#A32D2D;border:1px solid #F09595;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">逾期 ${d} 天</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;">${escapeHtml(c.name)} <span style="color:#8C8C8C;font-weight:400;font-size:11px;">${escapeHtml(c.id)}</span></div>
+            <div style="color:var(--fg-dim,#595959);margin-top:2px;">${escapeHtml(c.unit || '—')} · ${escapeHtml(c.designer)} · ${(STATUSES.find(s => s.key === c.status) || {}).name || c.status}${c.urgent ? ' · <span style="color:#C0392B;">急件</span>' : ''}</div>
+          </div>
+          <span style="color:#8C8C8C;flex-shrink:0;">開啟 ›</span>
+        </div>`;
+      }).join('');
+    list.querySelectorAll('.v70-crow').forEach(r => r.onclick = () => openDrawerById(r.dataset.id));
+    list.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
 }
 // 點單位 → 列出該單位案件
 function v69ShowUnit(unit) {
