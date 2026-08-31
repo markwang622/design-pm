@@ -1380,7 +1380,14 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
     <div class="log-timeline" id="d-timeline"></div>
     <div class="log-add">
       <textarea id="d-log-input" placeholder="更新今日進度（例如：2 版提案送執辦、已收客戶回饋、等文案）"></textarea>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+      <!-- v6.8: 事件標籤（必選，供管理分析累計改稿次數/卡關時間） -->
+      <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-top:8px;">這筆進度是？ <span style="color:#C0392B;">*</span></div>
+      <div id="d-log-tags" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;"></div>
+      <div id="d-log-tagby-wrap" style="display:none;margin-top:6px;">
+        <span style="font-size:11px;color:var(--fg-muted,#8C8C8C);">誰要求的？ <span style="color:#C0392B;">*</span></span>
+        <div id="d-log-tagby" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;"></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
         <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);">日期</label>
         <input type="date" id="d-log-date" style="padding:5px 8px;font-size:12px;">
         <button class="submit" id="d-log-submit" style="margin-left:auto;">送出</button>
@@ -3638,11 +3645,64 @@ function v51CanEditLogs(c) {
   const me = ME_NAME();
   return c.designer === me || (c.collaborators || []).includes(me);
 }
+// ═══ v6.8 進度日誌事件標籤（必選）═══════════════════════════
+// 目的：不增加額外表單負擔的前提下，累計「改稿次數 / 卡關時間 / 需求變更」
+// 等管理指標。標籤是「事件」（可重複累計），與案件「狀態」（單一）不同。
+const V68_LOG_TAGS = [
+  { key: 'propose',  label: '📤 提案／送審', color: '#1A6BAF' },
+  { key: 'revise',   label: '✏️ 改稿',       color: '#C8584A', needsBy: true },
+  { key: 'scope',    label: '⚠️ 需求變更',   color: '#B5703F' },
+  { key: 'blocked',  label: '⏸ 等待中',      color: '#8A6D1B' },
+  { key: 'approved', label: '✅ 確稿／核可',  color: '#1F8A4C' },
+  { key: 'vendor',   label: '📦 發包／報價',  color: '#6B3FA0' },
+  { key: 'done',     label: '🏁 完成／交付',  color: '#2BA8C4' },
+  { key: 'other',    label: '其他',          color: '#8C8C8C' },
+];
+const V68_REVISE_BY = ['需求單位', '主管', '客戶', '設計內部'];
+const v68Tag = (k) => V68_LOG_TAGS.find(t => t.key === k) || null;
+let v68SelTag = null, v68SelBy = null;
+
+function v68ChipHtml(label, color, active, attr) {
+  return `<button type="button" ${attr} style="padding:3px 9px;font-size:11px;border-radius:12px;cursor:pointer;
+    border:1px solid ${active ? color : 'var(--input-border,#D4D4D4)'};
+    background:${active ? color : 'transparent'};
+    color:${active ? '#fff' : 'var(--fg,#1F1F1F)'};">${label}</button>`;
+}
+function v68RenderTagPicker() {
+  const box = document.getElementById('d-log-tags');
+  if (!box) return;
+  box.innerHTML = V68_LOG_TAGS.map(t => v68ChipHtml(t.label, t.color, v68SelTag === t.key, `data-ltag="${t.key}"`)).join('');
+  box.querySelectorAll('[data-ltag]').forEach(b => b.onclick = () => {
+    v68SelTag = b.dataset.ltag;
+    if (!v68Tag(v68SelTag)?.needsBy) v68SelBy = null;
+    v68RenderTagPicker();
+  });
+  // 改稿 → 追問「誰要求的」（這一個點選才讓資料可用於對外溝通）
+  const wrap = document.getElementById('d-log-tagby-wrap');
+  const byBox = document.getElementById('d-log-tagby');
+  if (!wrap || !byBox) return;
+  if (v68Tag(v68SelTag)?.needsBy) {
+    wrap.style.display = '';
+    byBox.innerHTML = V68_REVISE_BY.map(n => v68ChipHtml(n, '#C8584A', v68SelBy === n, `data-lby="${escapeHtml(n)}"`)).join('');
+    byBox.querySelectorAll('[data-lby]').forEach(b => b.onclick = () => { v68SelBy = b.dataset.lby; v68RenderTagPicker(); });
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+function v68TagChip(l) {
+  const t = v68Tag(l.tag);
+  if (!t) return '';
+  const by = l.tagBy ? `·${escapeHtml(l.tagBy)}` : '';
+  return `<span style="display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;background:${t.color};color:#fff;margin-right:6px;">${t.label}${by}</span>`;
+}
+
 function v51LogsForApi(logs) {
   return (logs || []).map(l => ({
     date: l.date ? (l.date instanceof Date ? ymdIso(l.date) : String(l.date)) : ymdIso(TODAY),
     note: l.note,
     by: l.by || '',
+    ...(l.tag ? { tag: l.tag } : {}),      // v6.8
+    ...(l.tagBy ? { tagBy: l.tagBy } : {}),
   }));
 }
 function v51RenderLogs(c) {
@@ -3655,7 +3715,7 @@ function v51RenderLogs(c) {
     <div class="log-item" style="display:flex;gap:8px;align-items:flex-start;">
       <div style="flex:1;min-width:0;">
         <div class="log-date">${ymd(l.date)} · ${escapeHtml(l.by || '')}</div>
-        <div class="log-note">${escapeHtml(l.note)}</div>
+        <div class="log-note">${v68TagChip(l)}${escapeHtml(l.note)}</div>
       </div>
       ${canEdit ? `<div style="display:flex;gap:4px;flex-shrink:0;">
         <button data-logedit="${i}" title="編輯" style="${btnStyle}font-size:11px;color:var(--fg-muted,#8C8C8C);">✎</button>
@@ -3681,6 +3741,8 @@ function v51RenderLogs(c) {
 }
 function v51WireLogs(c) {
   v51RenderLogs(c);
+  v68SelTag = null; v68SelBy = null; // v6.8: 每次開案件重置標籤選擇
+  v68RenderTagPicker();
   const btn = document.getElementById('d-log-submit');
   if (!btn) return;
   const dateInput = document.getElementById('d-log-date');
@@ -3688,8 +3750,11 @@ function v51WireLogs(c) {
   btn.onclick = async () => {
     const ta = document.getElementById('d-log-input');
     const txt = (ta && ta.value || '').trim(); if (!txt) return;
+    // v6.8: 標籤必選（有「其他」作為逃生口，不會卡住任何人）
+    if (!v68SelTag) { showToast('請選擇這筆進度的類型（可選「其他」）', 'err'); return; }
+    if (v68Tag(v68SelTag)?.needsBy && !v68SelBy) { showToast('改稿請選擇「誰要求的」', 'err'); return; }
     const logDate = (dateInput && dateInput.value) ? new Date(dateInput.value) : new Date(TODAY); // H1
-    const entry = { date: logDate, note: txt, by: ME_NAME() };
+    const entry = { date: logDate, note: txt, by: ME_NAME(), tag: v68SelTag, ...(v68SelBy ? { tagBy: v68SelBy } : {}) };
     btn.disabled = true;
     try {
       // 保險：先抓 DB 最新日誌再合併，避免多人/多處同時編輯時覆蓋彼此的日誌（永久保留）
@@ -3699,6 +3764,7 @@ function v51WireLogs(c) {
       await api.cases.patchLogs(c.id, { logs: v51LogsForApi(merged) });
       c.logs = merged.map(l => ({ ...l, date: (l.date instanceof Date) ? l.date : (l.date ? new Date(l.date) : new Date(TODAY)) }));
       if (ta) ta.value = '';
+      v68SelTag = null; v68SelBy = null; v68RenderTagPicker(); // v6.8: 送出後重置標籤
       v51RenderLogs(c);
     } catch (e) {
       showToast('進度日誌儲存失敗：' + (e.data?.message || e.message), 'err');

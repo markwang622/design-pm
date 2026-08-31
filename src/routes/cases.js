@@ -760,6 +760,9 @@ const logsPatchSchema = z.object({
     date: z.string().optional(),
     note: z.string().min(1).max(2000),
     by: z.string().optional(),
+    // v6.8: 事件標籤（改稿/需求變更/等待中…）+ 改稿來源，供管理分析累計
+    tag: z.string().max(20).optional(),
+    tagBy: z.string().max(20).optional(),
   })).max(500),
 });
 router.patch('/:id/logs', async (req, res) => {
