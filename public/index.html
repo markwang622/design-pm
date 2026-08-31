@@ -9341,6 +9341,237 @@ function v48InitColorPicker(target) {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v6.9 需求單位分析（admin）▼▼▼
+// 全部使用「系統自動累積」的欄位（需求單位/派發日/上線日/結案日/急件），
+// 不需要任何人多填欄位，因此今天就有 100+ 件可分析。
+// 改稿次數欄位讀 v6.8 日誌標籤，資料會隨時間累積。
+// ═══════════════════════════════════════════════════════════════
+let v69Range = 'all';           // all | year | q
+let v69AllCases = null;         // 含封存的完整案件（分析用）
+const V69_DAY = 86400000;
+
+async function v69LoadAll() {
+  if (v69AllCases) return v69AllCases;
+  const raw = await api.cases.listArchived();
+  v69AllCases = raw.map(normalizeCase);
+  return v69AllCases;
+}
+function v69InRange(c) {
+  if (v69Range === 'all') return true;
+  const ref = c.dispatch || c.open;
+  if (!ref) return false;
+  if (v69Range === 'year') return new Date(ref).getFullYear() === TODAY.getFullYear();
+  return (TODAY - new Date(ref)) / V69_DAY <= 90; // 近 90 天
+}
+function v69Median(arr) {
+  if (!arr.length) return null;
+  const s = arr.slice().sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+}
+// 依需求單位彙整
+function v69Aggregate(cases) {
+  const by = {};
+  cases.forEach(c => {
+    const u = c.unit || '（未填）';
+    if (!by[u]) by[u] = { unit: u, n: 0, open: 0, overdue: 0, urgent: 0, cycles: [], revise: 0, blocked: 0, scope: 0 };
+    const g = by[u];
+    g.n++;
+    const isClosed = FINAL_STATUS_KEYS.has(c.status) || c.archived;
+    if (!isClosed) {
+      g.open++;
+      if (c.goLive && new Date(c.goLive) < TODAY) g.overdue++;
+    }
+    if (c.urgent) g.urgent++;
+    if (c.closedOn && c.dispatch) {
+      const d = Math.round((new Date(c.closedOn) - new Date(c.dispatch)) / V69_DAY);
+      if (d >= 0) g.cycles.push(d);
+    }
+    // v6.8 日誌標籤累計
+    (c.logs || []).forEach(l => {
+      if (l.tag === 'revise') g.revise++;
+      else if (l.tag === 'blocked') g.blocked++;
+      else if (l.tag === 'scope') g.scope++;
+    });
+  });
+  return Object.values(by).map(g => ({
+    ...g,
+    overdueRate: g.open ? g.overdue / g.open : 0,
+    medianCycle: v69Median(g.cycles),
+    revisePerCase: g.n ? g.revise / g.n : 0,
+  })).sort((a, b) => b.n - a.n);
+}
+function v69EnsureView() {
+  const main = document.querySelector('.main');
+  const all = document.querySelectorAll('div.view[data-view="requester"]');
+  for (let i = 1; i < all.length; i++) all[i].remove();
+  let container = all[0] || null;
+  if (container && main && container.parentNode !== main) main.appendChild(container);
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'view';
+    container.dataset.view = 'requester';
+    (main || document.body).appendChild(container);
+  }
+  if (!container.querySelector('#v69-body')) {
+    container.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+        <h2 style="margin:0;font-size:20px;">📊 需求單位分析</h2>
+        <div class="v57-seg" id="v69-range" style="margin-left:auto;">
+          <button data-r="all">全部</button><button data-r="year">今年</button><button data-r="q">近 90 天</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-bottom:12px;">
+        逾期率＝未結案且已過上線日 ÷ 進行中案件。交付天數＝派發日→結案日中位數。高於部門平均者標紅。
+      </div>
+      <div id="v69-body">載入中…</div>`;
+  }
+  return container;
+}
+async function renderRequesterAnalytics() {
+  v69EnsureView();
+  const body = document.getElementById('v69-body');
+  if (!body) return;
+  // 範圍鈕
+  document.querySelectorAll('#v69-range [data-r]').forEach(b => {
+    b.classList.toggle('active', b.dataset.r === v69Range);
+    b.onclick = () => { v69Range = b.dataset.r; renderRequesterAnalytics(); };
+  });
+  let all;
+  try { all = await v69LoadAll(); }
+  catch (e) { body.innerHTML = '<div style="color:#C0392B;font-size:13px;">載入失敗：' + escapeHtml(e.message || '') + '</div>'; return; }
+
+  const cases = all.filter(v69InRange);
+  const rows = v69Aggregate(cases);
+  if (!rows.length) { body.innerHTML = '<div style="color:#8C8C8C;font-size:13px;padding:10px 0;">此期間沒有案件</div>'; return; }
+
+  // 部門基準
+  const totalOpen = rows.reduce((s, r) => s + r.open, 0);
+  const totalOverdue = rows.reduce((s, r) => s + r.overdue, 0);
+  const deptOverdueRate = totalOpen ? totalOverdue / totalOpen : 0;
+  const allCycles = [].concat(...rows.map(r => r.cycles));
+  const deptCycle = v69Median(allCycles);
+  const totalRevise = rows.reduce((s, r) => s + r.revise, 0);
+
+  const pct = (x) => (x * 100).toFixed(0) + '%';
+  const cell = (v, bad) => `<td style="padding:7px 8px;text-align:right;${bad ? 'color:#C0392B;font-weight:600;' : ''}">${v}</td>`;
+
+  // 異常案件：交付天數 > 部門中位數 3 倍
+  const outliers = deptCycle ? cases.filter(c => {
+    if (!c.closedOn || !c.dispatch) return false;
+    return (new Date(c.closedOn) - new Date(c.dispatch)) / V69_DAY > deptCycle * 3;
+  }).sort((a, b) => (new Date(b.closedOn) - new Date(b.dispatch)) - (new Date(a.closedOn) - new Date(a.dispatch))).slice(0, 8) : [];
+
+  body.innerHTML = `
+    <div class="kpi-row" style="margin-bottom:14px;">
+      <div class="kpi"><div class="label">分析案件數</div><div class="value">${cases.length}</div><div class="sub">${rows.length} 個需求單位</div></div>
+      <div class="kpi"><div class="label">部門逾期率</div><div class="value">${pct(deptOverdueRate)}</div><div class="sub">${totalOverdue} / ${totalOpen} 進行中</div></div>
+      <div class="kpi"><div class="label">交付天數中位數</div><div class="value">${deptCycle ?? '—'}</div><div class="sub">派發 → 結案（${allCycles.length} 件已結案）</div></div>
+      <div class="kpi"><div class="label">改稿記錄</div><div class="value">${totalRevise}</div><div class="sub">${totalRevise ? '來自進度日誌標籤' : '待日誌標籤累積'}</div></div>
+    </div>
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px;">
+      <thead><tr style="border-bottom:1px solid var(--card-border,#E5E5E5);color:var(--fg-muted,#8C8C8C);">
+        <th style="padding:7px 8px;text-align:left;">需求單位</th>
+        <th style="padding:7px 8px;text-align:right;">案件數</th>
+        <th style="padding:7px 8px;text-align:right;">進行中</th>
+        <th style="padding:7px 8px;text-align:right;">逾期</th>
+        <th style="padding:7px 8px;text-align:right;">逾期率</th>
+        <th style="padding:7px 8px;text-align:right;">急件</th>
+        <th style="padding:7px 8px;text-align:right;">交付天數</th>
+        <th style="padding:7px 8px;text-align:right;">改稿/案</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr class="v69-row" data-unit="${escapeHtml(r.unit)}" style="border-bottom:1px solid var(--section-divider,#F0F0F0);cursor:pointer;">
+            <td style="padding:7px 8px;font-weight:600;color:var(--fg,#1F1F1F);">${escapeHtml(r.unit)}</td>
+            ${cell(r.n)}
+            ${cell(r.open)}
+            ${cell(r.overdue)}
+            ${cell(r.open ? pct(r.overdueRate) : '—', r.open >= 3 && r.overdueRate > deptOverdueRate)}
+            ${cell(r.urgent)}
+            ${cell(r.medianCycle ?? '—', r.medianCycle != null && deptCycle != null && r.medianCycle > deptCycle)}
+            ${cell(r.revise ? r.revisePerCase.toFixed(1) : '—', r.revise > 0 && r.revisePerCase > 2)}
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>
+    ${outliers.length ? `
+      <div style="margin-top:20px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px;">⚠ 異常長週期案件（超過中位數 3 倍＝${deptCycle * 3} 天）</div>
+        <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-bottom:8px;">這類案件多半卡在等待外部回覆，值得逐案檢視卡點。</div>
+        ${outliers.map(c => {
+          const d = Math.round((new Date(c.closedOn) - new Date(c.dispatch)) / V69_DAY);
+          return `<div class="v69-out" data-id="${escapeHtml(c.id)}" style="display:flex;gap:10px;align-items:center;padding:7px 8px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;cursor:pointer;">
+            <span style="background:#FCEBEB;color:#A32D2D;border:1px solid #F09595;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">${d} 天</span>
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:600;">${escapeHtml(c.name)} <span style="color:#8C8C8C;font-weight:400;font-size:11px;">${escapeHtml(c.id)}</span></div>
+              <div style="color:var(--fg-dim,#595959);margin-top:2px;">${escapeHtml(c.unit || '—')} · ${escapeHtml(c.designer)} · 派發 ${md(c.dispatch)} → 結案 ${md(new Date(c.closedOn))}</div>
+            </div>
+            <span style="color:#8C8C8C;flex-shrink:0;">開啟 ›</span>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+  `;
+  body.querySelectorAll('.v69-out').forEach(el => el.onclick = () => openDrawerById(el.dataset.id));
+  body.querySelectorAll('.v69-row').forEach(el => el.onclick = () => v69ShowUnit(el.dataset.unit));
+}
+// 點單位 → 列出該單位案件
+function v69ShowUnit(unit) {
+  const items = (v69AllCases || []).filter(v69InRange).filter(c => (c.unit || '（未填）') === unit)
+    .sort((a, b) => new Date(b.goLive) - new Date(a.goLive));
+  let bg = document.getElementById('v62-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id = 'v62-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '85'; document.body.appendChild(bg); }
+  let modal = document.getElementById('v62-modal');
+  if (!modal) {
+    modal = document.createElement('div'); modal.id = 'v62-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(640px,94%);max-height:84vh;overflow-y:auto;z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);';
+    document.body.appendChild(modal);
+  }
+  bg.classList.add('open'); modal.style.display = 'block';
+  const close = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
+  bg.onclick = close;
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:12px;">
+      <h3 style="margin:0;font-size:16px;">${escapeHtml(unit)}（${items.length} 件）</h3>
+      <button id="v69-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    ${items.map(c => {
+      const closed = FINAL_STATUS_KEYS.has(c.status) || c.archived;
+      const od = !closed && c.goLive && new Date(c.goLive) < TODAY;
+      return `<div class="v69-crow" data-id="${escapeHtml(c.id)}" style="display:flex;gap:10px;align-items:center;padding:8px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;cursor:pointer;">
+        <span style="flex-shrink:0;padding:2px 8px;border-radius:10px;font-size:10px;background:${od ? '#FCEBEB' : closed ? '#E4F3DD' : '#EEF2F6'};color:${od ? '#A32D2D' : closed ? '#3A6E2A' : '#2B4A66'};">${od ? '逾期' : closed ? '已結案' : '進行中'}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;">${escapeHtml(c.name)} <span style="color:#8C8C8C;font-weight:400;font-size:11px;">${escapeHtml(c.id)}</span></div>
+          <div style="color:var(--fg-dim,#595959);margin-top:2px;">${escapeHtml(c.designer)} · 上線 ${md(c.goLive)}${c.urgent ? ' · <span style="color:#C0392B;">急件</span>' : ''}</div>
+        </div>
+      </div>`;
+    }).join('') || '<div style="color:#8C8C8C;font-size:12px;">無案件</div>'}
+  `;
+  document.getElementById('v69-close').onclick = close;
+  modal.querySelectorAll('.v69-crow').forEach(el => el.onclick = () => { close(); openDrawerById(el.dataset.id); });
+}
+NAV_DEF.admin.push({ key: 'requester', label: '需求分析' });
+const _v69OrigSwitchView = window.switchView;
+window.switchView = function(v) {
+  if (v === 'requester') {
+    v69EnsureView();
+    currentView = 'requester';
+    document.querySelectorAll('div.view').forEach(x => x.classList.toggle('active', x.dataset.view === 'requester'));
+    renderNav();
+    v69AllCases = null; // 每次進入重抓最新
+    renderRequesterAnalytics();
+    return;
+  }
+  return _v69OrigSwitchView.apply(this, arguments);
+};
+const _v69OrigBootstrap = bootstrap;
+bootstrap = async function() {
+  await _v69OrigBootstrap();
+  try { if (ME && ME.role === 'admin') renderNav(); } catch (e) {}
+};
+
 // ═══ GO ═══════════════════════════════════════════════════════
 bootstrap();
 </script>
