@@ -56,7 +56,7 @@ const updateSchema = z.object({
   category: z.string().optional(),
   // v3.6: three-stage close — review → review_done → closed
   // 'done' kept for backward compat with v3.3/v3.4 data; treated like 'closed'
-  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'print', 'done', 'closed']).optional(),
+  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'print', 'done', 'closed', 'cancelled']).optional(),
   designerId: z.number().int().optional(),
   collaboratorIds: z.array(z.number().int()).max(3).optional(),
   openDate: dateStr.optional(),
@@ -90,7 +90,7 @@ const bulkRowSchema = z.object({
   category: z.string().optional(),
   designerName: z.string().min(1),
   collaboratorNames: z.array(z.string()).default([]),
-  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'print', 'done', 'closed']).default('todo'),
+  status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'print', 'done', 'closed', 'cancelled']).default('todo'),
   urgent: z.boolean().default(false),
   note: z.string().default(''),
   // Dates — accept YYYY-MM-DD strings; convert later
@@ -645,6 +645,73 @@ router.post('/:id/archive', requireAdmin, async (req, res) => {
     data: { archived: true },
     include: caseInclude,
   });
+  res.json(updated);
+});
+
+// ─── POST /api/cases/:id/cancel — 專案取消 (v7.1) ──────────
+// 取消 ≠ 結案：沒有交付，不得計入達成率/結案數/交付天數。
+// 記錄「取消當下的階段」以評估白工程度（愈後期取消愈貴）。
+// 權限：主負責人或 admin。自動封存（從看板/行事曆收起，仍可在歷史查到）。
+const CANCEL_REASONS = ['需求方取消', '活動/檔期取消', '預算未過', '重複需求', '併入其他案', '延到下期', '內部方向調整', '其他'];
+const cancelSchema = z.object({
+  reason: z.enum(CANCEL_REASONS),
+  note: z.string().max(500).optional(),
+});
+router.post('/:id/cancel', async (req, res) => {
+  const parsed = cancelSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues });
+  const existing = await prisma.case.findUnique({ where: { id: req.params.id } });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (existing.status === 'cancelled') return res.status(409).json({ error: 'already_cancelled', message: '此案已是取消狀態' });
+  const isAdmin = req.user?.role === 'admin';
+  const isPrimary = existing.designerId === req.user?.id;
+  if (!isAdmin && !isPrimary) {
+    return res.status(403).json({ error: 'forbidden', message: '只有主負責人或 admin 可取消專案' });
+  }
+  const updated = await prisma.case.update({
+    where: { id: existing.id },
+    data: {
+      status: 'cancelled',
+      cancelReason: parsed.data.reason,
+      cancelStage: existing.status,           // 取消當下的階段＝白工程度依據
+      cancelledOn: new Date(),
+      archived: true,                          // 自動收起
+      note: parsed.data.note ? `${existing.note || ''}\n[取消] ${parsed.data.note}`.trim() : existing.note,
+    },
+    include: caseInclude,
+  });
+  await writeChangeLog(
+    existing.id,
+    [{ field: 'status', fromValue: existing.status, toValue: 'cancelled' }],
+    `專案取消：${parsed.data.reason}${parsed.data.note ? ' — ' + parsed.data.note : ''}`,
+    req.user?.name || ''
+  ).catch((e) => console.warn('[cancel] changelog failed:', e.message));
+  res.json(updated);
+});
+
+// ─── POST /api/cases/:id/uncancel — 還原取消 (v7.1) ─────────
+// 取消後又要做的情況很常見；還原回取消前的階段，不重建新案。
+router.post('/:id/uncancel', async (req, res) => {
+  const existing = await prisma.case.findUnique({ where: { id: req.params.id } });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (existing.status !== 'cancelled') return res.status(409).json({ error: 'not_cancelled', message: '此案不是取消狀態' });
+  const isAdmin = req.user?.role === 'admin';
+  const isPrimary = existing.designerId === req.user?.id;
+  if (!isAdmin && !isPrimary) {
+    return res.status(403).json({ error: 'forbidden', message: '只有主負責人或 admin 可還原' });
+  }
+  const back = existing.cancelStage || 'doing';
+  const updated = await prisma.case.update({
+    where: { id: existing.id },
+    data: { status: back, cancelReason: null, cancelStage: null, cancelledOn: null, archived: false },
+    include: caseInclude,
+  });
+  await writeChangeLog(
+    existing.id,
+    [{ field: 'status', fromValue: 'cancelled', toValue: back }],
+    '還原取消的專案',
+    req.user?.name || ''
+  ).catch(() => {});
   res.json(updated);
 });
 

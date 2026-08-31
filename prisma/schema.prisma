@@ -170,6 +170,10 @@ model Case {
   archivePath   String?
   archived      Boolean  @default(false)
   closedOn      DateTime? @db.Date
+  // v7.1: 專案取消（與結案不同——沒有交付，不可計入達成率）
+  cancelReason  String?              // 取消原因
+  cancelStage   String?              // 取消當下的階段（判斷白工程度）
+  cancelledOn   DateTime? @db.Date
   requestCount  Int?
   outputCount   Int?
   actualWorkdays Int?

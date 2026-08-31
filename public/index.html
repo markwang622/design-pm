@@ -1647,11 +1647,18 @@ const STATUSES = [
   {key:'print', name:'送印中'},            // H6: 送印中（選填階段）
   {key:'closed', name:'已結案'},           // v3.6: admin approved, auto-archived
   {key:'done', name:'已結案'},             // v4.3: visually identical to closed (legacy data shows up the same)
+  {key:'cancelled', name:'已取消'},        // v7.1: 取消 ≠ 結案（沒有交付，不計入達成率）
 ];
 // Subset shown in user-facing pickers (excludes legacy 'done')
 const SELECTABLE_STATUSES = STATUSES.filter(s => s.key !== 'done');
 // Final / completed statuses (treated as "結案" for analytics + history)
+// v7.1: 兩種語意必須分開，否則「取消」會被算成「已結案」而灌水達成率
+//   FINAL_STATUS_KEYS  = 已成功交付（計入結案數/達成率/交付天數）
+//   ENDED_STATUS_KEYS  = 已終結不再活躍（排除逾期/看板/急件/在辦統計）
 const FINAL_STATUS_KEYS = new Set(['done', 'closed']);
+const CANCELLED_KEY = 'cancelled';
+const ENDED_STATUS_KEYS = new Set(['done', 'closed', 'cancelled']);
+const isCancelled = (c) => c && c.status === CANCELLED_KEY;
 const PENDING_REVIEW_KEY = 'review_done';
 const CATS = ['1 平面設計製作物','2 數位廣宣','3 拍攝(外發)','4 拍攝(自拍)','5 實體陳列','6 提案','7 其他'];
 // C1: 製作物項目（多選清單，取代單選主類別）
@@ -1707,12 +1714,12 @@ function decorateCases() {
     c.archivePath = c.archivePath || null;
     c.archived = c.archived || false;
     c.needed = c.goLive;
-    c.overdue = c.goLive < TODAY && !FINAL_STATUS_KEYS.has(c.status);
+    c.overdue = c.goLive < TODAY && !ENDED_STATUS_KEYS.has(c.status);
     c.daysLeft = daysUntil(c.goLive);
     const k = computeKeyDates(c.goLive);
     c.reviewDate = k.review;
     c.proofStart = k.proofStart;
-    const wdToReview = (c.status === 'review' || c.status === 'review_done' || c.status === 'print' || FINAL_STATUS_KEYS.has(c.status))
+    const wdToReview = (c.status === 'review' || c.status === 'review_done' || c.status === 'print' || ENDED_STATUS_KEYS.has(c.status))
       ? 999 : workdaysBetween(TODAY, c.reviewDate) - 1;
     c.gateActive = (wdToReview >= 0 && wdToReview <= 3);
   });
@@ -1834,9 +1841,9 @@ function renderPersonal() {
   const me = myCases();
   const kpi = document.getElementById('personal-kpi');
   const open = me.filter(c => c.status !== 'done');
-  const weekDue = me.filter(c => !FINAL_STATUS_KEYS.has(c.status) && c.daysLeft >= 0 && c.daysLeft <= 7);
+  const weekDue = me.filter(c => !ENDED_STATUS_KEYS.has(c.status) && c.daysLeft >= 0 && c.daysLeft <= 7);
   const overdue = me.filter(c => c.overdue);
-  const urgent = me.filter(c => c.urgent && !FINAL_STATUS_KEYS.has(c.status));
+  const urgent = me.filter(c => c.urgent && !ENDED_STATUS_KEYS.has(c.status));
   const gate = me.filter(c => c.gateActive);
   const doneThisMonth = me.filter(c => FINAL_STATUS_KEYS.has(c.status)).length;
   const collab = me.filter(c => c.designer !== ME_NAME() && (c.collaborators||[]).includes(ME_NAME()));
@@ -1997,7 +2004,7 @@ function makeCaseCard(c) {
     </div>
     <div class="row3">
       <span>上線 ${md(c.goLive)} · 確稿 ${md(c.reviewDate)}</span>
-      <span>${FINAL_STATUS_KEYS.has(c.status) ? '已結案' : c.status === 'review_done' ? '送審中' : c.daysLeft < 0 ? `逾期 ${-c.daysLeft} 天` : `剩 ${wd} 工作天`}</span>
+      <span>${isCancelled(c) ? '🚫 已取消' : FINAL_STATUS_KEYS.has(c.status) ? '已結案' : c.status === 'review_done' ? '送審中' : c.daysLeft < 0 ? `逾期 ${-c.daysLeft} 天` : `剩 ${wd} 工作天`}</span>
     </div>
     <button class="mini-btn" title="轉派單" onclick="event.stopPropagation();openReassign('${c.id}')">↻ 轉派</button>
   `;
@@ -2029,7 +2036,7 @@ function renderKanban() {
   kb.innerHTML = '';
   // v3.6: kanban excludes terminal/legacy statuses (done/closed) — closed cases auto-archive.
   // Order: todo → wait → doing → review → review_done (5 columns, same count as before)
-  const KANBAN_STATUSES = STATUSES.filter(s => !FINAL_STATUS_KEYS.has(s.key));
+  const KANBAN_STATUSES = STATUSES.filter(s => !ENDED_STATUS_KEYS.has(s.key));
   KANBAN_STATUSES.forEach(s => {
     const col = document.createElement('div');
     col.className = 'kb-col';
@@ -2328,7 +2335,7 @@ function renderDashboard() {
   const doing = live.filter(c => c.status === 'doing' || c.status === 'review' || c.status === 'review_done' || c.status === 'print').length;
   const done = live.filter(c => FINAL_STATUS_KEYS.has(c.status)).length;
   const overdue = live.filter(c => c.overdue).length;
-  const urgent = live.filter(c => c.urgent && !FINAL_STATUS_KEYS.has(c.status)).length;
+  const urgent = live.filter(c => c.urgent && !ENDED_STATUS_KEYS.has(c.status)).length;
   // A4: 「確稿待簽核中（待你審核）」應為確稿流程中的案件（確稿中 + 確稿完成），
   // 而非 gateActive（確稿日前 3 工作天的到期提醒，已由「即將到期」widget 負責）。
   const gate = live.filter(c => c.status === 'review' || c.status === 'review_done').length;
@@ -2439,7 +2446,7 @@ const V62_KINDS = {
   },
   urgent: {
     icon: '🔥', title: '急件', color: '#B5532A', note: '依上線日排序（近→遠）',
-    filter: c => c.urgent && !FINAL_STATUS_KEYS.has(c.status),
+    filter: c => c.urgent && !ENDED_STATUS_KEYS.has(c.status),
     sort: (a, b) => a.daysLeft - b.daysLeft,
     badge: c => `<span style="background:#FBEAE0;color:#B5532A;border:1px solid #EDC3A8;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">${c.overdue ? '逾期 ' + (-c.daysLeft) + ' 天' : c.daysLeft === 0 ? '今天上線' : '剩 ' + c.daysLeft + ' 天'}</span>`,
     empty: '目前沒有急件',
@@ -2494,7 +2501,8 @@ function v62ShowOverdue() { v62ShowCaseList('overdue'); }
 // 本月結案：從封存資料計算（結案即自動封存，不在 CASES 中，否則永遠 0）
 async function v62LoadClosed() {
   const raw = await api.cases.listArchived();
-  return raw.map(normalizeCase).filter(c => c.archived || FINAL_STATUS_KEYS.has(c.status));
+  // v7.1: 取消的案子雖然也是封存狀態，但沒有交付 → 不可計入結案統計
+  return raw.map(normalizeCase).filter(c => !isCancelled(c) && (c.archived || FINAL_STATUS_KEYS.has(c.status)));
 }
 function v62ShowClosed(items) {
   const list = (items || []).slice().sort((a, b) => (b.closedOn ? +new Date(b.closedOn) : 0) - (a.closedOn ? +new Date(a.closedOn) : 0));
@@ -3306,6 +3314,8 @@ window.api = {
     create:   (b) => fetchJson('POST', '/api/cases', b),
     update:   (id, b) => fetchJson('PATCH', `/api/cases/${encodeURIComponent(id)}`, b),
     transfer: (id, b) => fetchJson('POST', `/api/cases/${encodeURIComponent(id)}/transfer`, b),
+    cancel:   (id, b) => fetchJson('POST', `/api/cases/${encodeURIComponent(id)}/cancel`, b),   // v7.1
+    uncancel: (id) => fetchJson('POST', `/api/cases/${encodeURIComponent(id)}/uncancel`),
   },
   notif: {
     list: (unread) => fetchJson('GET', `/api/notifications${unread ? '?unread=1' : ''}`),
@@ -3358,6 +3368,9 @@ function normalizeCase(b) {
     archivePath: b.archivePath || null,
     archived: !!b.archived,
     closedOn: b.closedOn ? new Date(b.closedOn) : null,
+    cancelReason: b.cancelReason || null,   // v7.1
+    cancelStage: b.cancelStage || null,
+    cancelledOn: b.cancelledOn ? new Date(b.cancelledOn) : null,
     actualWorkdays: b.actualWorkdays ?? null,
     requestCount: b.requestCount ?? null,
     outputCount: b.outputCount ?? null,
@@ -5218,7 +5231,7 @@ function renderHistory() {
     .some(v => (v||'').toLowerCase().includes(q));
 
   const list = window.V59_HISTORY.filter(c =>
-    (FINAL_STATUS_KEYS.has(c.status) || c.archived) &&
+    (ENDED_STATUS_KEYS.has(c.status) || c.archived) &&
     (!dFilter || c.designer === dFilter) &&
     (!lFilter || c.level === lFilter) &&
     (!hFilter || c.hotel === hFilter) &&
@@ -5261,7 +5274,7 @@ function v60FillHistoryDesigners(dSel) {
   if (!dSel) return;
   const cur = dSel.value;
   const names = [...new Set((window.V59_HISTORY || [])
-    .filter(c => FINAL_STATUS_KEYS.has(c.status) || c.archived) // 只看歷史案（已結案/封存）
+    .filter(c => ENDED_STATUS_KEYS.has(c.status) || c.archived) // 只看歷史案（已結案/封存）
     .map(c => c.designer).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'zh-TW'));
   dSel.innerHTML = '<option value="">所有設計師</option>' + names.map(n => {
@@ -5658,7 +5671,7 @@ window.renderDashboard = function() {
     const mine = isAdminView ? live : live.filter(c => c.designer === myName || (c.collaborators||[]).includes(myName));
     const reviewing = mine.filter(c => c.status === 'review' || c.status === 'review_done').map(c => ({...c, why:'待簽核中'}));
     const overdueOnes = mine.filter(c => c.overdue).map(c => ({...c, why:'已逾期'}));
-    const urgent = mine.filter(c => c.urgent && !FINAL_STATUS_KEYS.has(c.status)).map(c => ({...c, why:'急件'}));
+    const urgent = mine.filter(c => c.urgent && !ENDED_STATUS_KEYS.has(c.status)).map(c => ({...c, why:'急件'}));
     const pool = [...reviewing, ...overdueOnes, ...urgent]
       .filter((c,i,arr) => arr.findIndex(x => x.id === c.id) === i).slice(0,8);
     att.innerHTML = pool.length ? pool.map(c => `
@@ -5698,7 +5711,7 @@ function v37RenderUpcomingDue() {
     if (kpi) kpi.after(box);
     else dashView.prepend(box);
   }
-  const live = CASES.filter(c => !c.archived && !FINAL_STATUS_KEYS.has(c.status));
+  const live = CASES.filter(c => !c.archived && !ENDED_STATUS_KEYS.has(c.status));
   // 確稿前一天 = case where reviewDate is tomorrow (workdays)
   const tomorrow = new Date(TODAY); tomorrow.setDate(tomorrow.getDate() + 1);
   const upcoming = live.filter(c => {
@@ -5917,7 +5930,7 @@ window.renderHistory = function() {
 const _v37OrigOpenDrawer = window.openDrawer;
 window.openDrawer = async function(c) {
   await _v37OrigOpenDrawer(c);
-  const isHistorical = c.archived || FINAL_STATUS_KEYS.has(c.status);
+  const isHistorical = c.archived || ENDED_STATUS_KEYS.has(c.status);
   const drawer = document.getElementById('drawer');
   if (!drawer || !isHistorical) {
     // Cleanup any previously-injected reopen UI
@@ -9342,6 +9355,118 @@ function v48InitColorPicker(target) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v7.1 專案取消 ▼▼▼
+// 取消 ≠ 結案：沒有交付。統計上排除逾期/達成率/交付天數，但獨立追蹤
+// 「取消率」與「取消當下的階段」（愈後期取消＝白工愈貴）。
+// ═══════════════════════════════════════════════════════════════
+const V71_REASONS = [
+  { r: '需求方取消',    waste: true },
+  { r: '活動/檔期取消', waste: true },
+  { r: '預算未過',      waste: true },
+  { r: '重複需求',      waste: true },
+  { r: '併入其他案',    waste: false }, // 併入/延後不算白工，成果會被沿用
+  { r: '延到下期',      waste: false },
+  { r: '內部方向調整',  waste: true },
+  { r: '其他',          waste: true },
+];
+function v71CanCancel(c) {
+  if (typeof IS_OBSERVER === 'function' && IS_OBSERVER()) return false;
+  return currentRole === 'admin' || c.designer === ME_NAME();
+}
+let v71Reason = null;
+function v71OpenCancel(c) {
+  if (!v71CanCancel(c)) { showToast('只有主負責人或 admin 可取消專案', 'err'); return; }
+  v71Reason = null;
+  let bg = document.getElementById('v71-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id = 'v71-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '95'; document.body.appendChild(bg); }
+  let modal = document.getElementById('v71-modal');
+  if (!modal) {
+    modal = document.createElement('div'); modal.id = 'v71-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(480px,94%);z-index:96;box-shadow:0 12px 32px rgba(0,0,0,0.2);';
+    document.body.appendChild(modal);
+  }
+  bg.classList.add('open'); modal.style.display = 'block';
+  const close = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
+  bg.onclick = close;
+  const stage = (STATUSES.find(s => s.key === c.status) || {}).name || c.status;
+  const late = ['review', 'review_done', 'print'].includes(c.status);
+  const render = () => {
+    modal.innerHTML = `
+      <div style="display:flex;align-items:center;margin-bottom:10px;">
+        <h3 style="margin:0;font-size:16px;color:#9A2E2E;">🚫 取消專案</h3>
+        <button id="v71-x" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+      </div>
+      <div style="font-size:12px;color:var(--fg-dim,#595959);line-height:1.7;margin-bottom:12px;">
+        <b>${escapeHtml(c.name)}</b><br>
+        取消後會自動封存（從看板/行事曆/甘特收起），但保留在「歷史案件」可查、可還原。<br>
+        <span style="color:#8C8C8C;">此案將記錄為在「<b>${escapeHtml(stage)}</b>」階段取消${late ? '<span style="color:#C0392B;">（已投入大量工時，屬高成本取消）</span>' : ''}。</span>
+      </div>
+      <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-bottom:5px;">取消原因 <span style="color:#C0392B;">*</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;">
+        ${V71_REASONS.map(x => `<button type="button" data-vr="${escapeHtml(x.r)}" style="padding:4px 10px;font-size:11px;border-radius:12px;cursor:pointer;
+          border:1px solid ${v71Reason === x.r ? '#9A2E2E' : 'var(--input-border,#D4D4D4)'};
+          background:${v71Reason === x.r ? '#9A2E2E' : 'transparent'};
+          color:${v71Reason === x.r ? '#fff' : 'var(--fg,#1F1F1F)'};">${escapeHtml(x.r)}</button>`).join('')}
+      </div>
+      <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);display:block;">補充說明（選填）
+        <input id="v71-note" placeholder="例：客戶端活動延到 Q4 再議" style="width:100%;padding:6px 8px;margin-top:3px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;box-sizing:border-box;"></label>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+        <button id="v71-cancelbtn" style="padding:7px 14px;font-size:12px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:6px;cursor:pointer;">返回</button>
+        <button id="v71-ok" style="padding:7px 16px;font-size:12px;border:none;background:#9A2E2E;color:#fff;border-radius:6px;cursor:pointer;">確認取消專案</button>
+      </div>`;
+    modal.querySelectorAll('[data-vr]').forEach(b => b.onclick = () => { v71Reason = b.dataset.vr; render(); });
+    document.getElementById('v71-x').onclick = close;
+    document.getElementById('v71-cancelbtn').onclick = close;
+    document.getElementById('v71-ok').onclick = async () => {
+      if (!v71Reason) { showToast('請選擇取消原因', 'err'); return; }
+      const note = (document.getElementById('v71-note') || {}).value || '';
+      try {
+        await api.cases.cancel(c.id, { reason: v71Reason, note: note.trim() || undefined });
+        showToast('✓ 專案已取消並封存（可在歷史案件還原）');
+        close();
+        document.getElementById('drawer-bg')?.click();
+        await reloadAllCases();
+        refreshAll();
+      } catch (e) { showToast('取消失敗：' + (e.data?.message || e.message), 'err'); }
+    };
+  };
+  render();
+}
+// 抽屜注入「取消專案 / 還原」按鈕
+function v71InjectDrawerBtn(c) {
+  const body = document.querySelector('.drawer .drawer-body');
+  if (!body) return;
+  body.querySelectorAll('.v71-extra').forEach(n => n.remove());
+  if (typeof IS_OBSERVER === 'function' && IS_OBSERVER()) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'v71-extra v33-extra';
+  if (isCancelled(c)) {
+    wrap.style.cssText = 'margin:12px 0;padding:10px 12px;background:rgba(154,46,46,0.08);border:1px solid #E0AFAF;border-radius:6px;font-size:12px;';
+    wrap.innerHTML = `<b style="color:#9A2E2E;">🚫 此專案已取消</b>
+      <div style="color:var(--fg-dim,#595959);margin-top:4px;">原因：${escapeHtml(c.cancelReason || '—')}${c.cancelStage ? ' · 取消於「' + escapeHtml((STATUSES.find(s => s.key === c.cancelStage) || {}).name || c.cancelStage) + '」階段' : ''}${c.cancelledOn ? ' · ' + ymdIso(c.cancelledOn) : ''}</div>
+      ${v71CanCancel(c) ? '<button id="v71-restore" style="margin-top:8px;padding:5px 12px;font-size:11px;border:1px solid #9A2E2E;background:transparent;color:#9A2E2E;border-radius:5px;cursor:pointer;">↩ 還原專案</button>' : ''}`;
+    body.insertBefore(wrap, body.firstChild);
+    const rb = document.getElementById('v71-restore');
+    if (rb) rb.onclick = async () => {
+      if (!confirm('還原這個專案？會回到取消前的階段。')) return;
+      try { await api.cases.uncancel(c.id); showToast('✓ 已還原'); document.getElementById('drawer-bg')?.click(); await reloadAllCases(); refreshAll(); }
+      catch (e) { showToast('還原失敗：' + (e.data?.message || e.message), 'err'); }
+    };
+  } else if (!FINAL_STATUS_KEYS.has(c.status) && v71CanCancel(c)) {
+    wrap.style.cssText = 'margin:12px 0 4px;display:flex;justify-content:flex-end;';
+    wrap.innerHTML = '<button id="v71-open" style="padding:5px 12px;font-size:11px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:#9A2E2E;border-radius:5px;cursor:pointer;">🚫 取消專案</button>';
+    body.appendChild(wrap);
+    document.getElementById('v71-open').onclick = () => v71OpenCancel(c);
+  }
+}
+const _v71OrigOpenDrawer = window.openDrawer;
+window.openDrawer = function(c) {
+  const r = _v71OrigOpenDrawer.apply(this, arguments);
+  try { v71InjectDrawerBtn(c); } catch (e) { console.warn('v71 inject failed', e); }
+  return r;
+};
+
+// ═══════════════════════════════════════════════════════════════
 // ▼▼▼ v6.9 需求單位分析（admin）▼▼▼
 // 全部使用「系統自動累積」的欄位（需求單位/派發日/上線日/結案日/急件），
 // 不需要任何人多填欄位，因此今天就有 100+ 件可分析。
@@ -9394,7 +9519,7 @@ function v69Aggregate(cases) {
     if (!by[u]) by[u] = { unit: u, n: 0, open: 0, overdue: 0, urgent: 0, cycles: [], revise: 0, blocked: 0, scope: 0, odDesign: 0, odExternal: 0, odManager: 0 };
     const g = by[u];
     g.n++;
-    const isClosed = FINAL_STATUS_KEYS.has(c.status) || c.archived;
+    const isClosed = ENDED_STATUS_KEYS.has(c.status) || c.archived;
     if (!isClosed) {
       g.open++;
       if (c.goLive && new Date(c.goLive) < TODAY) {
@@ -9477,10 +9602,15 @@ async function renderRequesterAnalytics() {
   const totalRevise = rows.reduce((s, r) => s + r.revise, 0);
 
   // v7.0: 逾期案件依責任歸屬分組
-  const odCases = cases.filter(c => !(FINAL_STATUS_KEYS.has(c.status) || c.archived) && c.goLive && new Date(c.goLive) < TODAY);
+  const odCases = cases.filter(c => !(ENDED_STATUS_KEYS.has(c.status) || c.archived) && c.goLive && new Date(c.goLive) < TODAY);
   const blame = { design: [], external: [], manager: [] };
   odCases.forEach(c => blame[v70BlameOf(c)].push(c));
   Object.keys(blame).forEach(k => blame[k].sort((a, b) => new Date(a.goLive) - new Date(b.goLive)));
+
+  // v7.1: 取消案件（不計入結案/逾期，但要獨立追蹤白工成本）
+  const cancelled = cases.filter(isCancelled);
+  const LATE_STAGES = ['review', 'review_done', 'print']; // 已做到後期才喊停＝最貴
+  const lateCancel = cancelled.filter(c => LATE_STAGES.includes(c.cancelStage)).length;
 
   const pct = (x) => (x * 100).toFixed(0) + '%';
   const cell = (v, bad) => `<td style="padding:7px 8px;text-align:right;${bad ? 'color:#C0392B;font-weight:600;' : ''}">${v}</td>`;
@@ -9497,6 +9627,7 @@ async function renderRequesterAnalytics() {
       <div class="kpi"><div class="label">部門逾期率</div><div class="value">${pct(deptOverdueRate)}</div><div class="sub">${totalOverdue} / ${totalOpen} 進行中</div></div>
       <div class="kpi"><div class="label">交付天數中位數</div><div class="value">${deptCycle ?? '—'}</div><div class="sub">派發 → 結案（${allCycles.length} 件已結案）</div></div>
       <div class="kpi"><div class="label">改稿記錄</div><div class="value">${totalRevise}</div><div class="sub">${totalRevise ? '來自進度日誌標籤' : '待日誌標籤累積'}</div></div>
+      <div class="kpi" id="v71-kpi" style="${cancelled.length ? 'cursor:pointer;' : ''}"><div class="label">已取消</div><div class="value">${cancelled.length}</div><div class="sub">${cancelled.length ? `取消率 ${pct(cancelled.length / cases.length)} · ${lateCancel} 件為後期取消` : '此期間無取消案件'}</div></div>
     </div>
     <div style="overflow-x:auto;">
     <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px;">
@@ -9564,6 +9695,9 @@ async function renderRequesterAnalytics() {
   `;
   body.querySelectorAll('.v69-out').forEach(el => el.onclick = () => openDrawerById(el.dataset.id));
   body.querySelectorAll('.v69-row').forEach(el => el.onclick = () => v69ShowUnit(el.dataset.unit));
+  // v7.1: 取消 KPI → 列出取消案件（含取消階段，判斷白工程度）
+  const ck = document.getElementById('v71-kpi');
+  if (ck && cancelled.length) ck.onclick = () => v71ShowCancelled(cancelled);
   // v7.0: 點責任卡片 → 展開該組逾期案件
   let v70Open = null;
   body.querySelectorAll('.v70-blame').forEach(el => el.onclick = () => {
@@ -9611,7 +9745,7 @@ function v69ShowUnit(unit) {
       <button id="v69-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
     </div>
     ${items.map(c => {
-      const closed = FINAL_STATUS_KEYS.has(c.status) || c.archived;
+      const closed = ENDED_STATUS_KEYS.has(c.status) || c.archived;
       const od = !closed && c.goLive && new Date(c.goLive) < TODAY;
       return `<div class="v69-crow" data-id="${escapeHtml(c.id)}" style="display:flex;gap:10px;align-items:center;padding:8px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;cursor:pointer;">
         <span style="flex-shrink:0;padding:2px 8px;border-radius:10px;font-size:10px;background:${od ? '#FCEBEB' : closed ? '#E4F3DD' : '#EEF2F6'};color:${od ? '#A32D2D' : closed ? '#3A6E2A' : '#2B4A66'};">${od ? '逾期' : closed ? '已結案' : '進行中'}</span>
@@ -9624,6 +9758,47 @@ function v69ShowUnit(unit) {
   `;
   document.getElementById('v69-close').onclick = close;
   modal.querySelectorAll('.v69-crow').forEach(el => el.onclick = () => { close(); openDrawerById(el.dataset.id); });
+}
+// v7.1: 取消案件清單（依取消階段分組——後期取消＝高白工成本）
+function v71ShowCancelled(items) {
+  const LATE = ['review', 'review_done', 'print'];
+  const list = items.slice().sort((a, b) => (LATE.includes(b.cancelStage) ? 1 : 0) - (LATE.includes(a.cancelStage) ? 1 : 0));
+  let bg = document.getElementById('v62-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id = 'v62-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '85'; document.body.appendChild(bg); }
+  let modal = document.getElementById('v62-modal');
+  if (!modal) {
+    modal = document.createElement('div'); modal.id = 'v62-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(640px,94%);max-height:84vh;overflow-y:auto;z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);';
+    document.body.appendChild(modal);
+  }
+  bg.classList.add('open'); modal.style.display = 'block';
+  const close = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
+  bg.onclick = close;
+  const byReason = {};
+  list.forEach(c => { const r = c.cancelReason || '未填'; byReason[r] = (byReason[r] || 0) + 1; });
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;font-size:16px;color:#9A2E2E;">🚫 已取消案件（${list.length}）</h3>
+      <button id="v71-lx" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    <div style="font-size:11px;color:#8C8C8C;margin-bottom:8px;">
+      ${Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([r, n]) => `${escapeHtml(r)} ${n}`).join('、')}
+      <br>紅色＝在確稿中/確稿完成/送印中才取消，代表幾乎做完才喊停，白工成本最高。
+    </div>
+    ${list.map(c => {
+      const late = LATE.includes(c.cancelStage);
+      const stage = (STATUSES.find(s => s.key === c.cancelStage) || {}).name || c.cancelStage || '—';
+      return `<div class="v71-crow" data-id="${escapeHtml(c.id)}" style="display:flex;gap:10px;align-items:center;padding:8px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;cursor:pointer;">
+        <span style="flex-shrink:0;padding:2px 9px;border-radius:10px;font-weight:600;background:${late ? '#FCEBEB' : '#F0F0F0'};color:${late ? '#A32D2D' : '#595959'};border:1px solid ${late ? '#F09595' : '#DDD'};">${escapeHtml(stage)}取消</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;">${escapeHtml(c.name)} <span style="color:#8C8C8C;font-weight:400;font-size:11px;">${escapeHtml(c.id)}</span></div>
+          <div style="color:var(--fg-dim,#595959);margin-top:2px;">${escapeHtml(c.unit || '—')} · ${escapeHtml(c.designer)} · ${escapeHtml(c.cancelReason || '—')}${c.cancelledOn ? ' · ' + ymdIso(c.cancelledOn) : ''}</div>
+        </div>
+        <span style="color:#8C8C8C;flex-shrink:0;">開啟 ›</span>
+      </div>`;
+    }).join('')}`;
+  document.getElementById('v71-lx').onclick = close;
+  modal.querySelectorAll('.v71-crow').forEach(el => el.onclick = () => { close(); openDrawerById(el.dataset.id); });
 }
 NAV_DEF.admin.push({ key: 'requester', label: '需求分析' });
 const _v69OrigSwitchView = window.switchView;
