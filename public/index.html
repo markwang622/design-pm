@@ -9424,6 +9424,7 @@ function v69EnsureView() {
       </div>
       <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-bottom:12px;">
         逾期率＝未結案且已過上線日 ÷ 進行中案件。交付天數＝派發日→結案日中位數。高於部門平均者標紅。
+        <br>樣本不足者（進行中 &lt; 3 件、已結案 &lt; 3 件）不標紅，交付天數後加 <b>*</b> 表示樣本少、僅供參考。
       </div>
       <div id="v69-body">載入中…</div>`;
   }
@@ -9491,7 +9492,8 @@ async function renderRequesterAnalytics() {
             ${cell(r.overdue)}
             ${cell(r.open ? pct(r.overdueRate) : '—', r.open >= 3 && r.overdueRate > deptOverdueRate)}
             ${cell(r.urgent)}
-            ${cell(r.medianCycle ?? '—', r.medianCycle != null && deptCycle != null && r.medianCycle > deptCycle)}
+            ${cell(r.medianCycle != null ? (r.cycles.length < 3 ? r.medianCycle + '<span style="color:#8C8C8C;font-weight:400;font-size:10px;">*</span>' : r.medianCycle) : '—',
+                   r.cycles.length >= 3 && deptCycle != null && r.medianCycle > deptCycle)}
             ${cell(r.revise ? r.revisePerCase.toFixed(1) : '—', r.revise > 0 && r.revisePerCase > 2)}
           </tr>`).join('')}
       </tbody>
