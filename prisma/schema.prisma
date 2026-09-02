@@ -24,6 +24,12 @@ model Staff {
   seniority  String // 'senior' | 'mid' | 'junior'
   roleTitle  String    @default("設計師")
   color      String?   // v4.8: 個人代表色 palette key (e.g. 'teal' | 'sea' | …)
+  // v7.3: 邀請啟用流程——管理員只指派 Email，密碼由本人首次登入時自行設定。
+  // 只影響用邀請建立的新帳號；既有帳號 pendingActivation=false，行為不變。
+  pendingActivation   Boolean   @default(false) // true 時禁止登入，必須先啟用
+  activationTokenHash String?                   // 只存 SHA-256，明碼僅在建立當下顯示一次
+  activationExpires   DateTime?                 // 啟用連結到期時間
+  activatedAt         DateTime?                 // 完成啟用的時間
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 

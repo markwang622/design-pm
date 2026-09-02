@@ -5,6 +5,7 @@ import { prisma } from '../lib/db.js';
 import { requireAuth, requireAdmin, validatePasswordStrength } from '../middleware/auth.js';
 import { workloadScore, workloadForAll, suggestSuccessor } from '../services/workload.js';
 import { notify, tplStaffAdd, tplDeparture } from '../services/notify.js';
+import { generateActivationToken, unusablePassword, activationUrl, ACTIVATION_TTL_DAYS } from '../lib/activation.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -28,6 +29,7 @@ router.get('/', async (req, res) => {
     select: {
       id: true, name: true, email: true, active: true, joined: true, departedOn: true,
       seniority: true, roleTitle: true, role: true, color: true, // v4.8
+      pendingActivation: true, activatedAt: true, activationExpires: true, // v7.3
     },
     orderBy: [{ active: 'desc' }, { id: 'asc' }],
   });
@@ -60,7 +62,6 @@ router.post('/', requireAdmin, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues });
   const body = parsed.data;
 
-  const defaultPw = process.env.SEED_DEFAULT_PASSWORD || 'design2026!';
   // v3.6 (#22): if admin supplies a password, enforce strength
   if (body.password) {
     const strengthErr = validatePasswordStrength(body.password);
@@ -68,7 +69,18 @@ router.post('/', requireAdmin, async (req, res) => {
       return res.status(422).json({ error: 'weak_password', message: strengthErr });
     }
   }
-  const hash = await bcrypt.hash(body.password || defaultPw, 12);
+
+  // v7.3: 預設走「邀請啟用」——管理員只指派 Email，密碼由本人首次登入時自訂。
+  // 舊行為（管理員直接指定密碼）保留，供特殊情況使用。
+  const useInvite = !body.password;
+  let invite = null;
+  let hash;
+  if (useInvite) {
+    invite = generateActivationToken();
+    hash = await bcrypt.hash(unusablePassword(), 12); // 啟用前無任何密碼可登入
+  } else {
+    hash = await bcrypt.hash(body.password, 12);
+  }
 
   try {
     const created = await prisma.staff.create({
@@ -81,6 +93,9 @@ router.post('/', requireAdmin, async (req, res) => {
         roleTitle: body.roleTitle || '設計師',
         role: body.role,
         color: body.color || null, // v4.8
+        pendingActivation: useInvite,
+        activationTokenHash: invite ? invite.hash : null,
+        activationExpires: invite ? invite.expires : null,
       },
     });
 
@@ -91,9 +106,23 @@ router.post('/', requireAdmin, async (req, res) => {
       others.map((o) => notify({ type: 'staffAdd', recipientId: o.id, ...tpl }))
     );
 
+    // v7.3: 啟用連結明碼只在這裡回傳一次；DB 只留 hash，之後任何人都讀不到。
+    let inviteUrl = null;
+    if (invite) {
+      inviteUrl = activationUrl(req, invite.token);
+      // SMTP 若已設定就順便寄出；沒設定時 notify 會 dry-run，管理員仍可複製連結。
+      notify({
+        type: 'staffAdd', recipientId: created.id,
+        subject: `【藝術設計部】請設定你的登入密碼`,
+        body: `${created.name} 你好：\n\n你的帳號已建立（${created.email}）。\n請在 ${ACTIVATION_TTL_DAYS} 天內開啟以下連結設定密碼並啟用帳號：\n\n${inviteUrl}\n\n此連結僅能使用一次。若已過期，請聯絡管理員重新產生。`,
+      }).catch((e) => console.warn('[staff] invite mail failed:', e.message));
+    }
+
     res.status(201).json({
-      ...created, password: undefined,
-      tempPassword: body.password ? undefined : defaultPw,
+      ...created,
+      password: undefined, activationTokenHash: undefined,
+      inviteUrl,
+      inviteExpires: invite ? invite.expires : undefined,
     });
   } catch (e) {
     if (e.code === 'P2002') {
@@ -101,6 +130,33 @@ router.post('/', requireAdmin, async (req, res) => {
     }
     throw e;
   }
+});
+
+// ─── POST /api/staff/:id/reinvite — 重新產生啟用連結 (v7.3) ──
+// 用於連結過期、寄丟、或同仁把連結弄不見。舊連結立即失效。
+router.post('/:id/reinvite', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const staff = await prisma.staff.findUnique({ where: { id } });
+  if (!staff) return res.status(404).json({ error: 'not_found' });
+  if (!staff.pendingActivation) {
+    return res.status(409).json({ error: 'already_activated', message: '此帳號已啟用，如需重設密碼請用「重設密碼」功能。' });
+  }
+  const invite = generateActivationToken();
+  await prisma.staff.update({
+    where: { id },
+    data: {
+      activationTokenHash: invite.hash,
+      activationExpires: invite.expires,
+      password: await bcrypt.hash(unusablePassword(), 12), // 一併換掉佔位密碼
+    },
+  });
+  const inviteUrl = activationUrl(req, invite.token);
+  notify({
+    type: 'staffAdd', recipientId: id,
+    subject: '【藝術設計部】請設定你的登入密碼（重新寄送）',
+    body: `${staff.name} 你好：\n\n請在 ${ACTIVATION_TTL_DAYS} 天內開啟以下連結設定密碼：\n\n${inviteUrl}\n\n此連結僅能使用一次，先前的連結已失效。`,
+  }).catch(() => {});
+  res.json({ inviteUrl, inviteExpires: invite.expires });
 });
 
 // ─── PATCH /api/staff/:id — update (admin or self, v3.4 expanded) ─

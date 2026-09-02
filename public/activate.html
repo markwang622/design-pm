@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>登入 · 藝術設計部專案管理</title>
+  <title>設定密碼 · 藝術設計部專案管理</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -128,46 +128,115 @@
       document.documentElement.setAttribute('data-season', season);
     } catch {}
   </script>
+
+  <style>
+    .req { list-style: none; margin: 10px 0 0; font-size: 11px; color: var(--fg-sub); }
+    .req li { padding: 2px 0; }
+    .req li::before { content: '○ '; }
+    .req li.ok { color: #2E9B5B; }
+    .req li.ok::before { content: '✓ '; }
+    .who { font-size: 12px; color: var(--fg-muted); background: rgba(127,127,127,0.10);
+           border-radius: 6px; padding: 9px 11px; margin-bottom: 4px; line-height: 1.7; }
+    .who b { color: var(--fg); }
+    .state { text-align: center; padding: 10px 0; }
+    .state h1 { margin-bottom: 10px; }
+    .state p { font-size: 13px; color: var(--fg-muted); line-height: 1.8; }
+    .state a { color: var(--accent); }
+  </style>
 </head>
 <body>
-  <form class="card" id="login-form">
-    <h1>藝術設計部專案管理</h1>
-    <div class="sub">請使用指定 Email 登入（馬克會通知）</div>
-    <label for="email">Email</label>
-    <input id="email" name="email" type="email" autocomplete="username" required autofocus>
-    <label for="password">密碼</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" required>
-    <button type="submit" id="submit">登入</button>
-    <div class="err" id="err"></div>
-    <div class="hint">忘記密碼請聯絡系統管理員</div>
-  </form>
+  <div class="card">
+    <div id="loading" class="state"><p>檢查連結中…</p></div>
+
+    <div id="bad" class="state" style="display:none;">
+      <h1>連結無法使用</h1>
+      <p id="bad-msg"></p>
+      <p style="margin-top:14px;font-size:12px;">請聯絡系統管理員重新產生啟用連結。</p>
+      <p style="margin-top:10px;"><a href="/login">回登入頁</a></p>
+    </div>
+
+    <form id="form" style="display:none;">
+      <h1>設定你的登入密碼</h1>
+      <div class="sub">首次使用請自行設定密碼，設定後即可登入</div>
+      <div class="who" id="who"></div>
+
+      <label for="pw">新密碼</label>
+      <input id="pw" type="password" autocomplete="new-password" required autofocus>
+      <ul class="req">
+        <li id="r-len">至少 10 個字元</li>
+        <li id="r-upper">包含大寫英文字母</li>
+        <li id="r-lower">包含小寫英文字母</li>
+        <li id="r-digit">包含至少一個數字</li>
+      </ul>
+
+      <label for="pw2">再次輸入新密碼</label>
+      <input id="pw2" type="password" autocomplete="new-password" required>
+
+      <button type="submit" id="submit">設定密碼並登入</button>
+      <div class="err" id="err"></div>
+      <div class="hint">此連結僅能使用一次，設定完成後即失效。</div>
+    </form>
+  </div>
+
   <script>
-    const form = document.getElementById('login-form');
-    const errEl = document.getElementById('err');
-    const btn = document.getElementById('submit');
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      errEl.classList.remove('show');
-      btn.disabled = true; btn.textContent = '登入中…';
-      const email = document.getElementById('email').value.trim();
-      const password = document.getElementById('password').value;
+    const token = new URLSearchParams(location.search).get('token') || '';
+    const $ = (id) => document.getElementById(id);
+    const show = (id) => { ['loading','bad','form'].forEach(x => $(x).style.display = x === id ? (x === 'form' ? 'block' : 'block') : 'none'); };
+    const fail = (msg) => { $('bad-msg').textContent = msg; show('bad'); };
+
+    // 密碼規則即時檢查（與後端 validatePasswordStrength 一致）
+    const rules = {
+      'r-len':   (v) => v.length >= 10,
+      'r-upper': (v) => /[A-Z]/.test(v),
+      'r-lower': (v) => /[a-z]/.test(v),
+      'r-digit': (v) => /\d/.test(v),
+    };
+    function checkRules() {
+      const v = $('pw').value;
+      let all = true;
+      for (const id in rules) {
+        const ok = rules[id](v);
+        $(id).classList.toggle('ok', ok);
+        if (!ok) all = false;
+      }
+      return all;
+    }
+
+    (async function init() {
+      if (!token) return fail('這個網址缺少啟用碼，請確認連結是否完整複製。');
       try {
-        const r = await fetch('/api/auth/login', {
+        const r = await fetch('/api/auth/activation/' + encodeURIComponent(token));
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) return fail(d.message || '連結無效或已被使用。');
+        $('who').innerHTML = '帳號：<b>' + d.email + '</b><br>姓名：<b>' + d.name + '</b>';
+        show('form');
+        $('pw').addEventListener('input', checkRules);
+      } catch (e) {
+        fail('無法連線到伺服器，請稍後再試。');
+      }
+    })();
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = $('err'), btn = $('submit');
+      err.classList.remove('show');
+      const pw = $('pw').value, pw2 = $('pw2').value;
+      if (!checkRules()) { err.textContent = '密碼不符合上方所有條件'; err.classList.add('show'); return; }
+      if (pw !== pw2) { err.textContent = '兩次輸入的密碼不一致'; err.classList.add('show'); return; }
+      btn.disabled = true; btn.textContent = '設定中…';
+      try {
+        const r = await fetch('/api/auth/activate', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ token, password: pw }),
         });
         const d = await r.json().catch(() => ({}));
-        // v7.3: 未啟用帳號要講清楚該怎麼做，而不是只說「密碼錯誤」
-        if (!r.ok) throw new Error(
-          d.error === 'invalid_credentials' ? 'Email 或密碼錯誤'
-          : d.error === 'pending_activation' ? (d.message || '此帳號尚未啟用，請使用管理員提供的「設定密碼」連結。')
-          : (d.message || d.error || '登入失敗'));
+        if (!r.ok) throw new Error(d.message || d.error || '設定失敗');
         location.replace('/');
       } catch (ex) {
-        errEl.textContent = ex.message;
-        errEl.classList.add('show');
-        btn.disabled = false; btn.textContent = '登入';
+        err.textContent = ex.message;
+        err.classList.add('show');
+        btn.disabled = false; btn.textContent = '設定密碼並登入';
       }
     });
   </script>

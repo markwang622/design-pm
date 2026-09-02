@@ -2579,8 +2579,12 @@ function renderStaff() {
         <div class="workload-gauge">
           ${active ? `<div class="bar"><div class="fill ${score>=10?'overloaded':''}" style="width:${wlPct}%;"></div></div><span class="score">${score.toFixed(1)}</span>` : '<span class="score" style="opacity:0.5;">—</span>'}
         </div>
-        <div>${active ? '<span class="staff-chip-active">現職</span>' : '<span class="staff-chip-inactive">已離職</span>'}</div>
+        <div>${!active ? '<span class="staff-chip-inactive">已離職</span>'
+          : s.pendingActivation ? '<span class="staff-chip-inactive" style="background:#FBEFD9;color:#8A6D1B;border-color:#E3C98A;" title="尚未設定密碼，無法登入">未啟用</span>'
+          : '<span class="staff-chip-active">現職</span>'}</div>
         <div class="s-actions">
+          ${active && s.pendingActivation && currentRole === 'admin'
+            ? `<button onclick="v73Reinvite(${s.id}, '${escapeHtml(s.name)}')">重寄邀請</button>` : ''}
           ${active
             ? (currentRole === 'admin' ? `<button onclick="openDeparture('${s.name}')" class="danger">離職申請</button>` : '')
             : `<button onclick="showToast('已離職：${s.name} · 歷史歸檔仍保留')">查看歸檔</button>`}
@@ -3346,6 +3350,8 @@ function normalizeStaff(b) {
     roleTitle: b.roleTitle || '設計師',
     role: b.role || 'member',
     workload: typeof b.workload === 'number' ? b.workload : 0,
+    pendingActivation: !!b.pendingActivation,   // v7.3
+    activationExpires: b.activationExpires ? new Date(b.activationExpires) : null,
     color: b.color || null, // v4.8
   };
 }
@@ -3873,6 +3879,57 @@ function v52WireBasicEdit(c) {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// v7.3 邀請啟用：新成員不再拿到預設密碼，改由本人用一次性連結自訂密碼。
+// 連結明碼只有這一刻拿得到（DB 只存 hash），所以一定要讓管理員能複製走。
+// ═══════════════════════════════════════════════════════════════
+function v73ShowInvite(name, email, url, expires) {
+  let bg = document.getElementById('v73-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id = 'v73-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '95'; document.body.appendChild(bg); }
+  let modal = document.getElementById('v73-modal');
+  if (!modal) {
+    modal = document.createElement('div'); modal.id = 'v73-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:22px;width:min(540px,94%);z-index:96;box-shadow:0 12px 32px rgba(0,0,0,0.2);';
+    document.body.appendChild(modal);
+  }
+  bg.classList.add('open'); modal.style.display = 'block';
+  const close = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
+  const exp = expires ? ymdIso(new Date(expires)) : '';
+  modal.innerHTML = `
+    <h3 style="margin:0 0 6px;font-size:16px;color:#1F8A4C;">✓ ${escapeHtml(name)} 已加入部門</h3>
+    <div style="font-size:12px;color:var(--fg-dim,#595959);line-height:1.8;margin-bottom:12px;">
+      系統<b>沒有</b>設定預設密碼。請把下面的連結傳給 ${escapeHtml(name)}，
+      本人開啟後自行設定密碼即可登入。<br>
+      <span style="color:#8C8C8C;">連結僅能使用一次${exp ? `，${exp} 前有效` : ''}。若已設定 SMTP，系統也已寄信到 ${escapeHtml(email)}。</span>
+    </div>
+    <div style="background:rgba(127,127,127,0.10);border-radius:6px;padding:10px;font-size:11px;word-break:break-all;font-family:'SF Mono',Consolas,monospace;" id="v73-url">${escapeHtml(url)}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button id="v73-copy" style="padding:7px 16px;font-size:12px;border:none;background:var(--accent,#4A6FA5);color:#fff;border-radius:6px;cursor:pointer;">📋 複製連結</button>
+      <button id="v73-done" style="padding:7px 14px;font-size:12px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:6px;cursor:pointer;">完成</button>
+    </div>
+    <div style="font-size:11px;color:#B5703F;margin-top:10px;">⚠ 關閉後就無法再看到這條連結。若不慎關掉，可在人員列表按「重寄邀請」重新產生。</div>`;
+  document.getElementById('v73-done').onclick = close;
+  bg.onclick = close;
+  document.getElementById('v73-copy').onclick = async () => {
+    try { await navigator.clipboard.writeText(url); showToast('✓ 連結已複製'); }
+    catch { // clipboard 在非 https 或權限不足時會失敗，退回手動選取
+      const r = document.createRange(); r.selectNodeContents(document.getElementById('v73-url'));
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      showToast('請按 Cmd/Ctrl+C 複製已選取的連結', 'err');
+    }
+  };
+}
+// 重新產生啟用連結（連結過期／遺失時使用）
+async function v73Reinvite(id, name) {
+  if (!confirm(`為「${name}」重新產生啟用連結？先前的連結會立即失效。`)) return;
+  try {
+    const d = await fetchJson('POST', `/api/staff/${id}/reinvite`);
+    v73ShowInvite(name, '', d.inviteUrl, d.inviteExpires);
+  } catch (e) {
+    showToast('重寄失敗：' + (e.data?.message || e.message), 'err');
+  }
+}
+
 // Wrap staff-add submit → POST /api/staff
 const saBtn = document.getElementById('staff-add-submit');
 if (saBtn) {
@@ -3888,13 +3945,14 @@ if (saBtn) {
     try {
       const created = await api.staff.create({ name, email, seniority, joined, role });
       STAFF.push(normalizeStaff(created));
-      if (created.tempPassword) {
-        showToast(`✓ ${name} 已加入部門 · 預設密碼：${created.tempPassword}`);
-      } else {
-        showToast(`✓ ${name} 已加入部門 · 啟用信已寄至 ${email}`);
-      }
-      showEmail('staffAdd');
       closeStaffAdd();
+      // v7.3: 不再發預設密碼，改給一次性啟用連結，由本人自行設定密碼
+      if (created.inviteUrl) {
+        v73ShowInvite(name, email, created.inviteUrl, created.inviteExpires);
+      } else {
+        showToast(`✓ ${name} 已加入部門`);
+        showEmail('staffAdd');
+      }
       renderStaff();
       refreshAll();
     } catch (e) {

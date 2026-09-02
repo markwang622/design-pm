@@ -91,7 +91,8 @@ const loginThrottle = rateLimit({
   message: { error: 'too_many_login_attempts', message: '登入嘗試過於頻繁，請 15 分鐘後再試' },
   skip: (req) => {
     // Throttle only the credential-checking POST /login + /change-password
-    return !(/\/login$|\/change-password$/.test(req.path));
+    // v7.3: 啟用端點一併節流，防止暴力猜測啟用 token
+    return !(/\/login$|\/change-password$|\/activate$|\/activation\//.test(req.path));
   },
 });
 // General auth limiter (covers /me, /logout): looser
@@ -196,6 +197,11 @@ app.get('/login', (req, res) => {
   // If already logged in, send to home
   if (isAuthed(req)) return res.redirect(302, '/');
   sendNoCacheHtml(res, path.join(PUBLIC_DIR, 'login.html'));
+});
+
+// v7.3: 邀請啟用頁（設定首次密碼）——尚未有帳號密碼，必須免登入可存取
+app.get('/activate', (req, res) => {
+  sendNoCacheHtml(res, path.join(PUBLIC_DIR, 'activate.html'));
 });
 
 // SPA shell — gated. /change-password, /reports, etc. all need auth.
