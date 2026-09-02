@@ -3292,6 +3292,18 @@ async function fetchJson(method, url, body) {
   const text = await r.text();
   const data = text ? JSON.parse(text) : {};
   if (!r.ok) {
+    // v7.2: 登入效期 2 天，過期後頁面看起來仍正常，但所有寫入都會被擋下並丟出
+    // 「unauthenticated」這種看不懂的訊息。改為講人話並自動帶回登入頁。
+    if (r.status === 401 && !/\/api\/auth\//.test(url) && !window.__authExpiredHandled) {
+      window.__authExpiredHandled = true; // 只觸發一次，避免多個請求同時 401 造成重導風暴
+      if (typeof showToast === 'function') {
+        showToast('登入已過期（效期 2 天），正帶你回登入頁重新登入…', 'err');
+      }
+      setTimeout(() => location.replace('/login'), 2000);
+      const err401 = new Error('登入已過期，請重新登入');
+      err401.status = 401; err401.data = data; err401.authExpired = true;
+      throw err401;
+    }
     const err = new Error(data.message || data.error || `HTTP ${r.status}`);
     err.status = r.status; err.data = data;
     throw err;
@@ -3886,8 +3898,11 @@ if (saBtn) {
       renderStaff();
       refreshAll();
     } catch (e) {
+      if (e.authExpired) return;                        // v7.2: 已顯示過期提示並重導，不再疊加訊息
       if (e.status === 409) showToast('姓名或 Email 重複', 'err');
-      else showToast('建立失敗：' + e.message, 'err');
+      else if (e.status === 403) showToast('只有管理員可以新增成員', 'err');
+      else if (e.status === 400) showToast('欄位有誤：請確認 Email 格式與到職日', 'err');
+      else showToast('建立失敗：' + (e.data?.message || e.message), 'err');
     }
   };
 }
