@@ -91,8 +91,11 @@ const loginThrottle = rateLimit({
   message: { error: 'too_many_login_attempts', message: '登入嘗試過於頻繁，請 15 分鐘後再試' },
   skip: (req) => {
     // Throttle only the credential-checking POST /login + /change-password
-    // v7.3: 啟用端點一併節流，防止暴力猜測啟用 token
-    return !(/\/login$|\/change-password$|\/activate$|\/activation\//.test(req.path));
+    // v7.3: 只把「會設定密碼」的 POST /activate 納入嚴格節流。
+    // GET /activation/:token 僅做連結有效性檢查，token 有 256 bits 熵，暴力猜測
+    // 不可行；把它放進這個 15 分鐘 10 次的桶子只會讓共用對外 IP 的辦公室互相
+    // 卡住（它與 /login 共用配額），因此改由較寬鬆的 authLimiter 承接。
+    return !(/\/login$|\/change-password$|\/activate$/.test(req.path));
   },
 });
 // General auth limiter (covers /me, /logout): looser
