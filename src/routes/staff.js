@@ -99,11 +99,16 @@ router.post('/', requireAdmin, async (req, res) => {
       },
     });
 
-    // Notify all active members
-    const others = await prisma.staff.findMany({ where: { active: true, NOT: { id: created.id } }, select: { id: true } });
+    // v7.5: 只通知管理員（新人本人另外收啟用信）。
+    // 原本是廣播給全體在職成員 —— 在 SMTP 未設定時只是站內通知無傷大雅，但
+    // 一旦開始真的寄信，每加一位新人就會寄給全部門，而且信寄出去收不回來。
+    const admins = await prisma.staff.findMany({
+      where: { active: true, role: 'admin', NOT: { id: created.id } },
+      select: { id: true },
+    });
     const tpl = tplStaffAdd({ newStaff: created });
     await Promise.all(
-      others.map((o) => notify({ type: 'staffAdd', recipientId: o.id, ...tpl }))
+      admins.map((o) => notify({ type: 'staffAdd', recipientId: o.id, ...tpl }))
     );
 
     // v7.3: 啟用連結明碼只在這裡回傳一次；DB 只留 hash，之後任何人都讀不到。
