@@ -3930,6 +3930,70 @@ async function v73Reinvite(id, name) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// v7.4 寄信設定診斷：貼完 SMTP 設定後可立刻驗證，不必翻部署日誌
+// ═══════════════════════════════════════════════════════════════
+async function v74RenderMailPanel() {
+  if (currentRole !== 'admin') return;
+  const host = document.getElementById('staff-table');
+  if (!host) return;
+  let box = document.getElementById('v74-mail');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'v74-mail';
+    box.style.cssText = 'margin-top:18px;padding:14px 16px;border:1px solid var(--card-border,#E5E5E5);border-radius:8px;font-size:12px;';
+    host.parentNode.insertBefore(box, host.nextSibling);
+  }
+  box.innerHTML = '<div style="color:#8C8C8C;">讀取寄信設定…</div>';
+  let st;
+  try { st = await fetchJson('GET', '/api/admin/smtp-status'); }
+  catch (e) { box.innerHTML = '<div style="color:#C0392B;">無法讀取寄信設定：' + escapeHtml(e.message) + '</div>'; return; }
+
+  const ok = st.configured;
+  box.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <b style="font-size:13px;">✉ 寄信設定（SMTP）</b>
+      <span style="padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600;
+        background:${ok ? '#E4F3EA' : '#FBEFD9'};color:${ok ? '#1F8A4C' : '#8A6D1B'};
+        border:1px solid ${ok ? '#A8D9BC' : '#E3C98A'};">${ok ? '已設定' : '未設定'}</span>
+    </div>
+    <div style="color:var(--fg-dim,#595959);line-height:1.9;">
+      ${ok
+        ? `主機 <b>${escapeHtml(st.host)}:${st.port}</b>${st.secure ? '（SSL）' : '（STARTTLS）'} · 帳號 <b>${escapeHtml(st.user)}</b><br>
+           寄件者 <b>${escapeHtml(st.from || '—')}</b>`
+        : `尚未設定：<b style="color:#8A6D1B;">${(st.missing || []).join('、')}</b><br>
+           未設定時系統不會寄信，新成員的啟用連結請用建立時跳出的視窗複製後自行傳給對方（功能不受影響）。`}
+      ${st.appBaseUrl
+        ? `<br>信件連結網域 <b>${escapeHtml(st.appBaseUrl)}</b>`
+        : `<br><span style="color:#B5703F;">⚠ 未設 APP_BASE_URL：信中的啟用連結會用請求當下的網域推算，建議明確設定以免連結錯誤。</span>`}
+    </div>
+    <button id="v74-test" style="margin-top:10px;padding:6px 14px;font-size:12px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:5px;cursor:pointer;">寄一封測試信給我自己</button>
+    <div id="v74-result" style="margin-top:8px;"></div>`;
+
+  document.getElementById('v74-test').onclick = async () => {
+    const btn = document.getElementById('v74-test');
+    const out = document.getElementById('v74-result');
+    btn.disabled = true; btn.textContent = '寄送中…';
+    try {
+      const r = await fetchJson('POST', '/api/admin/smtp-test');
+      out.innerHTML = `<span style="color:#1F8A4C;">✓ ${escapeHtml(r.message)}</span>`;
+    } catch (e) {
+      const d = e.data || {};
+      const hint = d.stage === 'auth'
+        ? '<br><span style="color:#8C8C8C;">認證失敗通常是：用了 Google 帳戶密碼而非「應用程式密碼」、應用程式密碼有空格沒去掉、或該帳戶未開啟兩步驟驗證。</span>'
+        : d.stage === 'config' ? '<br><span style="color:#8C8C8C;">請在 Zeabur 環境變數補齊後重新部署。</span>' : '';
+      out.innerHTML = `<span style="color:#C0392B;">✗ ${escapeHtml(d.message || e.message)}</span>${hint}`;
+    }
+    btn.disabled = false; btn.textContent = '寄一封測試信給我自己';
+  };
+}
+const _v74OrigRenderStaff = renderStaff;
+renderStaff = function () {
+  const r = _v74OrigRenderStaff.apply(this, arguments);
+  try { v74RenderMailPanel(); } catch (e) { console.warn('v74 mail panel failed', e); }
+  return r;
+};
+
 // Wrap staff-add submit → POST /api/staff
 const saBtn = document.getElementById('staff-add-submit');
 if (saBtn) {

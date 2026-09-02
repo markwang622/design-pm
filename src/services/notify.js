@@ -181,3 +181,73 @@ function isoDate(v) {
   const d = new Date(v);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
+
+// ─────────────────────────────────────────────────────────────
+// v7.4 SMTP 設定自我診斷（admin 專用）
+// 目的：管理員在 Zeabur 貼上 SMTP 設定後，能立刻確認成不成功，
+// 而不必去翻部署日誌。永遠不回傳 SMTP_PASS。
+// ─────────────────────────────────────────────────────────────
+function maskEmail(e) {
+  const [u, d] = String(e).split('@');
+  if (!d) return '***';
+  return (u.length <= 2 ? u[0] + '*' : u.slice(0, 2) + '*'.repeat(Math.max(1, u.length - 2))) + '@' + d;
+}
+
+export function smtpConfigStatus() {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, SMTP_SECURE, APP_BASE_URL } = process.env;
+  const missing = [];
+  if (!SMTP_HOST) missing.push('SMTP_HOST');
+  if (!SMTP_USER) missing.push('SMTP_USER');
+  if (!SMTP_PASS) missing.push('SMTP_PASS');
+  return {
+    configured: missing.length === 0,
+    missing,
+    host: SMTP_HOST || null,
+    port: Number(SMTP_PORT) || 587,
+    secure: SMTP_SECURE === 'true',
+    user: SMTP_USER ? maskEmail(SMTP_USER) : null,   // 遮蔽，且永不回傳密碼
+    hasPass: !!SMTP_PASS,
+    from: SMTP_FROM || (SMTP_USER ? `Design-PM <${SMTP_USER}>` : null),
+    appBaseUrl: APP_BASE_URL || null,
+  };
+}
+
+// 建一條全新連線做驗證 + 試寄，不沿用快取（避免舊的失敗狀態卡住診斷）
+export async function sendTestMail(to) {
+  const st = smtpConfigStatus();
+  if (!st.configured) {
+    return { ok: false, stage: 'config', message: `尚未設定：${st.missing.join('、')}` };
+  }
+  let nodemailer;
+  try {
+    ({ default: nodemailer } = await import('nodemailer'));
+  } catch (e) {
+    return { ok: false, stage: 'module', message: 'nodemailer 未安裝：' + e.message };
+  }
+  const t = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: st.port,
+    secure: st.secure,
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+  try {
+    await t.verify();
+  } catch (e) {
+    return { ok: false, stage: 'auth', message: e.message };
+  }
+  try {
+    await t.sendMail({
+      from: st.from,
+      to,
+      subject: '【藝術設計部】SMTP 測試信',
+      text: '這是一封測試信。收到代表寄信設定成功，新成員的啟用連結就能自動寄出了。',
+      html: '這是一封測試信。<br>收到代表寄信設定成功，新成員的啟用連結就能自動寄出了。',
+    });
+  } catch (e) {
+    return { ok: false, stage: 'send', message: e.message };
+  }
+  // 設定成功後解除模組層的停用旗標，讓後續通知不必等重啟就能寄出
+  _smtpDisabled = false;
+  _transporter = null;
+  return { ok: true, stage: 'sent', message: `測試信已寄至 ${to}` };
+}

@@ -6,10 +6,26 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { smtpConfigStatus, sendTestMail } from '../services/notify.js';
 
 const router = Router();
 router.use(requireAuth);
 router.use(requireAdmin);
+
+// ─── GET /api/admin/smtp-status — 寄信設定診斷 (v7.4) ────────
+// 只回報「有沒有設」與非機密欄位，永遠不回傳 SMTP_PASS。
+router.get('/smtp-status', (req, res) => {
+  res.json(smtpConfigStatus());
+});
+
+// ─── POST /api/admin/smtp-test — 寄一封測試信給管理員自己 (v7.4)
+// 固定寄給當前登入者本人的信箱，不接受自訂收件者，避免被當成轉寄工具。
+router.post('/smtp-test', async (req, res) => {
+  const me = await prisma.staff.findUnique({ where: { id: req.user.id }, select: { email: true } });
+  if (!me?.email) return res.status(400).json({ ok: false, message: '找不到你的 Email' });
+  const result = await sendTestMail(me.email);
+  res.status(result.ok ? 200 : 422).json(result);
+});
 
 const RESET_PHRASE = 'DELETE ALL DATA';
 
