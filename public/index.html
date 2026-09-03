@@ -3781,9 +3781,12 @@ function v51WireLogs(c) {
   btn.onclick = async () => {
     const ta = document.getElementById('d-log-input');
     const txt = (ta && ta.value || '').trim(); if (!txt) return;
-    // v6.8: 標籤必選（有「其他」作為逃生口，不會卡住任何人）
-    if (!v68SelTag) { showToast('請選擇這筆進度的類型（可選「其他」）', 'err'); return; }
-    if (v68Tag(v68SelTag)?.needsBy && !v68SelBy) { showToast('改稿請選擇「誰要求的」', 'err'); return; }
+    // v7.6: 標籤改回「選填」。
+    // v6.8 曾設為必填，但線上資料證明那是錯的決定：632 則日誌中，49 則帶有改稿
+    // 語意，其中 30 則（61%）設計師早已在自由文字裡寫明是誰要求的（「陳總修改
+    // 標題」「行銷回饋」「需求單位修改」）。必填等於要他把寫過的事再複述一次，
+    // 而日誌是全系統唯一填答率 94% 的資料來源——在它前面加分類關卡會侵蝕它。
+    // 改稿來源改由 v76AutoRevise() 從文字自動判讀，設計師端零額外輸入。
     const logDate = (dateInput && dateInput.value) ? new Date(dateInput.value) : new Date(TODAY); // H1
     const entry = { date: logDate, note: txt, by: ME_NAME(), tag: v68SelTag, ...(v68SelBy ? { tagBy: v68SelBy } : {}) };
     btn.disabled = true;
@@ -9492,6 +9495,56 @@ function v48InitColorPicker(target) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v7.6 改稿來源自動判讀（設計師端零輸入）▼▼▼
+// 不要求任何人多填欄位——直接從既有的進度日誌文字判讀。
+// 判讀是啟發式的，會有誤差，所以每一筆都保留原文供人工覆核；
+// 分析頁一律標示「自動判讀」，不假裝這是精確數字。
+// ═══════════════════════════════════════════════════════════════
+const V76_REVISE_RE = /改稿|修改|調整|重做|再修|修正|微調|回饋|意見|退件|不行|重來/;
+// 順序即優先序：先比對最具體的來源
+const V76_SOURCES = [
+  { key: '老闆/高層', re: /老闆|董事長|總經理|副總|執行長|[一-龥]{1,2}總(?!經理室)/ },
+  { key: '行銷主管',  re: /行銷主管|行銷經理|行銷總監/ },
+  { key: '行銷',      re: /行銷/ },
+  { key: '需求單位',  re: /需求單位|需求方|業主|客戶|使用單位/ },
+  { key: '主管',      re: /主管|經理|Mark|馬克/i },
+  { key: '設計內部',  re: /設計內部|內部討論|自行|自己再/ },
+];
+// 回傳該案自動判讀出的改稿事件；每筆帶原文，可供人工核對
+function v76AutoRevise(c) {
+  const out = [];
+  (c.logs || []).forEach((l) => {
+    const t = (l && l.note) || '';
+    if (!V76_REVISE_RE.test(t)) return;
+    // 設計師若自己打了標籤，一律以人工標籤為準（人優先於機器）
+    if (l.tag && l.tag !== 'revise') return;
+    let src = null;
+    if (l.tagBy) src = l.tagBy;                       // 人工填的來源最優先
+    else { const m = V76_SOURCES.find((s) => s.re.test(t)); if (m) src = m.key; }
+    // 判讀不出來源時，歸給該案的需求單位（99% 已填），並標示為推定
+    const inferred = !src;
+    if (inferred) src = c.unit || '未知';
+    out.push({ date: l.date, text: t, source: src, inferred, manual: !!(l.tag || l.tagBy) });
+  });
+  return out;
+}
+function v76ReviseStats(cases) {
+  const byUnit = {}, bySource = {};
+  let total = 0, inferredN = 0, manualN = 0;
+  cases.forEach((c) => {
+    v76AutoRevise(c).forEach((r) => {
+      total++;
+      if (r.inferred) inferredN++;
+      if (r.manual) manualN++;
+      const u = c.unit || '（未填）';
+      byUnit[u] = (byUnit[u] || 0) + 1;
+      bySource[r.source] = (bySource[r.source] || 0) + 1;
+    });
+  });
+  return { total, inferredN, manualN, byUnit, bySource };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ▼▼▼ v7.1 專案取消 ▼▼▼
 // 取消 ≠ 結案：沒有交付。統計上排除逾期/達成率/交付天數，但獨立追蹤
 // 「取消率」與「取消當下的階段」（愈後期取消＝白工愈貴）。
@@ -9670,12 +9723,13 @@ function v69Aggregate(cases) {
       const d = Math.round((new Date(c.closedOn) - new Date(c.dispatch)) / V69_DAY);
       if (d >= 0) g.cycles.push(d);
     }
-    // v6.8 日誌標籤累計
+    // v6.8 日誌標籤累計（人工標籤，選填）
     (c.logs || []).forEach(l => {
-      if (l.tag === 'revise') g.revise++;
-      else if (l.tag === 'blocked') g.blocked++;
+      if (l.tag === 'blocked') g.blocked++;
       else if (l.tag === 'scope') g.scope++;
     });
+    // v7.6 改稿改為自動判讀：人工標籤優先，其餘從日誌文字判讀（設計師零輸入）
+    g.revise += v76AutoRevise(c).length;
   });
   return Object.values(by).map(g => ({
     ...g,
@@ -9737,6 +9791,7 @@ async function renderRequesterAnalytics() {
   const allCycles = [].concat(...rows.map(r => r.cycles));
   const deptCycle = v69Median(allCycles);
   const totalRevise = rows.reduce((s, r) => s + r.revise, 0);
+  const rvStat = v76ReviseStats(cases); // v7.6 判讀品質摘要（推定 vs 人工）
 
   // v7.0: 逾期案件依責任歸屬分組
   const odCases = cases.filter(c => !(ENDED_STATUS_KEYS.has(c.status) || c.archived) && c.goLive && new Date(c.goLive) < TODAY);
@@ -9763,7 +9818,7 @@ async function renderRequesterAnalytics() {
       <div class="kpi"><div class="label">分析案件數</div><div class="value">${cases.length}</div><div class="sub">${rows.length} 個需求單位</div></div>
       <div class="kpi"><div class="label">部門逾期率</div><div class="value">${pct(deptOverdueRate)}</div><div class="sub">${totalOverdue} / ${totalOpen} 進行中</div></div>
       <div class="kpi"><div class="label">交付天數中位數</div><div class="value">${deptCycle ?? '—'}</div><div class="sub">派發 → 結案（${allCycles.length} 件已結案）</div></div>
-      <div class="kpi"><div class="label">改稿記錄</div><div class="value">${totalRevise}</div><div class="sub">${totalRevise ? '來自進度日誌標籤' : '待日誌標籤累積'}</div></div>
+      <div class="kpi" id="v76-kpi" style="${totalRevise ? 'cursor:pointer;' : ''}"><div class="label">改稿次數</div><div class="value">${totalRevise}</div><div class="sub">${totalRevise ? `自動判讀 · ${rvStat.inferredN} 筆為推定${rvStat.manualN ? ` · ${rvStat.manualN} 筆人工標記` : ''}` : '尚無改稿記錄'}</div></div>
       <div class="kpi" id="v71-kpi" style="${cancelled.length ? 'cursor:pointer;' : ''}"><div class="label">已取消</div><div class="value">${cancelled.length}</div><div class="sub">${cancelled.length ? `取消率 ${pct(cancelled.length / cases.length)} · ${lateCancel} 件為後期取消` : '此期間無取消案件'}</div></div>
     </div>
     <div style="overflow-x:auto;">
@@ -9835,6 +9890,9 @@ async function renderRequesterAnalytics() {
   // v7.1: 取消 KPI → 列出取消案件（含取消階段，判斷白工程度）
   const ck = document.getElementById('v71-kpi');
   if (ck && cancelled.length) ck.onclick = () => v71ShowCancelled(cancelled);
+  // v7.6: 改稿 KPI → 列出每一筆判讀依據（原文可見，供人工覆核）
+  const rk = document.getElementById('v76-kpi');
+  if (rk && totalRevise) rk.onclick = () => v76ShowRevise(cases);
   // v7.0: 點責任卡片 → 展開該組逾期案件
   let v70Open = null;
   body.querySelectorAll('.v70-blame').forEach(el => el.onclick = () => {
@@ -9936,6 +9994,48 @@ function v71ShowCancelled(items) {
     }).join('')}`;
   document.getElementById('v71-lx').onclick = close;
   modal.querySelectorAll('.v71-crow').forEach(el => el.onclick = () => { close(); openDrawerById(el.dataset.id); });
+}
+// v7.6: 改稿判讀明細——每筆都附原文，讓人能核對機器判斷對不對
+function v76ShowRevise(cases) {
+  const rows = [];
+  cases.forEach(c => v76AutoRevise(c).forEach(r => rows.push({ c, r })));
+  rows.sort((a, b) => (a.r.inferred ? 1 : 0) - (b.r.inferred ? 1 : 0));
+  const st = v76ReviseStats(cases);
+  let bg = document.getElementById('v62-bg');
+  if (!bg) { bg = document.createElement('div'); bg.id = 'v62-bg'; bg.className = 'drawer-bg'; bg.style.zIndex = '85'; document.body.appendChild(bg); }
+  let modal = document.getElementById('v62-modal');
+  if (!modal) {
+    modal = document.createElement('div'); modal.id = 'v62-modal';
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(720px,94%);max-height:84vh;overflow-y:auto;z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);';
+    document.body.appendChild(modal);
+  }
+  bg.classList.add('open'); modal.style.display = 'block';
+  const close = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
+  bg.onclick = close;
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:8px;">
+      <h3 style="margin:0;font-size:16px;">✏️ 改稿判讀明細（${rows.length}）</h3>
+      <button id="v76-x" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
+    </div>
+    <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);line-height:1.8;margin-bottom:10px;">
+      設計師不需為此多填任何欄位——以下全部由既有進度日誌的文字自動判讀。<br>
+      來源分布：${Object.entries(st.bySource).sort((a,b)=>b[1]-a[1]).map(([k,v])=>escapeHtml(k)+' '+v).join('、')}<br>
+      <b style="color:#B5703F;">判讀是啟發式的，會有誤差。</b>標「推定」者代表文字裡沒寫是誰，系統歸給該案需求單位；請以原文為準。
+    </div>
+    ${rows.map(({ c, r }) => `
+      <div class="v76-row" data-id="${escapeHtml(c.id)}" style="padding:8px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;cursor:pointer;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span style="flex-shrink:0;padding:2px 9px;border-radius:10px;font-weight:600;font-size:11px;
+            background:${r.inferred ? '#F0F0F0' : '#FCEBEB'};color:${r.inferred ? '#595959' : '#A32D2D'};
+            border:1px solid ${r.inferred ? '#DDD' : '#F09595'};">${escapeHtml(r.source)}${r.inferred ? '（推定）' : ''}</span>
+          <b>${escapeHtml(c.name)}</b>
+          <span style="color:#8C8C8C;font-size:11px;">${escapeHtml(c.unit || '—')} · ${escapeHtml(c.designer)}</span>
+          <span style="margin-left:auto;color:#8C8C8C;font-size:11px;">開啟 ›</span>
+        </div>
+        <div style="color:var(--fg-dim,#595959);margin-top:4px;padding-left:2px;">「${escapeHtml(String(r.text).replace(/\s+/g, ' ').slice(0, 110))}」</div>
+      </div>`).join('')}`;
+  document.getElementById('v76-x').onclick = close;
+  modal.querySelectorAll('.v76-row').forEach(el => el.onclick = () => { close(); openDrawerById(el.dataset.id); });
 }
 NAV_DEF.admin.push({ key: 'requester', label: '需求分析' });
 const _v69OrigSwitchView = window.switchView;
