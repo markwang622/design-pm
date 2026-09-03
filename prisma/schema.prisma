@@ -168,6 +168,11 @@ model Case {
   needsOutsourcing Boolean @default(false) // D2: 需發包（預留 7–10 工作天）
   copyPath      String?  // H2: 行銷提供的文案路徑/連結（選填）
   source        String?  // H3: 專案來源 / 需求單號（選填）
+  // v7.7: 需求單位在公司內部系統提出的日期。用來量測「簽核鏈耗時」——
+  // 需求提出 → 需求單位主管 → 行銷主管 → 藝術設計部派發，這段完全不在
+  // 本系統內，卻會壓縮設計部可用天數。由 admin 於建案/匯入時帶入，
+  // 設計師端零負擔。
+  requestedOn   DateTime? @db.Date
   openDate      DateTime @db.Date
   dispatchDate  DateTime @db.Date
   copyDate      DateTime? @db.Date

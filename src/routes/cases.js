@@ -27,6 +27,7 @@ const createSchema = z.object({
   category: z.string().optional(),
   designerId: z.number().int(),
   collaboratorIds: z.array(z.number().int()).max(3).default([]),
+  requestedOn: dateStr.optional().nullable(), // v7.7: 需求單位提出日（簽核鏈起點）
   openDate: dateStr,
   dispatchDate: dateStr,
   copyDate: dateStr.optional(),
@@ -59,6 +60,7 @@ const updateSchema = z.object({
   status: z.enum(['todo', 'wait', 'doing', 'review', 'review_done', 'print', 'done', 'closed', 'cancelled']).optional(),
   designerId: z.number().int().optional(),
   collaboratorIds: z.array(z.number().int()).max(3).optional(),
+  requestedOn: dateStr.optional().nullable(), // v7.7
   openDate: dateStr.optional(),
   dispatchDate: dateStr.optional(),
   copyDate: dateStr.optional().nullable(),
@@ -94,6 +96,7 @@ const bulkRowSchema = z.object({
   urgent: z.boolean().default(false),
   note: z.string().default(''),
   // Dates — accept YYYY-MM-DD strings; convert later
+  requestedOn: z.string().optional(), // v7.7
   openDate: z.string().optional(),
   dispatchDate: z.string().optional(),
   copyDate: z.string().optional(),
@@ -164,6 +167,7 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
       .filter((id) => id && id !== designerId);
 
     // Build dates with sensible fallbacks
+    const requestedOn = parseDate(r.requestedOn); // v7.7
     const openDate = parseDate(r.openDate) || today;
     const dispatchDate = parseDate(r.dispatchDate) || openDate;
     const copyDate = parseDate(r.copyDate);
@@ -183,6 +187,7 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
         status: r.status,
         urgent: !!r.urgent,
         note: r.note || '',
+        requestedOn,
         openDate,
         dispatchDate,
         copyDate,
@@ -273,6 +278,7 @@ router.post('/', async (req, res) => {
     hotel: body.hotel,
     level: body.level,
     category: body.category,
+    requestedOn: body.requestedOn ?? undefined, // v7.7
     openDate: body.openDate,
     dispatchDate: body.dispatchDate,
     copyDate: body.copyDate,

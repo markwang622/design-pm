@@ -1427,6 +1427,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
       <label>需求單位 *<select id="f-unit"></select></label>
       <label>分級 *<i class="tip" data-tip="案件規模／重要度，SS 最大、D 最小，會影響工作量計分（SS=5·S=4·A=3·B=2·C/D=1）。不確定時選 A/B 即可，事後可改。">ⓘ</i><select id="f-level"></select></label>
       <label id="f-designer-wrap">負責設計 *<select id="f-designer"></select></label>
+      <label id="f-requested-wrap" style="display:none;">需求提出日<i class="tip" data-tip="需求單位在公司內部系統提出的日期（簽核鏈起點）。填了才能算出「簽核鏈吃掉幾天、設計部實際剩幾天」。由主管建案／匯入時帶入，設計師不需填。">ⓘ</i><input type="date" id="f-requested"></label>
       <label>需求派發日 *<input type="date" id="f-dispatch"></label>
       <label>上線日 *<input type="date" id="f-golive"></label>
       <label class="span2 check"><input type="checkbox" id="f-urgent"> 標記為急件（🔥）</label>
@@ -2645,6 +2646,7 @@ function openDrawer(c) {
   const wdLeft = c.status !== 'done' && c.goLive > TODAY ? workdaysBetween(TODAY, c.goLive) : null;
   const tlRows = [
     {label:'開單日',        date:c.open,        cls:''},
+    ...(c.requestedOn ? [{label:'需求提出日', date:c.requestedOn, cls:''}] : []),
     {label:'需求派發日',    date:c.dispatch,    cls:''},
     c.copy ? {label:'文案收件日', date:c.copy, cls:''} : null,
     {label:'校稿日（起）',  date:c.proofStart,  cls:''},
@@ -2835,7 +2837,8 @@ function openCreateModal() {
   const self = document.getElementById('f-self');
   self.checked = (currentRole === 'designer');
   toggleSelfCreated();
-  ['f-name','f-dispatch','f-copy','f-golive','f-note','f-copypath','f-source','f-print'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['f-name','f-dispatch','f-copy','f-golive','f-note','f-copypath','f-source','f-print','f-requested'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  try { v77ShowRequestedField(); } catch (e) { console.warn('v77 field toggle failed', e); } // v7.7: 需求提出日僅 admin 可見
   document.getElementById('f-urgent').checked = false;
   draftItems = [{ n:'', type: DELIVERABLES[0], owner: (currentRole === 'designer' ? ME_NAME() : '') }];
   draftCollabs = [];
@@ -3370,6 +3373,7 @@ function normalizeCase(b) {
     cat: b.category || '',
     status: b.status || 'todo',
     open: b.openDate ? new Date(b.openDate) : new Date(TODAY),
+    requestedOn: b.requestedOn ? new Date(b.requestedOn) : null, // v7.7
     dispatch: b.dispatchDate ? new Date(b.dispatchDate) : new Date(TODAY),
     copy: b.copyDate ? new Date(b.copyDate) : null,
     printDate: b.printDate ? new Date(b.printDate) : null, // H4
@@ -3567,6 +3571,7 @@ window.submitCreate = async function() {
     copyPath: copyPath || undefined,               // H2: 文案路徑
     source: source || undefined,                   // H3: 專案來源/需求單號
     designerId, collaboratorIds: collabIds,
+    ...(function(){ var el=document.getElementById('f-requested'); return (el && el.value) ? { requestedOn: el.value } : {}; })(), // v7.7
     openDate: ymdIso(TODAY), dispatchDate: ymdIso(new Date(dispatch)),
     copyDate: copyDate ? ymdIso(new Date(copyDate)) : undefined,
     printDate: printDate ? ymdIso(new Date(printDate)) : undefined, // H4: 印刷送印日
@@ -4113,6 +4118,7 @@ api.analytics      = { get: (q) => {
 const V33_TRACKED = ['goLiveDate','dispatchDate','copyDate','designerId','status','level','urgent'];
 const V33_FIELD_LABEL = {
   goLiveDate: '上線日',
+  requestedOn: '需求提出日',
   dispatchDate: '派發日',
   copyDate: '提供文案日',
   designerId: '主負責人',
@@ -9495,6 +9501,76 @@ function v48InitColorPicker(target) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v7.7 簽核鏈耗時（需求提出日）▼▼▼
+// 需求單位提出 → 需求單位主管 → 行銷主管 → 藝術設計部派發，這整段不在
+// 本系統內，卻會壓縮設計部可用天數。過去無法舉證，於是上線日壓縮的責任
+// 全落在設計部。此欄位只由 admin 於建案／匯入時帶入，設計師零負擔。
+// ═══════════════════════════════════════════════════════════════
+function v77ShowRequestedField() {
+  const w = document.getElementById('f-requested-wrap');
+  if (w) w.style.display = (currentRole === 'admin') ? '' : 'none';
+}
+// 只算有填需求提出日的案；沒有資料時誠實顯示為尚無資料，不做任何推估
+function v77LeadStats(cases) {
+  const rows = [];
+  cases.forEach((c) => {
+    if (!c.requestedOn || !c.dispatch) return;
+    const chain = Math.round((new Date(c.dispatch) - new Date(c.requestedOn)) / V69_DAY);
+    const design = c.goLive ? Math.round((new Date(c.goLive) - new Date(c.dispatch)) / V69_DAY) : null;
+    if (chain < 0) return; // 資料有誤，寧可不算
+    rows.push({ c, chain, design });
+  });
+  const chains = rows.map((r) => r.chain);
+  const designs = rows.filter((r) => r.design !== null).map((r) => r.design);
+  const med = (a) => { if (!a.length) return null; const b = a.slice().sort((x, y) => x - y); const m = Math.floor(b.length / 2); return b.length % 2 ? b[m] : Math.round((b[m - 1] + b[m]) / 2); };
+  const byUnit = {};
+  rows.forEach((r) => { const u = r.c.unit || '（未填）'; (byUnit[u] = byUnit[u] || []).push(r.chain); });
+  return {
+    n: rows.length,
+    chainMed: med(chains),
+    designMed: med(designs),
+    byUnit: Object.entries(byUnit).map(([u, a]) => ({ unit: u, n: a.length, med: med(a) })).sort((a, b) => b.med - a.med),
+    rows: rows.sort((a, b) => b.chain - a.chain),
+  };
+}
+function v77PanelHtml(cases) {
+  const st = v77LeadStats(cases);
+  if (!st.n) {
+    return `<div style="margin-top:22px;padding:12px 14px;border:1px dashed var(--card-border,#E5E5E5);border-radius:8px;">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px;">⏳ 簽核鏈耗時（尚無資料）</div>
+      <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);line-height:1.9;">
+        目前沒有任何案件填了「需求提出日」，所以無法計算。<br>
+        這個欄位只在<b>你建案或批次匯入時</b>帶入（設計師看不到、也不需填）。填了之後這裡會顯示：
+        需求從提出到派進設計部花了幾天、設計部實際剩幾天。<br>
+        <b style="color:#B5703F;">這是目前唯一能舉證「上線日被簽核鏈吃掉」的資料</b>——在此之前，被壓縮的時間全部算在設計部頭上。
+      </div></div>`;
+  }
+  const total = (st.chainMed || 0) + (st.designMed || 0);
+  const pct = total ? Math.round(st.chainMed / total * 100) : 0;
+  return `<div style="margin-top:22px;">
+    <div style="font-size:13px;font-weight:600;margin-bottom:4px;">⏳ 簽核鏈耗時（${st.n} 件有資料）</div>
+    <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-bottom:10px;">
+      需求提出 → 派進設計部（不在設計部掌控內） vs 派發 → 上線日（設計部實際可用）。
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+      <div style="flex:1;min-width:190px;border:1px solid #E3C98A;border-radius:8px;padding:10px 12px;">
+        <div style="font-size:12px;color:#8A6D1B;font-weight:600;">簽核鏈耗時（中位數）</div>
+        <div style="font-size:24px;font-weight:500;margin:2px 0;">${st.chainMed} <span style="font-size:12px;color:var(--fg-muted,#8C8C8C);font-weight:400;">天 · 佔全程 ${pct}%</span></div>
+        <div style="font-size:10px;color:var(--fg-muted,#8C8C8C);">需求單位主管 → 行銷主管 → 設計部</div>
+      </div>
+      <div style="flex:1;min-width:190px;border:1px solid #A8D9BC;border-radius:8px;padding:10px 12px;">
+        <div style="font-size:12px;color:#1F8A4C;font-weight:600;">設計部可用天數（中位數）</div>
+        <div style="font-size:24px;font-weight:500;margin:2px 0;">${st.designMed ?? '—'} <span style="font-size:12px;color:var(--fg-muted,#8C8C8C);font-weight:400;">天</span></div>
+        <div style="font-size:10px;color:var(--fg-muted,#8C8C8C);">派發日 → 上線日</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--fg-dim,#595959);line-height:1.9;">
+      各需求單位簽核鏈中位數：${st.byUnit.map((u) => `${escapeHtml(u.unit)} <b>${u.med}</b> 天${u.n < 3 ? '<span style="color:#8C8C8C;">*</span>' : ''}`).join('、')}
+      <br><span style="color:#8C8C8C;">* 樣本少於 3 件，僅供參考。</span>
+    </div></div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ▼▼▼ v7.6 改稿來源自動判讀（設計師端零輸入）▼▼▼
 // 不要求任何人多填欄位——直接從既有的進度日誌文字判讀。
 // 判讀是啟發式的，會有誤差，所以每一筆都保留原文供人工覆核；
@@ -9849,6 +9925,7 @@ async function renderRequesterAnalytics() {
       </tbody>
     </table>
     </div>
+    ${v77PanelHtml(cases)}
     ${odCases.length ? `
       <div style="margin-top:22px;">
         <div style="font-size:13px;font-weight:600;margin-bottom:4px;">⏱ 逾期責任歸屬（${odCases.length} 件逾期）</div>
