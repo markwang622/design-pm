@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { safeRouter } from '../lib/safeRouter.js';
 import { z } from 'zod';
 import { prisma } from '../lib/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
@@ -7,7 +7,7 @@ import { caseEditPermission } from '../lib/casePermissions.js';
 import { notify, tplCaseAssigned, tplCollabInvite } from '../services/notify.js';
 import { detectChanges, writeChangeLog, TRACKED_FIELDS } from '../services/changelog.js';
 
-const router = Router();
+const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
 router.use(requireAuth);
 
 // ─── Helpers ───────────────────────────────────────────────

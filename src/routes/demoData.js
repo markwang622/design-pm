@@ -11,7 +11,7 @@
 // 明確不做：不複製密碼／token、不碰休假／通知／會議，不清空資料，
 // 不產生邀請或 email，不覆蓋既有案號，不改既有登入帳號。
 // ─────────────────────────────────────────────────────────────
-import { Router } from 'express';
+import { safeRouter } from '../lib/safeRouter.js';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
@@ -26,7 +26,7 @@ export const CONFIRM_PHRASE = 'COPY PRODUCTION PROJECT DATA TO DEMO';
 const ALIAS_DOMAIN = 'demo.invalid';
 const aliasEmail = (sourceId) => `source-${sourceId}@${ALIAS_DOMAIN}`;
 
-const router = Router();
+const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
 
 // ── Gate 1：只在 demo 站存在 ──
 router.use((req, res, next) => {

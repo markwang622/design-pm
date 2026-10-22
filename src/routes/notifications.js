@@ -1,9 +1,10 @@
-import { Router } from 'express';
+import { safeRouter, intIdParam } from '../lib/safeRouter.js';
 import { prisma } from '../lib/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { notify } from '../services/notify.js';
 
-const router = Router();
+const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
+router.param('id', intIdParam); // v9.6: :id 統一驗正整數，不合法回 400 不碰 DB
 router.use(requireAuth);
 
 // ─── GET /api/notifications — list mine ───────────────────

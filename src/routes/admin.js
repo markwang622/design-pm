@@ -2,13 +2,13 @@
 // Admin-only destructive operations.
 // Currently: factory-reset (wipe DB except current admin + hotel baseline).
 // ─────────────────────────────────────────────────────────────
-import { Router } from 'express';
+import { safeRouter } from '../lib/safeRouter.js';
 import { z } from 'zod';
 import { prisma } from '../lib/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { smtpConfigStatus, sendTestMail } from '../services/notify.js';
 
-const router = Router();
+const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
 router.use(requireAuth);
 router.use(requireAdmin);
 

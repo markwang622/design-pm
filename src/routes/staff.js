@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { safeRouter, intIdParam } from '../lib/safeRouter.js';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../lib/db.js';
@@ -7,7 +7,8 @@ import { workloadScore, workloadForAll, suggestSuccessor } from '../services/wor
 import { notify, tplStaffAdd, tplDeparture } from '../services/notify.js';
 import { generateActivationToken, unusablePassword, activationUrl, ACTIVATION_TTL_DAYS } from '../lib/activation.js';
 
-const router = Router();
+const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
+router.param('id', intIdParam); // v9.6: :id 統一驗正整數，不合法回 400 不碰 DB
 router.use(requireAuth);
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).transform((s) => new Date(s + 'T00:00:00Z'));

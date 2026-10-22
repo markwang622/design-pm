@@ -37,4 +37,4 @@ EXPOSE 3000
 # 1. Sync DB schema (creates tables on first run, idempotent)
 # 2. Seed (idempotent — no-op if DB already populated)
 # 3. Start server
-CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && node prisma/seed.js && node src/index.js"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate && node prisma/seed.js && node src/index.js"]

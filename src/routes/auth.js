@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { safeRouter } from '../lib/safeRouter.js';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../lib/db.js';
@@ -7,7 +7,7 @@ import { hashToken } from '../lib/activation.js';
 import { passwordChangedNotice } from '../services/passwordRecovery.js';
 import recoveryRouter from './passwordRecovery.js';
 
-const router = Router();
+const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
 
 const loginSchema = z.object({
   email: z.string().email(),

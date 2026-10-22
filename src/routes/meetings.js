@@ -5,14 +5,15 @@
 // 與會者僅內部同仁（MeetingAttendee join，含出席回覆狀態）。
 // 建立時通知與會者與主持人，並回傳衝突偵測結果（不阻擋）。
 // ─────────────────────────────────────────────────────────────
-import { Router } from 'express';
+import { safeRouter, intIdParam } from '../lib/safeRouter.js';
 import { z } from 'zod';
 import { prisma } from '../lib/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { notify } from '../services/notify.js';
 import crypto from 'node:crypto';
 
-const router = Router();
+const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
+router.param('id', intIdParam); // v9.6: :id 統一驗正整數，不合法回 400 不碰 DB
 router.use(requireAuth);
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).transform((s) => new Date(s + 'T00:00:00Z'));

@@ -2,7 +2,7 @@
 // Hotel dictionary — admin can add / rename / hide hotels.
 // Frontend pulls /api/hotels at bootstrap to populate dropdowns.
 // ─────────────────────────────────────────────────────────────
-import { Router } from 'express';
+import { safeRouter, intIdParam } from '../lib/safeRouter.js';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/db.js';
@@ -18,7 +18,8 @@ export function hotelFingerprint(rows) {
   return crypto.createHash('sha256').update(s).digest('hex').slice(0, 32);
 }
 
-const router = Router();
+const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
+router.param('id', intIdParam); // v9.6: :id 統一驗正整數，不合法回 400 不碰 DB
 router.use(requireAuth);
 
 // GET /api/hotels — everyone (members need it for case create dropdown)

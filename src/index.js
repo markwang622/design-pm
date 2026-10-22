@@ -218,8 +218,18 @@ app.get('*', (req, res) => {
 });
 
 // Error handler
-app.use((err, req, res, _next) => {
-  console.error('[err]', err);
+app.use((err, req, res, next) => {
+  // v9.6: 已開始回應就交回 Express 預設處理，避免二次寫入 header
+  if (res.headersSent) return next(err);
+  // body-parser：JSON 語法錯誤 / 過大
+  if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'invalid_json', message: '請求內容不是有效的 JSON' });
+  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'payload_too_large', message: '請求內容過大' });
+  // Prisma 常見可預期錯誤 → 不洩漏細節的明確狀態碼
+  if (err && err.code === 'P2025') return res.status(404).json({ error: 'not_found' });
+  if (err && err.code === 'P2002') return res.status(409).json({ error: 'duplicate' });
+  if (err && /PrismaClientValidationError/.test(err.name || '')) return res.status(400).json({ error: 'invalid_request' });
+  // 其餘：伺服器端完整紀錄，對外只給代碼，不帶 stack / DB 訊息
+  console.error('[err]', req.method, req.originalUrl, err && err.stack ? err.stack : err);
   res.status(500).json({ error: 'server_error' });
 });
 

@@ -2,10 +2,10 @@
 // iCal 訂閱（J2）— 免登入，用 ?key= 驗證（行事曆訂閱不帶 cookie）。
 // 輸出案件上線日 + 拍攝 + 休假 + 出差，供 Google/Apple 行事曆訂閱。
 // ─────────────────────────────────────────────────────────────
-import { Router } from 'express';
+import { safeRouter } from '../lib/safeRouter.js';
 import { prisma } from '../lib/db.js';
 
-const router = Router();
+const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
 const ICAL_KEY = process.env.ICAL_KEY || 'design-pm-cal';
 
 const pad = (n) => String(n).padStart(2, '0');
