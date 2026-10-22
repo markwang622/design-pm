@@ -1080,7 +1080,12 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
   .detail-grid { grid-template-columns: 1fr; }
 }
 
-/* 個人頁 KPI：320px 時七張各佔一整列會把清單推到很下面，改兩欄 */
+/* 個人頁 KPI：320px 時七張各佔一整列會把清單推到很下面，改兩欄。
+   注意：既有 .kpi-row 的行動版規則已排除 #personal-kpi，所以 561–768px 這段
+   也必須由這裡接手，否則會退回桌面的 auto-fit（700px 約 4 欄）。 */
+@media (max-width: 768px) {
+  #personal-kpi { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+}
 @media (max-width: 560px) {
   #personal-kpi { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   #personal-kpi .kpi { padding: 8px 10px; min-width: 0; }
@@ -7190,7 +7195,9 @@ const v38MobileCSS = `
   .main { padding: 12px 12px !important; max-width: 100% !important; }
 
   /* ========== DASHBOARD GRIDS ========== */
-  .kpi-row { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
+  /* v8.2: 排除 #personal-kpi —— 這條帶 !important，會勝過個人頁的兩欄規則
+     （!important 無視特異性）。其他頁的 .kpi-row 行為完全不變。 */
+  .kpi-row:not(#personal-kpi) { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
   .grid-2, .grid-3 { grid-template-columns: 1fr !important; gap: 12px !important; }
   .form-grid { grid-template-columns: 1fr !important; }
   .kpi { padding: 10px 12px; }
@@ -7344,7 +7351,8 @@ const v38MobileCSS = `
 @media (max-width: 480px) {
   .topbar { padding: 8px 10px !important; }
   .topbar .logo { font-size: 12px !important; }
-  .kpi-row { grid-template-columns: 1fr !important; }
+  /* v8.2: 同上，排除 #personal-kpi，否則 320px 會被強制成單欄 */
+  .kpi-row:not(#personal-kpi) { grid-template-columns: 1fr !important; }
   .kpi .value { font-size: 20px; }
   .role-switch button { padding: 3px 6px !important; }
   .role-switch select { max-width: 130px !important; font-size: 10px !important; }
