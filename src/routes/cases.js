@@ -4,6 +4,7 @@ import { prisma } from '../lib/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { nextCaseId } from '../lib/ids.js';
 import { caseEditPermission } from '../lib/casePermissions.js';
+import { caseContentInclude, replaceCaseJson, appendCaseLog, sendCaseEditError } from '../lib/caseJsonEdits.js';
 import { notify, tplCaseAssigned, tplCollabInvite } from '../services/notify.js';
 import { detectChanges, writeChangeLog, TRACKED_FIELDS } from '../services/changelog.js';
 
@@ -11,11 +12,7 @@ const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
 router.use(requireAuth);
 
 // ─── Helpers ───────────────────────────────────────────────
-const caseInclude = {
-  designer: { select: { id: true, name: true, seniority: true, active: true } },
-  collaborators: { select: { id: true, name: true, seniority: true, active: true } },
-  createdBy: { select: { id: true, name: true } },
-};
+const caseInclude = caseContentInclude;
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).transform((s) => new Date(s + 'T00:00:00Z'));
 
@@ -781,6 +778,8 @@ const itemSchema = z.object({
 const itemsPatchSchema = z.object({
   items: z.array(itemSchema).max(50),
   reason: z.string().optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
+  expectedContentVersion: z.number().int().nonnegative().optional(),
 });
 router.patch('/:id/items', async (req, res) => {
   const parsed = itemsPatchSchema.safeParse(req.body);
@@ -804,11 +803,10 @@ router.patch('/:id/items', async (req, res) => {
   }
   const oldItemsCount = Array.isArray(existing.items) ? existing.items.length : 0;
   const newItems = parsed.data.items;
-  const updated = await prisma.case.update({
-    where: { id: existing.id },
-    data: { items: newItems },
-    include: caseInclude,
-  });
+  let updated;
+  try { updated = await replaceCaseJson(existing.id, req.user, 'items', newItems, parsed.data.expectedUpdatedAt, parsed.data.expectedContentVersion); }
+  catch (e) { if (sendCaseEditError(res, e)) return; throw e; }
+
   // ChangeLog
   try {
     await writeChangeLog(
@@ -823,15 +821,37 @@ router.patch('/:id/items', async (req, res) => {
 
 // ─── PATCH /api/cases/:id/logs — 進度日誌持久化 (A3) ──────────
 // 整包替換 logs 陣列（新增/編輯/刪除皆送完整陣列）。
+const logEntrySchema = z.object({
+  id: z.string().min(8).max(100).optional(),
+  date: z.string().optional(),
+  note: z.string().min(1).max(2000),
+  by: z.string().optional(),
+  tag: z.string().max(20).optional(),
+  tagBy: z.string().max(20).optional(),
+  fromMeeting: z.number().int().positive().optional(),
+}).passthrough();
 const logsPatchSchema = z.object({
-  logs: z.array(z.object({
-    date: z.string().optional(),
-    note: z.string().min(1).max(2000),
-    by: z.string().optional(),
-    // v6.8: 事件標籤（改稿/需求變更/等待中…）+ 改稿來源，供管理分析累計
-    tag: z.string().max(20).optional(),
-    tagBy: z.string().max(20).optional(),
-  })).max(500),
+  logs: z.array(logEntrySchema).max(500),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
+  expectedContentVersion: z.number().int().nonnegative().optional(),
+});
+const appendLogSchema = z.object({
+  entry: z.object({
+    id: z.string().min(8).max(100),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(s => {
+      const date = new Date(s + 'T00:00:00Z');
+      return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === s;
+    }, '日期無效').optional(),
+    note: z.string().trim().min(1).max(2000),
+    tag: z.string().max(20).nullable().optional(),
+    tagBy: z.string().max(20).nullable().optional(),
+  }),
+});
+router.post('/:id/logs', async (req, res) => {
+  const parsed = appendLogSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues });
+  try { res.json(await appendCaseLog(req.params.id, req.user, parsed.data.entry)); }
+  catch (e) { if (sendCaseEditError(res, e)) return; throw e; }
 });
 router.patch('/:id/logs', async (req, res) => {
   const parsed = logsPatchSchema.safeParse(req.body);
@@ -853,11 +873,10 @@ router.patch('/:id/logs', async (req, res) => {
       message: '只有主負責人、協作者或 admin 可編輯進度日誌',
     });
   }
-  const updated = await prisma.case.update({
-    where: { id: existing.id },
-    data: { logs: parsed.data.logs },
-    include: caseInclude,
-  });
+  let updated;
+  try { updated = await replaceCaseJson(existing.id, req.user, 'logs', parsed.data.logs, parsed.data.expectedUpdatedAt, parsed.data.expectedContentVersion); }
+  catch (e) { if (sendCaseEditError(res, e)) return; throw e; }
+
   res.json(updated);
 });
 

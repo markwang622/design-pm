@@ -3301,14 +3301,14 @@ function renderGantt() {
             <div class="gantt-row sub-row">
               <div class="label">
                 <span class="si-bullet"></span>
-                <span class="p-name" title="${it.n}">${si+1}. ${it.n}</span>
+                <span class="p-name" title="${escapeHtml(it.n || '')}">${si+1}. ${escapeHtml(it.n || '')}</span>
                 ${it.type ? `<span class="chip" style="font-size:9px;padding:0 5px;">${(it.type||'').replace(/^\d+\s/, '')}</span>` : ''}
                 <span class="chip" style="font-size:9px;padding:0 5px;background:${itStInfo.color}22;color:${itStInfo.color};border-color:${itStInfo.color}55;">${itStInfo.name}</span>
                 <span class="chip" style="font-size:9px;padding:0 5px;" title="負責 ${itOwner}">${itOwner.slice(0,3)}</span>
               </div>
               <div class="gantt-track">
                 ${renderBackground(28)}
-                ${itInRange ? `<div class="gantt-bar sub s-${itStatus}" style="left:${itCs}%;width:${itW}%;background:${itStInfo.color}AA;border-color:${itStInfo.color};" title="${it.n} · ${itOwner} · ${itStInfo.name} · ${ymd(itStart)} → ${ymd(itEnd)}" onclick="openDrawerById('${c.id}')">${itW > 10 ? it.n : ''}</div>` : ''}
+                ${itInRange ? `<div class="gantt-bar sub s-${itStatus}" style="left:${itCs}%;width:${itW}%;background:${itStInfo.color}AA;border-color:${itStInfo.color};" title="${escapeHtml(it.n || '')} · ${escapeHtml(itOwner)} · ${escapeHtml(itStInfo.name)} · ${ymd(itStart)} → ${ymd(itEnd)}" onclick="openDrawerById('${escapeHtml(c.id)}')">${itW > 10 ? escapeHtml(it.n || '') : ''}</div>` : ''}
               </div>
             </div>
           `;
@@ -3651,7 +3651,7 @@ function openDrawer(c) {
     collabBar.innerHTML = `
       <div class="collab-bar">
         <span class="cb-title">🤝 協作者 (${c.collaborators.length})</span>
-        ${c.collaborators.map(n => `<span class="chip collab" title="${n}">${n.slice(0,2)} · ${n}</span>`).join('')}
+        ${c.collaborators.map(n => `<span class="chip collab" title="${escapeHtml(n)}">${escapeHtml(String(n).slice(0,2))} · ${escapeHtml(n)}</span>`).join('')}
       </div>
     `;
   } else {
@@ -3666,16 +3666,16 @@ function openDrawer(c) {
 
   const grid = document.getElementById('d-grid');
   grid.innerHTML = `
-    <dt>負責設計</dt><dd>${c.designer}</dd>
-    <dt>需求單位</dt><dd>${c.unit || '—'}</dd>
+    <dt>負責設計</dt><dd>${escapeHtml(c.designer)}</dd>
+    <dt>需求單位</dt><dd>${escapeHtml(c.unit || '—')}</dd>
     <dt>案件聯絡人</dt><dd>${escapeHtml(c.contact) || '—'}</dd>
     ${c.copyPath ? `<dt>文案路徑</dt><dd style="word-break:break-all;">${escapeHtml(c.copyPath)}</dd>` : ''}
     ${c.source ? `<dt>專案來源</dt><dd>${escapeHtml(c.source)}</dd>` : ''}
-    <dt>協作者</dt><dd>${(c.collaborators||[]).length ? c.collaborators.join('、') : '（無）'}</dd>
+    <dt>協作者</dt><dd>${(c.collaborators||[]).length ? escapeHtml(c.collaborators.join('、')) : '（無）'}</dd>
     <dt>製作物</dt><dd>${(c.deliverables && c.deliverables.length) ? c.deliverables.map(d => `<span class="chip" style="margin:1px 3px 1px 0;">${escapeHtml(d)}</span>`).join('') : (c.cat ? escapeHtml(c.cat) : '—')}</dd>
     ${c.needsOutsourcing ? `<dt>需發包</dt><dd>📦 是 · 建議發包日 ${ymd(subtractWorkdays(c.goLive, 10))}（上線−10 工作天）</dd>` : ''}
-    <dt>分級</dt><dd>${c.level}</dd>
-    <dt>備註</dt><dd>${c.note || '—'}</dd>
+    <dt>分級</dt><dd>${escapeHtml(c.level)}</dd>
+    <dt>備註</dt><dd>${escapeHtml(c.note || '—')}</dd>
   `;
   const wdLeft = c.status !== 'done' && c.goLive > TODAY ? workdaysBetween(TODAY, c.goLive) : null;
   const tlRows = [
@@ -3703,7 +3703,7 @@ function openDrawer(c) {
     document.getElementById('d-subitems').innerHTML = `
       <div class="sub-items">
         <div class="sub-items-head">執行項目（${c.items.length} 個子案件）</div>
-        ${c.items.map(it => `<div class="sub-item"><div><div class="si-n">${it.n}</div><div class="si-m">${it.type || '—'}</div></div><span class="chip">${it.owner || c.designer}</span></div>`).join('')}
+        ${c.items.map(it => `<div class="sub-item"><div><div class="si-n">${escapeHtml(it.n || '')}</div><div class="si-m">${escapeHtml(it.type || '—')}</div></div><span class="chip">${escapeHtml(it.owner || c.designer)}</span></div>`).join('')}
       </div>
     `;
   } else {
@@ -3720,7 +3720,7 @@ function openDrawer(c) {
         <span>📁 檔案歸檔位置 ${isDone ? '✓' : ''}<span class="af-req"> · 結案必填</span></span>
         ${hasPath ? '<span style="font-size:10px;color:#2F6B2F;">已填</span>' : '<span style="font-size:10px;color:#A32D2D;">未填</span>'}
       </div>
-      <input id="d-archive-input" placeholder="e.g. /設計部共用/2026/Q2/${c.id.split('-')[0]}-${c.name}" value="${c.archivePath || ''}">
+      <input id="d-archive-input" placeholder="e.g. /設計部共用/2026/Q2/${escapeHtml(c.id.split('-')[0])}-${escapeHtml(c.name)}" value="${escapeHtml(c.archivePath || '')}">
       <div class="hint">請填入檔案（原檔、交付檔、參考資料）存放的路徑 / 網址。未填寫者無法結案。<br>格式建議：/設計部共用/年份/季度/案號-館別-專案名</div>
     </div>
   `;
@@ -3761,7 +3761,7 @@ function openDrawer(c) {
 
   const tl = document.getElementById('d-timeline');
   const logs = c.logs || [{date: c.open, note: '建檔', by: 'Mark'}];
-  tl.innerHTML = logs.map(l => `<div class="log-item"><div class="log-date">${ymd(l.date)} · ${l.by}</div><div class="log-note">${l.note}</div></div>`).join('');
+  tl.innerHTML = logs.map(l => `<div class="log-item"><div class="log-date">${ymd(l.date)} · ${escapeHtml(l.by || '')}</div><div class="log-note">${escapeHtml(l.note || '')}</div></div>`).join('');
   const sel = document.getElementById('d-status');
   sel.value = c.status;
   // v8.0: 回報區頂端顯示「現在是什麼狀態 + 下一步該做什麼」，依角色不同
@@ -4148,7 +4148,7 @@ function openDeparture(name) {
       <div class="archive-summary">
         📦 <b>將自動封存 ${done.length} 件已完成專案</b>（保留於歷史查詢、不再出現於常用清單）：
         <div style="margin-top:6px;font-size:11px;line-height:1.7;">
-          ${done.map(c => `· ${c.id} · ${c.name}${c.archivePath ? `（📁 ${c.archivePath}）` : '（⚠ 無歸檔路徑）'}`).join('<br>')}
+          ${done.map(c => `· ${escapeHtml(c.id)} · ${escapeHtml(c.name)}${c.archivePath ? `（📁 ${escapeHtml(c.archivePath)}）` : '（⚠ 無歸檔路徑）'}`).join('<br>')}
         </div>
       </div>
     `;
@@ -4453,7 +4453,16 @@ function normalizeCase(b) {
     deliverables: Array.isArray(b.deliverables) ? b.deliverables : [],
     needsOutsourcing: !!b.needsOutsourcing,
     items: Array.isArray(b.items) ? b.items : [],
-    logs: Array.isArray(b.logs) ? b.logs.map(l => ({ ...l, date: l.date ? new Date(l.date) : new Date(TODAY) })) : [],
+    // v10: 保留伺服器 updatedAt 作樂觀鎖基準；legacy 日誌 {text,author} 正常化為 {note,by}，
+    // 其餘 metadata（id / fromMeeting / tag…）原樣保留
+    _updatedAt: b.updatedAt || null,
+    _contentVersion: (b.contentVersion ?? 0),   // v10.1: JSON helpers 的 CAS 專用版本（避免只靠 updatedAt 的 ABA）
+    logs: Array.isArray(b.logs) ? b.logs.filter(l => l && typeof l === 'object').map(l => ({
+      ...l,
+      note: (l.note ?? l.text ?? ''),
+      by: (l.by ?? l.author ?? ''),
+      date: l.date ? new Date(l.date) : new Date(TODAY),
+    })) : [],
     archivePath: b.archivePath || null,
     archived: !!b.archived,
     closedOn: b.closedOn ? new Date(b.closedOn) : null,
@@ -4747,6 +4756,7 @@ window.openDrawer = function(c) {
 
 // ── A3: 進度日誌持久化（新增 / 編輯 / 刪除）─────────────────────
 api.cases.patchLogs = (id, body) => fetchJson('PATCH', `/api/cases/${encodeURIComponent(id)}/logs`, body);
+api.cases.appendLog = (id, body) => fetchJson('POST',  `/api/cases/${encodeURIComponent(id)}/logs`, body);  // v10: 單筆原子新增，回完整 raw case
 function v51CanEditLogs(c) {
   if (currentRole === 'admin') return true;
   const me = ME_NAME();
@@ -4804,11 +4814,53 @@ function v68TagChip(l) {
   return `<span style="display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;background:${t.color};color:#fff;margin-right:6px;">${t.label}${by}</span>`;
 }
 
+// ── v10 日誌安全 helpers ──
+const v10Drafts = new Map(); // caseId → { id, note }
+function v10DraftKey(draft) { // 穩定序列化：同 payload 同 key；date/note/tag/tagBy 任一變動即不同
+  return JSON.stringify([String(draft.note ?? ''), String(draft.date ?? ''), draft.tag ?? null, draft.tagBy ?? null]);
+}
+function v10DraftId(caseId, draft) {
+  const key = v10DraftKey(draft);
+  const d = v10Drafts.get(caseId);
+  if (d && d.key === key) return d.id;                        // 完整 payload 相同的重試：沿用同一 id（後端據此去重）
+  const id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID()
+    : 'd-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  v10Drafts.set(caseId, { id, key }); return id;
+}
+function v10DraftClear(caseId, entryId) { const d = v10Drafts.get(caseId); if (d && (!entryId || d.id === entryId)) v10Drafts.delete(caseId); } // 只清對應 id，不誤刪後來的新草稿
+// 成功後以伺服器 updatedAt 更新本案與快取（樂觀鎖基準）
+function v10SyncUpdatedAt(c, raw) {
+  if (!raw || !raw.updatedAt) return;
+  // stamp 與內容必須一起更新：若只換 stamp，本地舊 logs/items 會拿著新版本號，
+  // 下一次樂觀鎖就會通過並覆寫別人剛寫入的內容。
+  const norm = normalizeCase(raw);
+  const apply = (t) => {
+    // v10.2 單調 guard（逐目標）：若這份回應的 contentVersion 比目標已持有的還舊，整個不套用——
+    // 不退回 updatedAt、不退回 logs/items、不退回版本。c 與 CASES 同案各自判斷，
+    // 避免 c 已是新版、快取同案卻被較晚到的舊回應覆蓋。
+    const incoming = raw.contentVersion;
+    if (incoming != null && Number.isFinite(incoming) && incoming < (t._contentVersion ?? 0)) return;
+    t._updatedAt = raw.updatedAt;
+    if (incoming != null && Number.isFinite(incoming)) t._contentVersion = incoming;   // v10.1
+    if (Array.isArray(raw.logs)) t.logs = norm.logs;
+    if (Array.isArray(raw.items)) t.items = norm.items;
+    // 其餘衍生欄位（reviewDate/daysLeft/gateActive…）保留不動
+  };
+  apply(c);
+  const cached = CASES.find(x => x.id === c.id); if (cached && cached !== c) apply(cached);
+}
+// 409 = 他人已更新：明確要求重載，絕不自動覆寫重試
+function v10ConflictMsg(e, prefix) {
+  if (e && e.status === 409) return '此案件已被其他人更新，為避免覆蓋，這次沒有儲存。請重新開啟案件後再試。';
+  return prefix + '：' + (e?.data?.message || e?.message || '未知錯誤');
+}
 function v51LogsForApi(logs) {
   return (logs || []).map(l => ({
     date: l.date ? (l.date instanceof Date ? ymdIso(l.date) : String(l.date)) : ymdIso(TODAY),
-    note: l.note,
-    by: l.by || '',
+    note: (l.note ?? l.text ?? ''),                    // v10: legacy {text,author} 直接進來也要正常化
+    by: (l.by ?? l.author ?? ''),
+    ...(l.id ? { id: l.id } : {}),                     // v10: 保留 metadata
+    ...(l.fromMeeting != null ? { fromMeeting: l.fromMeeting } : {}),
     ...(l.tag ? { tag: l.tag } : {}),      // v6.8
     ...(l.tagBy ? { tagBy: l.tagBy } : {}),
   }));
@@ -4833,18 +4885,24 @@ function v51RenderLogs(c) {
   if (!canEdit) return;
   tl.querySelectorAll('[data-logedit]').forEach(b => b.onclick = async () => {
     const i = +b.dataset.logedit; const cur = c.logs && c.logs[i]; if (!cur) return;
+    const expectedUA = c._updatedAt, expectedCV = c._contentVersion ?? 0; // v10.1: 編輯開始時的 revision
     const nv = prompt('編輯進度日誌：', cur.note);
     if (nv === null) return; const t = nv.trim(); if (!t) return;
     const prev = cur.note; cur.note = t; v51RenderLogs(c);
-    try { await api.cases.patchLogs(c.id, { logs: v51LogsForApi(c.logs) }); showToast('✓ 進度日誌已更新'); }
-    catch (e) { cur.note = prev; v51RenderLogs(c); showToast('更新失敗：' + (e.data?.message || e.message), 'err'); }
+    const gen = window.v95DrawerSeq.now(), caseId = c.id;
+    const stillMine = () => gen === window.v95DrawerSeq.now() && currentCase && currentCase.id === caseId;
+    try { const raw = await api.cases.patchLogs(c.id, { logs: v51LogsForApi(c.logs), expectedUpdatedAt: expectedUA, expectedContentVersion: expectedCV }); v10SyncUpdatedAt(c, raw); if (stillMine()) { v51RenderLogs(c); showToast('✓ 進度日誌已更新'); } }
+    catch (e) { cur.note = prev; if (!stillMine()) return; v51RenderLogs(c); showToast(v10ConflictMsg(e, '更新失敗'), 'err'); }
   });
   tl.querySelectorAll('[data-logdel]').forEach(b => b.onclick = async () => {
     const i = +b.dataset.logdel; if (!c.logs || !c.logs[i]) return;
+    const expectedUA = c._updatedAt, expectedCV = c._contentVersion ?? 0; // v10.1
     if (!confirm('刪除這筆進度日誌？')) return;
     const removed = c.logs.splice(i, 1)[0]; v51RenderLogs(c);
-    try { await api.cases.patchLogs(c.id, { logs: v51LogsForApi(c.logs) }); showToast('✓ 已刪除'); }
-    catch (e) { c.logs.splice(i, 0, removed); v51RenderLogs(c); showToast('刪除失敗：' + (e.data?.message || e.message), 'err'); }
+    const gen = window.v95DrawerSeq.now(), caseId = c.id;
+    const stillMine = () => gen === window.v95DrawerSeq.now() && currentCase && currentCase.id === caseId;
+    try { const raw = await api.cases.patchLogs(c.id, { logs: v51LogsForApi(c.logs), expectedUpdatedAt: expectedUA, expectedContentVersion: expectedCV }); v10SyncUpdatedAt(c, raw); if (stillMine()) { v51RenderLogs(c); showToast('✓ 已刪除'); } }
+    catch (e) { c.logs.splice(i, 0, removed); if (!stillMine()) return; v51RenderLogs(c); showToast(v10ConflictMsg(e, '刪除失敗'), 'err'); }
   });
 }
 function v51WireLogs(c) {
@@ -4865,22 +4923,33 @@ function v51WireLogs(c) {
     // 而日誌是全系統唯一填答率 94% 的資料來源——在它前面加分類關卡會侵蝕它。
     // 改稿來源改由 v76AutoRevise() 從文字自動判讀，設計師端零額外輸入。
     const logDate = (dateInput && dateInput.value) ? new Date(dateInput.value) : new Date(TODAY); // H1
-    const entry = { date: logDate, note: txt, by: ME_NAME(), tag: v68SelTag, ...(v68SelBy ? { tagBy: v68SelBy } : {}) };
+    // v10: 單筆原子新增（POST /logs），不再「先 GET 再整包替換」——GET 失敗絕不會變成清空日誌。
+    // 草稿 id 綁定（案件, 文字）：網路失敗保留文字與同一 id 供重試，後端可據此去重；文字改了就換新 id。
+    const caseId = c.id;
+    // v10.1: 草稿 id 綁定完整 payload；後端對「同 id 但不同 date/note/tag/tagBy」會 409，
+    // 所以任何欄位變動都必須換新 id，不能沿用舊 id 讓變動被默默忽略。
+    const draft = { note: txt, date: ymdIso(logDate), tag: v68SelTag || null, tagBy: v68SelBy || null };
+    const entryId = v10DraftId(caseId, draft);
+    const entry = { id: entryId, date: draft.date, note: txt, ...(draft.tag ? { tag: draft.tag } : {}), ...(draft.tagBy ? { tagBy: draft.tagBy } : {}) };
+    // 綁定「送出當下」的抽屜世代與案件：之後切案／關閉／重開，舊回應一律不得動到新畫面
+    const gen = window.v95DrawerSeq.now();
+    const stillMine = () => gen === window.v95DrawerSeq.now() && currentCase && currentCase.id === caseId;
     btn.disabled = true;
     try {
-      // 保險：先抓 DB 最新日誌再合併，避免多人/多處同時編輯時覆蓋彼此的日誌（永久保留）
-      let serverLogs = [];
-      try { const fresh = await api.cases.getOne(c.id); serverLogs = Array.isArray(fresh.logs) ? fresh.logs : []; } catch {}
-      const merged = [entry, ...serverLogs];
-      await api.cases.patchLogs(c.id, { logs: v51LogsForApi(merged) });
-      c.logs = merged.map(l => ({ ...l, date: (l.date instanceof Date) ? l.date : (l.date ? new Date(l.date) : new Date(TODAY)) }));
-      if (ta) ta.value = '';
-      v68SelTag = null; v68SelBy = null; v68RenderTagPicker(); // v6.8: 送出後重置標籤
+      const raw = await api.cases.appendLog(caseId, { entry });
+      v10DraftClear(caseId, entryId);                 // 只清這一筆；等待期間新打的草稿已是另一個 id
+      v10SyncUpdatedAt(c, raw);
+      if (!stillMine()) return;                       // 已切到 B：不清 B 草稿、不重畫 B
+      // 等待期間使用者可能已在同一抽屜改了文字／日期／標籤／來源：只有「目前完整草稿」仍等於
+      // 送出的 draft 才清空與重置；只改 tag/date/tagBy 也視為新草稿，一律保留。
+      const nowDraft = { note: (ta && ta.value || '').trim(), date: ymdIso((dateInput && dateInput.value) ? new Date(dateInput.value) : new Date(TODAY)), tag: v68SelTag || null, tagBy: v68SelBy || null };
+      if (ta && v10DraftKey(nowDraft) === v10DraftKey(draft)) { ta.value = ''; v68SelTag = null; v68SelBy = null; v68RenderTagPicker(); }
       v51RenderLogs(c);
     } catch (e) {
-      showToast('進度日誌儲存失敗：' + (e.data?.message || e.message), 'err');
+      if (!stillMine()) return;                       // 舊失敗不打擾新畫面；草稿 id 仍保留供回來重試
+      showToast(v10ConflictMsg(e, '進度日誌儲存失敗（內容已保留，可重試）'), 'err');
     } finally {
-      btn.disabled = false;
+      if (stillMine()) btn.disabled = !v51CanEditLogs(c); // 依目前權限／唯讀決定，不得重啟唯讀案的按鈕
     }
   };
 }
@@ -9986,12 +10055,93 @@ function v57OpenDay(dateStr, evs) {
   modal.querySelector('#v57-day-close').onclick = () => { bg.classList.remove('open'); modal.style.display='none'; };
   modal.querySelectorAll('[data-dayev]').forEach(el => el.onclick = () => { bg.classList.remove('open'); modal.style.display='none'; evs[Number(el.dataset.dayev)].onClick(); });
 }
-// J2: iCal 訂閱 — 顯示訂閱網址 + 複製
+// J2 → v10: iCal 訂閱改走授權 API。不再有 hardcoded key、不再用 staff 姓名拼網址。
+api.auth = api.auth || {};
+api.auth.calendarSubscription = (scope) => fetchJson('GET', `/api/auth/calendar-subscription?scope=${encodeURIComponent(scope)}`);
+api.auth.calendarRevoke = () => fetchJson('POST', '/api/auth/calendar-subscription/revoke');
 let v57SubScope = 'mine'; // 'mine' | 'team'
-function v57SubUrl(scope) {
-  const base = `${location.origin}/api/ical/calendar.ics?key=design-pm-cal`;
+let v57SubSeq = 0;        // 序號：scope 切換／關閉後，較舊的回覆一律丟棄，copy 不會串到別的 scope
+let v57SubState = { status: 'idle', scope: null, url: '', expires: null, error: '' };
+let v57PendingRevoke = null; // 撤銷進行中：任何新的 GET 都要先等它結束，否則會先拿到舊 token、再被撤銷
+function v57SubClose() {
+  v57SubSeq++;                       // 關閉即失效所有飛行中的請求
+  v57SubState = { status: 'idle', scope: null, url: '', expires: null, error: '' };
+  const bg = document.getElementById('v57-sub-bg'), modal = document.getElementById('v57-sub-modal');
+  if (bg) bg.classList.remove('open'); if (modal) modal.style.display = 'none';
+}
+async function v57LoadSubscription(scope) {
+  const seq = ++v57SubSeq;
+  v57SubState = { status: 'loading', scope, url: '', expires: null, error: '' };
+  v57RenderSubscribe();
+  try {
+    if (v57PendingRevoke) { try { await v57PendingRevoke; } catch {} }   // 先等撤銷落定（成敗皆可），再取網址
+    if (seq !== v57SubSeq) return;
+    const d = await api.auth.calendarSubscription(scope);
+    if (seq !== v57SubSeq) return;                                   // 已切換或關閉
+    if (!d || typeof d.url !== 'string' || d.scope !== scope) throw new Error('伺服器回應不符');
+    v57SubState = { status: 'ready', scope, url: d.url, expires: d.expires || null, error: '' };
+  } catch (e) {
+    if (seq !== v57SubSeq) return;
+    v57SubState = { status: 'error', scope, url: '', expires: null, error: e?.data?.message || e?.message || '載入失敗' };
+  }
+  v57RenderSubscribe();
+}
+async function v57RevokeSubscription() {
+  const seq = ++v57SubSeq; const scope = v57SubScope;
+  v57SubState = { status: 'loading', scope, url: '', expires: null, error: '' };
+  v57RenderSubscribe();
+  // 共享的撤銷 promise：即使使用者關閉再開或切 scope，後續 GET 都會先等它完成，
+  // 不會出現「新 GET 拿到舊 token → 撤銷晚成功 → 畫面停在已失效網址」。
+  const pending = (async () => { const r = await api.auth.calendarRevoke(); if (!r || r.ok !== true) throw new Error('停用失敗'); return r; })();
+  v57PendingRevoke = pending;
+  try {
+    await pending;
+    if (seq !== v57SubSeq) return;                                    // 視窗已關閉／切換：不重開、不重畫
+    showToast('✓ 舊訂閱連結已停用，請重新複製新的網址');
+    await v57LoadSubscription(scope);                                 // 成功後才載入當前 scope 的新網址
+  } catch (e) {
+    if (seq !== v57SubSeq) return;
+    v57SubState = { status: 'error', scope, url: '', expires: null, error: e?.data?.message || e?.message || '停用失敗' };
+    v57RenderSubscribe();
+  } finally {
+    if (v57PendingRevoke === pending) v57PendingRevoke = null;
+  }
+}
+function v57RenderSubscribe() {
+  const modal = document.getElementById('v57-sub-modal'); if (!modal) return;
   const me = (typeof ME_NAME === 'function' ? ME_NAME() : '') || '';
-  return (scope === 'mine' && me) ? `${base}&scope=mine&staff=${encodeURIComponent(me)}` : base;
+  const st = v57SubState; const ready = st.status === 'ready' && st.scope === v57SubScope;
+  const httpsUrl = ready ? st.url : '';
+  const webcalUrl = httpsUrl.replace(/^https?:/, 'webcal:');
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">📲 訂閱行事曆</h3><button id="v57-sub-close" style="margin-left:auto;background:transparent;border:0;font-size:20px;cursor:pointer;color:#8C8C8C;">×</button></div>
+    <div class="v57-seg" style="margin-bottom:10px;">
+      <button data-scope="mine" class="${v57SubScope==='mine'?'active':''}">🙋 我的排程</button>
+      <button data-scope="team" class="${v57SubScope==='team'?'active':''}">👥 團隊排程</button>
+    </div>
+    <p style="font-size:12px;color:var(--fg-muted,#8C8C8C);line-height:1.7;margin:0 0 12px;">${v57SubScope==='mine' ? `只含 <b>${escapeHtml(me)||'你'}</b> 相關的：我負責/協作案件的上線日、我的休假/出差、我建立的拍攝。` : '包含全部同仁的上線日、拍攝、休假、出差。'}加入 Google 行事曆（「其他行事曆 → 以網址訂閱」）或 Apple 行事曆（「檔案 → 新增行事曆訂閱」），會定期自動更新。<br><b>此網址含你的個人授權，請勿轉給他人。</b></p>
+    <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);">訂閱網址（https）${ready && st.expires ? ` · 有效至 ${escapeHtml(new Date(st.expires).toLocaleString('zh-TW'))}` : ''}</label>
+    <div style="display:flex;gap:6px;margin:3px 0 10px;">
+      <input id="v57-sub-url" readonly aria-busy="${st.status==='loading'}" value="${escapeHtml(httpsUrl)}" placeholder="${st.status==='loading' ? '載入中…' : st.status==='error' ? '載入失敗' : ''}" style="flex:1;padding:7px 9px;border:1px solid var(--input-border,#D4D4D4);border-radius:5px;font-size:12px;background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);">
+      <button id="v57-sub-copy" ${ready ? '' : 'disabled'} style="padding:7px 14px;background:var(--accent,#1F8A4C);color:#fff;border:none;border-radius:5px;cursor:${ready?'pointer':'not-allowed'};opacity:${ready?1:.5};font-size:12px;">複製</button>
+    </div>
+    ${st.status==='error' ? `<div role="alert" style="font-size:12px;color:#A32D2D;margin-bottom:8px;">${escapeHtml(st.error)} <button id="v57-sub-retry" style="margin-left:6px;padding:3px 10px;font-size:11px;border:1px solid #A32D2D;background:transparent;color:#A32D2D;border-radius:4px;cursor:pointer;">重試</button></div>` : ''}
+    ${ready ? `<a href="${escapeHtml(webcalUrl)}" style="font-size:12px;color:var(--accent,#1F8A4C);">▸ 直接用系統行事曆開啟（webcal）</a>` : ''}
+    <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--section-divider,#F0F0F0);font-size:11px;color:var(--fg-muted,#8C8C8C);line-height:1.7;">
+      懷疑網址外流時可停用：舊的訂閱連結會立即失效（不會登出），已訂閱的行事曆需用新網址重新加入。<br>
+      <button id="v57-sub-revoke" ${st.status==='loading' ? 'disabled' : ''} style="margin-top:6px;padding:5px 12px;font-size:11px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:#9A2E2E;border-radius:4px;cursor:pointer;">停用舊訂閱連結</button>
+    </div>`;
+  modal.querySelector('#v57-sub-close').onclick = v57SubClose;
+  modal.querySelectorAll('.v57-seg [data-scope]').forEach(b => b.onclick = () => { v57SubScope = b.dataset.scope; v57LoadSubscription(v57SubScope); });
+  const rb = modal.querySelector('#v57-sub-retry'); if (rb) rb.onclick = () => v57LoadSubscription(v57SubScope);
+  modal.querySelector('#v57-sub-revoke').onclick = () => { if (confirm('停用後，所有已加入的訂閱都會失效，需重新複製新網址。確定？')) v57RevokeSubscription(); };
+  modal.querySelector('#v57-sub-copy').onclick = async () => {
+    // 只複製「目前 scope 且已載入完成」的網址，杜絕串線
+    if (!(v57SubState.status === 'ready' && v57SubState.scope === v57SubScope && v57SubState.url)) return;
+    const u = v57SubState.url;
+    try { await navigator.clipboard.writeText(u); showToast('✓ 已複製訂閱網址'); }
+    catch { const inp=document.getElementById('v57-sub-url'); inp.select(); document.execCommand('copy'); showToast('✓ 已複製'); }
+  };
 }
 function v57ShowSubscribe() {
   v57SubScope = 'mine'; // 每次打開預設「我的排程」（個人優先）
@@ -10000,34 +10150,8 @@ function v57ShowSubscribe() {
   let modal = document.getElementById('v57-sub-modal');
   if (!modal) { modal = document.createElement('div'); modal.id='v57-sub-modal'; modal.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg,#fff);color:var(--fg,#1F1F1F);border-radius:8px;padding:20px;width:min(520px,94%);z-index:86;box-shadow:0 12px 32px rgba(0,0,0,0.18);'; document.body.appendChild(modal); }
   bg.classList.add('open'); modal.style.display='block';
-  bg.onclick = () => { bg.classList.remove('open'); modal.style.display='none'; };
-  const me = (typeof ME_NAME === 'function' ? ME_NAME() : '') || '';
-  const v57RenderSub = () => {
-    const httpsUrl = v57SubUrl(v57SubScope);
-    const webcalUrl = httpsUrl.replace(/^https?:/, 'webcal:');
-    modal.innerHTML = `
-      <div style="display:flex;align-items:center;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;">📲 訂閱行事曆</h3><button id="v57-sub-close" style="margin-left:auto;background:transparent;border:0;font-size:20px;cursor:pointer;color:#8C8C8C;">×</button></div>
-      <div class="v57-seg" style="margin-bottom:10px;">
-        <button data-scope="mine" class="${v57SubScope==='mine'?'active':''}">🙋 我的排程</button>
-        <button data-scope="team" class="${v57SubScope==='team'?'active':''}">👥 團隊排程</button>
-      </div>
-      <p style="font-size:12px;color:var(--fg-muted,#8C8C8C);line-height:1.7;margin:0 0 12px;">${v57SubScope==='mine' ? `只含 <b>${escapeHtml(me)||'你'}</b> 相關的：我負責/協作案件的上線日、我的休假/出差、我建立的拍攝。` : '包含全部同仁的上線日、拍攝、休假、出差。'}加入 Google 行事曆（「其他行事曆 → 以網址訂閱」）或 Apple 行事曆（「檔案 → 新增行事曆訂閱」），會定期自動更新。</p>
-      <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);">訂閱網址（https）</label>
-      <div style="display:flex;gap:6px;margin:3px 0 10px;">
-        <input id="v57-sub-url" readonly value="${httpsUrl}" style="flex:1;padding:7px 9px;border:1px solid var(--input-border,#D4D4D4);border-radius:5px;font-size:12px;background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);">
-        <button id="v57-sub-copy" style="padding:7px 14px;background:var(--accent,#1F8A4C);color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;">複製</button>
-      </div>
-      <a href="${webcalUrl}" style="font-size:12px;color:var(--accent,#1F8A4C);">▸ 直接用系統行事曆開啟（webcal）</a>
-    `;
-    modal.querySelector('#v57-sub-close').onclick = () => { bg.classList.remove('open'); modal.style.display='none'; };
-    modal.querySelectorAll('.v57-seg [data-scope]').forEach(b => b.onclick = () => { v57SubScope = b.dataset.scope; v57RenderSub(); });
-    modal.querySelector('#v57-sub-copy').onclick = async () => {
-      const u = v57SubUrl(v57SubScope);
-      try { await navigator.clipboard.writeText(u); showToast('✓ 已複製訂閱網址'); }
-      catch { const inp=document.getElementById('v57-sub-url'); inp.select(); document.execCommand('copy'); showToast('✓ 已複製'); }
-    };
-  };
-  v57RenderSub();
+  bg.onclick = v57SubClose;
+  v57LoadSubscription(v57SubScope);
 }
 // 註冊到 nav + switchView
 NAV_DEF.admin.push({ key: 'calendar', label: '📅 行事曆' });
@@ -10202,6 +10326,8 @@ function v43InjectSubItemsPanel(c, body) {
   panel.style.cssText = 'margin:14px 0;padding:14px;background:#F4FBF7;border:1px solid #BFE0CB;border-radius:8px;';
 
   const items = JSON.parse(JSON.stringify(c.items || []));
+  let v43BaseVersion = c._updatedAt || null; // v10: 開啟編輯當下的版本；背景重載不得改變這次編輯的基準
+  let v43BaseContentVersion = c._contentVersion ?? 0; // v10.1: CAS 專用版本，同樣在開啟時擷取
   let v43sectionCollapsed = false; // C3: 子案件區塊收合狀態（本次開啟有效）
 
   // Helper: status pill HTML（D1：支援完整流程清單）
@@ -10474,13 +10600,15 @@ function v43InjectSubItemsPanel(c, body) {
               by: l.by || '',
             })),
           }));
-          await api.cases.patchItems(c.id, { items: cleaned, reason });
-          c.items = cleaned;
+          const raw = await api.cases.patchItems(c.id, { items: cleaned, reason, expectedUpdatedAt: v43BaseVersion, expectedContentVersion: v43BaseContentVersion }); // v10.1 樂觀鎖：用開啟時的版本
+          v10SyncUpdatedAt(c, raw);
+          if (raw && raw.updatedAt) v43BaseVersion = raw.updatedAt;   // 成功後才推進這次編輯的基準
+          if (raw && raw.contentVersion != null) v43BaseContentVersion = raw.contentVersion;
           showToast('✓ 子案件已儲存');
           await reloadCase(c.id);
           v33RenderChangeLog(c);
         } catch (e) {
-          showToast('儲存失敗：' + (e.data?.message || e.message), 'err');
+          showToast(v10ConflictMsg(e, '儲存失敗'), 'err'); // 409 不自動重試
         }
       };
     }
@@ -11706,8 +11834,7 @@ function v81Wire(body) {
   });
   body.querySelectorAll('.v81-open').forEach(b => b.onclick = (e) => {
     e.stopPropagation();
-    const c = (CASES.find(x => x.id === b.dataset.id)) || (v81AllCases || []).find(x => x.id === b.dataset.id);
-    if (c) openDrawer(c);
+    openDrawerById(b.dataset.id); // v10: 統一入口（含 getOne + decorateCase + 序號失效 + 唯讀），封存案不再直接 openDrawer
   });
 }
 
@@ -11726,6 +11853,6 @@ window.switchView = function (v) {
 };
 
 </script>
-<script src="/workbench-features.js?v=c2bac581a127"></script>
+<script src="/workbench-features.js?v=cbd38ff4f3e8"></script>
 </body>
 </html>

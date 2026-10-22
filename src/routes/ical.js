@@ -1,12 +1,13 @@
 // ─────────────────────────────────────────────────────────────
-// iCal 訂閱（J2）— 免登入，用 ?key= 驗證（行事曆訂閱不帶 cookie）。
+// iCal 訂閱 — 使用可撤銷的個人 bearer token（行事曆訂閱不帶 cookie）。
 // 輸出案件上線日 + 拍攝 + 休假 + 出差，供 Google/Apple 行事曆訂閱。
 // ─────────────────────────────────────────────────────────────
 import { safeRouter } from '../lib/safeRouter.js';
 import { prisma } from '../lib/db.js';
+import { authenticateCalendarSubscription, calendarPrivacyHeaders, CalendarConfigurationError } from '../services/calendarSubscription.js';
 
 const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
-const ICAL_KEY = process.env.ICAL_KEY || 'design-pm-cal';
+router.use(calendarPrivacyHeaders);
 
 const pad = (n) => String(n).padStart(2, '0');
 function ymd(d) {
@@ -57,22 +58,28 @@ function timedEvent({ uid, dateObj, startTime, endTime, summary, location }) {
 }
 
 router.get('/calendar.ics', async (req, res) => {
-  if ((req.query.key || '') !== ICAL_KEY) return res.status(403).send('forbidden');
+  // No legacy shared key or caller-supplied scope/name can override the signed grant.
+  if (Object.keys(req.query).some(key => key !== 'token') || typeof req.query.token !== 'string') {
+    return res.status(403).send('forbidden');
+  }
   try {
-    // 範圍：scope=mine&staff=<姓名> → 只含該同仁相關；否則 team（全部）
-    const who = (req.query.staff || '').trim();
-    const mine = req.query.scope === 'mine' && !!who;
-    const mineCase = (c) => !mine || c.designer?.name === who || (c.collaborators || []).some(x => x.name === who);
-    const mineName = (name) => !mine || name === who;
-    const mineShoot = (s) => !mine || s.createdBy?.name === who || (s.photographer || '').includes(who);
-    const mineMeeting = (m) => !mine || m.host?.name === who || (m.attendees || []).some(a => a.staff?.name === who);
+    const grant = await authenticateCalendarSubscription(req.query.token);
+    if (!grant) return res.status(403).send('forbidden');
+    const mine = grant.scope === 'mine';
+    const who = grant.name;
+    const staffId = grant.staffId;
+    const mineCase = c => !mine || c.designerId === staffId || c.collaborators.some(s => s.id === staffId);
+    const mineStaff = row => !mine || row.staffId === staffId;
+    // Photographer is free text, not an authenticated staff relationship.
+    const mineShoot = s => !mine || s.createdById === staffId;
+    const mineMeeting = m => !mine || m.hostId === staffId || m.attendees.some(a => a.staffId === staffId);
 
     const [cases, shoots, vacs, trips, meetings] = await Promise.all([
-      prisma.case.findMany({ where: { archived: false }, select: { id: true, title: true, goLiveDate: true, designer: { select: { name: true } }, collaborators: { select: { name: true } } }, orderBy: { goLiveDate: 'asc' } }),
-      prisma.shoot.findMany({ select: { id: true, desc: true, mode: true, startDate: true, endDate: true, photographer: true, createdBy: { select: { name: true } } } }),
-      prisma.vacation.findMany({ include: { staff: { select: { name: true } } } }),
-      prisma.businessTrip.findMany({ include: { staff: { select: { name: true } } } }),
-      prisma.meeting.findMany({ where: { status: { not: 'cancelled' } }, select: { id: true, title: true, date: true, startTime: true, endTime: true, location: true, host: { select: { name: true } }, attendees: { select: { staff: { select: { name: true } } } } } }),
+      prisma.case.findMany({ where: { archived: false, ...(mine ? { OR: [{ designerId: staffId }, { collaborators: { some: { id: staffId } } }] } : {}) }, select: { id: true, title: true, goLiveDate: true, designerId: true, collaborators: { select: { id: true } } }, orderBy: { goLiveDate: 'asc' } }),
+      prisma.shoot.findMany({ where: mine ? { createdById: staffId } : {}, select: { id: true, desc: true, mode: true, startDate: true, endDate: true, photographer: true, createdById: true } }),
+      prisma.vacation.findMany({ where: mine ? { staffId } : {}, include: { staff: { select: { name: true } } } }),
+      prisma.businessTrip.findMany({ where: mine ? { staffId } : {}, include: { staff: { select: { name: true } } } }),
+      prisma.meeting.findMany({ where: { status: { not: 'cancelled' }, ...(mine ? { OR: [{ hostId: staffId }, { attendees: { some: { staffId } } }] } : {}) }, select: { id: true, title: true, date: true, startTime: true, endTime: true, location: true, hostId: true, host: { select: { name: true } }, attendees: { select: { staffId: true } } } }),
     ]);
 
     const events = [];
@@ -86,11 +93,11 @@ router.get('/calendar.ics', async (req, res) => {
     }
     const VAC_LABEL = { annual: '特休', sick: '病假', personal: '事假', other: '其他' };
     for (const v of vacs) {
-      if (!mineName(v.staff?.name)) continue;
+      if (!mineStaff(v)) continue;
       events.push(vevent({ uid: `vac-${v.id}@design-pm`, start: v.startDate, end: plusDay(v.endDate), summary: `🏖 ${v.staff?.name || ''} ${VAC_LABEL[v.type] || v.type}` }));
     }
     for (const t of trips) {
-      if (!mineName(t.staff?.name)) continue;
+      if (!mineStaff(t)) continue;
       events.push(vevent({ uid: `trip-${t.id}@design-pm`, start: t.startDate, end: plusDay(t.endDate), summary: `✈ ${t.staff?.name || ''} 出差 ${t.hotel || ''}` }));
     }
     for (const m of meetings) {
@@ -105,7 +112,7 @@ router.get('/calendar.ics', async (req, res) => {
       'PRODID:-//Design-PM//Calendar//ZH-TW',
       'CALSCALE:GREGORIAN',
       'METHOD:PUBLISH',
-      `X-WR-CALNAME:${calName}`,
+      `X-WR-CALNAME:${esc(calName)}`,
       'X-WR-TIMEZONE:Asia/Taipei',
       ...events,
       'END:VCALENDAR',
@@ -115,6 +122,7 @@ router.get('/calendar.ics', async (req, res) => {
     res.setHeader('Content-Disposition', 'inline; filename="design-pm.ics"');
     res.send(ics);
   } catch (e) {
+    if (e instanceof CalendarConfigurationError) return res.status(503).send('calendar_unavailable');
     console.error('[ical] failed:', e.message);
     res.status(500).send('error');
   }

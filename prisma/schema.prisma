@@ -32,6 +32,7 @@ model Staff {
   resetTokenHash      String?
   resetExpires        DateTime?
   sessionVersion      Int       @default(0)
+  calendarVersion     Int       @default(0)
   activatedAt         DateTime?                 // 完成啟用的時間
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -193,6 +194,7 @@ model Case {
   actualWorkdays Int?
   items         Json?
   logs          Json?
+  contentVersion Int @default(0) // optimistic concurrency for logs/items only
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

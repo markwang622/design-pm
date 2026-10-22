@@ -1,6 +1,8 @@
 /* Shared full-case explorer and period work ledger. Uses existing authenticated APIs. */
 (() => {
   const esc = escapeHtml;
+  let recoveryGen = 0; // v10: profile modal 開啟世代
+  if (typeof window.closeProfileEdit === 'function' && !window.closeProfileEdit.__v10) { const o = window.closeProfileEdit; const w = function () { recoveryGen++; return o.apply(this, arguments); }; w.__v10 = true; window.closeProfileEdit = w; }
   const statuses = {todo:'尚未開始',wait:'等待資料／協調中',doing:'設計製作中',review:'待需求單位確認',review_done:'待主管核可',print:'製作／送印中',done:'已結案',closed:'已結案',cancelled:'已取消'};
   const date = value => value ? String(value).slice(0,10) : '—';
   const options = (values, selected) => values.map(([v,label]) => `<option value="${esc(String(v))}" ${String(v)===String(selected)?'selected':''}>${esc(label)}</option>`).join('');
@@ -152,6 +154,7 @@
   }
   const originalProfile=window.openProfileEdit;
   window.openProfileEdit=function(target){
+    recoveryGen++; // v10: 新一次開啟，先前飛行中的 recovery 回覆全部失效
     originalProfile.apply(this,arguments);
     document.getElementById('v34-pf-pwsection').style.display='';
     const t=v34CurrentEditTarget;
@@ -166,14 +169,23 @@
       b.disabled=t.pendingActivation||!t.active;
       if(b.disabled)section.querySelector('p').textContent=t.pendingActivation?'帳號尚未啟用，請使用「重寄邀請」。':'離職帳號不可重設密碼。';
       b.onclick=async()=>{
+        // v10: 綁定「這次點擊」的對象與開啟世代；晚到的回覆若對象/世代/節點任一不符一律丟棄，杜絕 A 的連結出現在 B 的視窗
+        const targetId=t.id, targetName=t.name, targetEmail=t.email||'', gen=recoveryGen, resultNode=document.getElementById('wb-recovery-result');
+        const stillValid=()=>gen===recoveryGen && v34CurrentEditTarget && v34CurrentEditTarget.id===targetId && document.getElementById('wb-recovery-result')===resultNode;
         b.disabled=true;
         try{
-          const data=await fetchJson('POST','/api/auth/recovery-link/'+t.id,{});
-          const result=document.getElementById('wb-recovery-result');
-          result.innerHTML='<p class="wb-help">連結 30 分鐘內有效、僅可使用一次。請僅透過私人管道提供給該成員。</p><button class="wb-button" id="wb-copy-recovery">複製重設連結</button><p class="wb-help">到期：'+esc(new Date(data.expires).toLocaleString('zh-TW'))+'</p>';
-          document.getElementById('wb-copy-recovery').onclick=async()=>{try{await navigator.clipboard.writeText(data.url);showToast('已複製，請私下提供給成員');}catch{showToast('複製失敗，請重新產生連結後再試','err');}};
-        }catch(e){document.getElementById('wb-recovery-result').textContent=e.data?.message||'產生失敗，請重試';}
-        finally{b.disabled=false;}
+          const data=await fetchJson('POST','/api/auth/recovery-link/'+targetId,{});
+          if(!stillValid())return;
+          if(data&&data.targetId!=null&&String(data.targetId)!==String(targetId)){resultNode.textContent='回覆對象不符，已忽略，請重新產生';return;}
+          if(!data||typeof data.url!=='string'){resultNode.textContent='伺服器回應異常，請重新產生';return;}
+          resultNode.innerHTML='<p class="wb-help"><b>對象：'+esc(targetName)+(targetEmail?'（'+esc(targetEmail)+'）':'')+'</b></p><p class="wb-help">連結 30 分鐘內有效、僅可使用一次。請僅透過私人管道提供給該成員。</p><button class="wb-button" id="wb-copy-recovery">複製 '+esc(targetName)+' 的重設連結</button><p class="wb-help">到期：'+esc(new Date(data.expires).toLocaleString('zh-TW'))+'</p>';
+          const copyBtn=document.getElementById('wb-copy-recovery');
+          copyBtn.onclick=async()=>{
+            if(!stillValid()){showToast('視窗已切換，請重新產生連結','err');return;}
+            try{await navigator.clipboard.writeText(data.url);showToast('已複製 '+targetName+' 的重設連結，請私下提供');}catch{showToast('複製失敗，請重新產生連結後再試','err');}
+          };
+        }catch(e){if(stillValid())resultNode.textContent=e.data?.message||'產生失敗，請重試';}
+        finally{if(stillValid())b.disabled=false;}
       };
     }
   };

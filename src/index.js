@@ -9,6 +9,7 @@ import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import path from 'node:path';
+import { privateRequestUrl } from './lib/requestPrivacy.js';
 import { fileURLToPath } from 'node:url';
 
 import authRouter from './routes/auth.js';
@@ -74,6 +75,7 @@ app.use(cors(
     ? { credentials: true, origin: true } // browsers ignore credentials with origin: '*', so 'true' echos request origin
     : { credentials: true, origin: true }
 ));
+morgan.token('url', req => privateRequestUrl(req.originalUrl || req.url));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'tiny'));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
@@ -229,7 +231,7 @@ app.use((err, req, res, next) => {
   if (err && err.code === 'P2002') return res.status(409).json({ error: 'duplicate' });
   if (err && /PrismaClientValidationError/.test(err.name || '')) return res.status(400).json({ error: 'invalid_request' });
   // 其餘：伺服器端完整紀錄，對外只給代碼，不帶 stack / DB 訊息
-  console.error('[err]', req.method, req.originalUrl, err && err.stack ? err.stack : err);
+  console.error('[err]', req.method, privateRequestUrl(req.originalUrl), err && err.stack ? err.stack : err);
   res.status(500).json({ error: 'server_error' });
 });
 

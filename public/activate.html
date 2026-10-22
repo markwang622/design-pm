@@ -208,7 +208,8 @@
         const r = await fetch('/api/auth/activation/' + encodeURIComponent(token));
         const d = await r.json().catch(() => ({}));
         if (!r.ok) return fail(d.message || '連結無效或已被使用。');
-        $('who').innerHTML = '帳號：<b>' + d.email + '</b><br>姓名：<b>' + d.name + '</b>';
+        const esc = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        $('who').innerHTML = '帳號：<b>' + esc(d.email) + '</b><br>姓名：<b>' + esc(d.name) + '</b>';
         show('form');
         $('pw').addEventListener('input', checkRules);
       } catch (e) {

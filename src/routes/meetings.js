@@ -11,6 +11,7 @@ import { prisma } from '../lib/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { notify } from '../services/notify.js';
 import crypto from 'node:crypto';
+import { appendCaseLog, sendCaseEditError } from '../lib/caseJsonEdits.js';
 
 const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
 router.param('id', intIdParam); // v9.6: :id 統一驗正整數，不合法回 400 不碰 DB
@@ -247,23 +248,21 @@ router.post('/:id/respond', async (req, res) => {
 // M2: 待辦轉進度日誌 — 附到關聯案件的 logs
 router.post('/:id/action-to-log', async (req, res) => {
   const id = Number(req.params.id);
-  const index = Number(req.body?.index);
+  const index = req.body?.index;
+  if (!Number.isSafeInteger(index) || index < 0) return res.status(400).json({ error: 'invalid_index' });
   const m = await prisma.meeting.findUnique({ where: { id } });
   if (!m) return res.status(404).json({ error: 'not_found' });
   if (!m.caseId) return res.status(422).json({ error: 'no_case', message: '此會議未關聯案件，無法轉進度日誌' });
   const items = Array.isArray(m.actionItems) ? m.actionItems : [];
   const item = items[index];
   if (!item) return res.status(404).json({ error: 'no_item' });
-  const c = await prisma.case.findUnique({ where: { id: m.caseId }, select: { logs: true } });
-  if (!c) return res.status(404).json({ error: 'case_not_found' });
-  const logs = Array.isArray(c.logs) ? c.logs : [];
-  logs.push({
-    date: new Date().toISOString().slice(0, 10),
-    text: `[會議待辦] ${item.text}${item.owner ? '（' + item.owner + '）' : ''}`,
-    author: req.user?.name || '',
-    fromMeeting: m.id,
-  });
-  await prisma.case.update({ where: { id: m.caseId }, data: { logs } });
+  try {
+    await appendCaseLog(m.caseId, req.user, {
+      id: `meeting:${m.id}:action:${index}:` + crypto.createHash('sha256').update(JSON.stringify([item.text, item.owner || ''])).digest('hex').slice(0, 32),
+      note: `[會議待辦] ${item.text}${item.owner ? '（' + item.owner + '）' : ''}`,
+      tag: 'other', fromMeeting: m.id,
+    });
+  } catch (e) { if (sendCaseEditError(res, e)) return; throw e; }
   res.json({ ok: true, caseId: m.caseId });
 });
 

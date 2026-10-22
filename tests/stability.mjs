@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import {createRequire} from 'node:module';
 const root=process.env.DESIGN_PM_ROOT || new URL('../',import.meta.url).pathname;
 const require=createRequire(root+'/package.json');
+const {privateRequestUrl}=await import(root+'/src/lib/requestPrivacy.js');
 const express=require('express'), cookieParser=require('cookie-parser');
 process.env.JWT_SECRET='isolated-stability-test-secret';
 process.env.APP_BASE_URL='https://artdesign-for-demo.zeabur.app';
@@ -38,7 +39,7 @@ app.get('/healthz',(_req,res)=>res.json({ok:true}));
 const source=fs.readFileSync(root+'/src/index.js','utf8');
 const start=source.indexOf('app.use((err,'),end=source.indexOf('const PORT',start);
 assert(start>=0&&end>start,'application error middleware found');
-vm.runInNewContext(source.slice(start,end),{app,console:{error(){}}});
+vm.runInNewContext(source.slice(start,end),{app,privateRequestUrl,console:{error(){}}});
 const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
 const base='http://127.0.0.1:'+server.address().port,cookie='designpm_token='+signToken(user);
 const unhandled=[];const record=e=>unhandled.push(e);process.on('unhandledRejection',record);
@@ -73,7 +74,7 @@ try{
   await test('malformed JSON is a bounded 400 response and subsequent requests work',async()=>{assert.equal((await call('/api/auth/login',{method:'POST',raw:'{"bad":'})).status,400);assert.equal((await call('/healthz')).status,200);});
   await test('oversized JSON is a bounded 413 response',async()=>{assert.equal((await call('/api/auth/login',{method:'POST',body:{large:'x'.repeat(2000)}})).status,413);});
   await test('error middleware delegates after headers are sent',async()=>{
-    let handler;vm.runInNewContext(source.slice(start,end),{app:{use(fn){handler=fn;}},console:{error(){}}});let forwarded;const error=Error('sent');handler(error,{}, {headersSent:true,status(){throw Error('must not send twice');}},e=>{forwarded=e;});assert.equal(forwarded,error);
+    let handler;vm.runInNewContext(source.slice(start,end),{app:{use(fn){handler=fn;}},privateRequestUrl,console:{error(){}}});let forwarded;const error=Error('sent');handler(error,{}, {headersSent:true,status(){throw Error('must not send twice');}},e=>{forwarded=e;});assert.equal(forwarded,error);
   });
   assert.equal(unhandled.length,0,'no unhandled rejections');assert.equal(writes,0,'no data writes');
   console.log(JSON.stringify({passed,unhandled:unhandled.length,writes,liveDatabase:false}));

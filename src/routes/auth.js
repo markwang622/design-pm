@@ -6,6 +6,7 @@ import { signToken, setAuthCookie, clearAuthCookie, requireAuth, validatePasswor
 import { hashToken } from '../lib/activation.js';
 import { passwordChangedNotice } from '../services/passwordRecovery.js';
 import recoveryRouter from './passwordRecovery.js';
+import calendarSubscriptionRouter from './calendarSubscription.js';
 
 const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
 
@@ -150,5 +151,6 @@ router.post('/change-password', requireAuth, async (req, res) => {
   res.json({ ok: true, loginRequired: true });
 });
 
+router.use('/calendar-subscription', calendarSubscriptionRouter);
 router.use(recoveryRouter);
 export default router;
