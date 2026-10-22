@@ -2685,21 +2685,27 @@ let CASES = []; // populated by bootstrap() from /api/cases
 /* eslint-enable */
 // Decorate each case with derived fields (dates, overdue flag, review gate).
 // Called once after hydration in bootstrap() and again after any mutation.
+// v9.5: 單一案件的衍生欄位補齊（抽屜所需：reviewDate / proofStart / daysLeft /
+// overdue / gateActive…）。decorateCases 與所有「從 API 單獨取回一筆案件」的
+// 入口共用這一份，避免各處再各寫一套而漏欄位。不會把案件塞進全域 CASES。
+function decorateCase(c) {
+  c.collaborators = c.collaborators || [];
+  c.archivePath = c.archivePath || null;
+  c.archived = c.archived || false;
+  c.needed = c.goLive;
+  c.overdue = c.goLive < TODAY && !ENDED_STATUS_KEYS.has(c.status);
+  c.daysLeft = daysUntil(c.goLive);
+  const k = computeKeyDates(c.goLive);
+  c.reviewDate = k.review;
+  c.proofStart = k.proofStart;
+  const wdToReview = (c.status === 'review' || c.status === 'review_done' || c.status === 'print' || ENDED_STATUS_KEYS.has(c.status))
+    ? 999 : workdaysBetween(TODAY, c.reviewDate) - 1;
+  c.gateActive = (wdToReview >= 0 && wdToReview <= 3);
+  return c;
+}
+window.decorateCase = decorateCase;
 function decorateCases() {
-  CASES.forEach(c => {
-    c.collaborators = c.collaborators || [];
-    c.archivePath = c.archivePath || null;
-    c.archived = c.archived || false;
-    c.needed = c.goLive;
-    c.overdue = c.goLive < TODAY && !ENDED_STATUS_KEYS.has(c.status);
-    c.daysLeft = daysUntil(c.goLive);
-    const k = computeKeyDates(c.goLive);
-    c.reviewDate = k.review;
-    c.proofStart = k.proofStart;
-    const wdToReview = (c.status === 'review' || c.status === 'review_done' || c.status === 'print' || ENDED_STATUS_KEYS.has(c.status))
-      ? 999 : workdaysBetween(TODAY, c.reviewDate) - 1;
-    c.gateActive = (wdToReview >= 0 && wdToReview <= 3);
-  });
+  CASES.forEach(decorateCase);
 }
 
 // ============== Identity & State ==============
@@ -8081,13 +8087,40 @@ window.activeDesigners = function() {
 // reflect the impersonated user. Patch myCases to use ME_NAME() (already done)
 // and also patch openDrawerById so it resolves missing IDs gracefully.
 const _v38OrigOpenDrawerById = window.openDrawerById;
-window.openDrawerById = function(id) {
-  const c = CASES.find(x => x.id === id);
-  if (!c) {
-    showToast('找不到案件 ' + id, 'err');
-    return;
+// v9.5 根因：CASES 只載入未封存案，分析／統計清單（需求單位分析、改稿明細、
+// 逾期責任、取消清單、甘特、行事曆…）卻含已結案／封存案，點進去在這裡查不到
+// 就被判成「找不到案件」。改為：快取沒有 → GET /api/cases/:id（後端 findUnique，
+// 含封存）→ normalizeCase + decorateCase → 開抽屜。
+//  · 不把封存案塞進 CASES（工作量／統計不受影響）
+//  · 只有真正 404 才說找不到；401 交給 fetchJson 的過期處理；403／網路分開提示
+//  · 序號 + 當時頁面守門：慢的舊請求回來時若已點了別案或切頁，直接丟棄
+//  · 發請求前先關掉既有抽屜，載入中不會殘留上一案的可寫表單
+// 共用失效機制：任何一次「開抽屜」（不論經由 openDrawerById 或其他入口直接
+// 呼叫 openDrawer）都讓序號前進；非同步載入在 await 前記下序號、回來後比對，
+// 序號已變＝使用者已選了別的案或切頁，舊回應一律丟棄，不會蓋掉新選擇。
+window.v95DrawerSeq = (() => { let n = 0; return { bump: () => ++n, now: () => n }; })();
+const _v95OrigOpenDrawer = window.openDrawer;
+window.openDrawer = function (c) { window.v95DrawerSeq.bump(); return _v95OrigOpenDrawer.apply(this, arguments); };
+
+window.openDrawerById = async function(id) {
+  // 先遞增：就算這次命中快取、同步開啟，也要讓仍在飛的慢封存請求失效
+  const seq = window.v95DrawerSeq.bump(), viewAt = currentView;
+  const cached = CASES.find(x => x.id === id);
+  if (cached) return openDrawer(cached);
+  try { if (typeof v92CloseDrawer === 'function') v92CloseDrawer(); } catch {}
+  try {
+    const raw = await api.cases.getOne(id);
+    if (seq !== window.v95DrawerSeq.now() || currentView !== viewAt) return;   // 已被較新的操作取代
+    const c = decorateCase(normalizeCase(raw));                                  // 不進 CASES；歷史案抽屜本身即唯讀
+    return openDrawer(c);
+  } catch (e) {
+    if (seq !== window.v95DrawerSeq.now() || currentView !== viewAt) return;
+    if (e && e.authExpired) return;                               // v7.2 已提示並導向登入
+    const st = e && e.status;
+    if (st === 404) showToast('找不到案件 ' + id, 'err');
+    else if (st === 403) showToast('沒有權限查看案件 ' + id, 'err');
+    else showToast('無法載入案件 ' + id + '：' + (e?.data?.message || e?.message || '連線失敗'), 'err');
   }
-  return openDrawer(c);
 };
 
 // Fix 3: Dashboard hotel-distribution shouldn't show 0 for hotels that
@@ -11612,6 +11645,6 @@ window.switchView = function (v) {
 };
 
 </script>
-<script src="/workbench-features.js?v=09cfcaa2bda7"></script>
+<script src="/workbench-features.js?v=29dc0786599a"></script>
 </body>
 </html>

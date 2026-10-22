@@ -15,7 +15,7 @@
     "postinstall": "prisma generate",
     "prebuild": "prisma generate",
     "build": "echo \"no-op build (Prisma client generated via postinstall)\"",
-    "test": "node tests/features.mjs && node tests/demoCopy.mjs"
+    "test": "node tests/features.mjs && node tests/demoCopy.mjs && node tests/caseOpener.mjs"
   },
   "engines": {
     "node": ">=20.0.0"

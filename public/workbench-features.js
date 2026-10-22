@@ -6,7 +6,6 @@
   const options = (values, selected) => values.map(([v,label]) => `<option value="${esc(String(v))}" ${String(v)===String(selected)?'selected':''}>${esc(label)}</option>`).join('');
   const blank = [['','全部']];
   const periodLabels = {week:'本週',month:'本月',quarter:'本季',half:'半年',year:'全年'};
-  let caseOpenSequence=0;
   let explorerState = {}, explorerRows = [], explorerSeq = 0, analyticsSeq = 0, analyticsStaff = '';
   const ledgerState = {};
 
@@ -56,16 +55,11 @@
         <div><span class="wb-mobile-label">結束 </span>${date(c.cancelledOn||c.closedOn)}${c.endDateMissing?'<div class="wb-help">結束日待補，暫保留於明細</div>':''}</div>
       </div>`).join('')}</div>` : '<div class="wb-empty">沒有符合條件的案件。可清除篩選或調整日期範圍。</div>';
       root.querySelectorAll('[data-case]').forEach(b=>b.onclick=async()=>{
-        const sequence=++caseOpenSequence,viewAtRequest=currentView;
+        const sequence=window.v95DrawerSeq.bump(),viewAtRequest=currentView; // v9.5: 與其他入口共用失效序號
         try {
-          const raw=await fetchJson('GET','/api/cases/'+encodeURIComponent(b.dataset.case));
-          if(sequence!==caseOpenSequence||currentView!==viewAtRequest)return;
-          const c=normalizeCase(raw);
-          const keys=computeKeyDates(c.goLive);
-          c.reviewDate=keys.review;c.proofStart=keys.proofStart;c.needed=c.goLive;
-          c.daysLeft=daysUntil(c.goLive);c.overdue=c.goLive<TODAY&&!ENDED_STATUS_KEYS.has(c.status);
-          const reviewDays=['review','review_done','print'].includes(c.status)||ENDED_STATUS_KEYS.has(c.status)?999:workdaysBetween(TODAY,c.reviewDate)-1;
-          c.gateActive=reviewDays>=0&&reviewDays<=3;
+          const raw=await api.cases.getOne(b.dataset.case);
+          if(sequence!==window.v95DrawerSeq.now()||currentView!==viewAtRequest)return;
+          const c=decorateCase(normalizeCase(raw)); // v9.5: 與 decorateCases/openDrawerById 共用同一份補齊邏輯
           await openDrawer(c);
         } catch(e) { showToast('無法開啟案件：'+(e.data?.message||e.message),'err'); }
       });
