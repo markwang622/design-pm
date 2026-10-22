@@ -944,6 +944,192 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
   --glass-collab: rgba(120,170,235,0.14);
 }
 
+/* ────────────────────────────────────────────────────────────
+   v8.0 霧藍微透（mist glass）—— 試點範圍：案件側欄回報區
+   原則：只新增 token 與試點元件樣式，不動既有季節色與明暗模式，
+   不新增任何全站 !important。半透明只用在表面，文字對比獨立維持。
+   ──────────────────────────────────────────────────────────── */
+:root {
+  /* 淺色也要真的半透明（原型行為）：底下的頁面會透出來。
+     文字與輸入框另外給實底，確保對比不被表面透明度拖累。 */
+  --mist-surface: linear-gradient(135deg, rgba(233,241,255,0.62) 0%, rgba(214,230,255,0.48) 100%);
+  --mist-sheen: linear-gradient(115deg, transparent 18%, rgba(255,255,255,0.45) 46%, transparent 72%);
+  --mist-border: rgba(150,186,240,0.55);
+  --mist-ink: #29466c;
+  --mist-ink-dim: #3f649a;
+  --mist-accent: #355d8e;
+  --mist-chip: #e5edff;
+  --mist-blur: blur(18px) saturate(118%);
+}
+[data-theme="dark"] {
+  --mist-surface: linear-gradient(135deg, rgba(53,93,142,0.42) 0%, rgba(41,70,108,0.38) 100%);
+  --mist-sheen: linear-gradient(115deg, transparent 18%, rgba(255,255,255,0.10) 46%, transparent 72%);
+  --mist-border: rgba(179,211,255,0.24);
+  --mist-ink: #dce9ff;
+  --mist-ink-dim: #a5c8f1;
+  --mist-accent: #b3d3ff;
+  --mist-chip: rgba(179,211,255,0.14);
+}
+.report-zone {
+  position: relative;
+  background: var(--mist-surface);
+  border: 1px solid var(--mist-border);
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+  margin-bottom: 4px;
+  overflow: hidden;
+}
+/* 斜向光澤：原型的玻璃感來源，純裝飾、不影響文字對比 */
+.report-zone::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: var(--mist-sheen);
+}
+.report-zone > * { position: relative; }
+@supports (backdrop-filter: blur(1px)) {
+  .report-zone { -webkit-backdrop-filter: var(--mist-blur); backdrop-filter: var(--mist-blur); }
+}
+.report-zone .rz-title {
+  font-size: 13px; font-weight: 600; color: var(--mist-ink); margin-bottom: 8px;
+}
+.report-zone .rz-now {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.report-zone .rz-label { font-size: 11px; color: var(--mist-ink-dim); }
+.report-zone .rz-status {
+  font-size: 13px; font-weight: 600; color: var(--mist-ink);
+  background: var(--mist-chip); border: 1px solid var(--mist-border);
+  border-radius: 10px; padding: 2px 10px;
+}
+.report-zone .rz-next {
+  font-size: 11px; color: var(--mist-ink-dim); flex-basis: 100%; line-height: 1.7;
+}
+/* 半透明只作用在容器表面；文字層不得被整體 opacity 拉淡 */
+.report-zone .log-add { background: transparent; border: 0; padding: 0; margin: 0; }
+.report-zone .log-add textarea {
+  width: 100%; box-sizing: border-box; min-height: 64px;
+  border: 1px solid var(--mist-border); border-radius: 8px; padding: 8px 10px;
+  font-family: inherit; font-size: 13px; line-height: 1.7;
+  background: var(--input-bg, #fff); color: var(--fg, #1F1F1F);
+}
+.report-zone .log-add textarea:focus { outline: 2px solid var(--mist-accent); outline-offset: -1px; }
+.report-zone .status-change {
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--mist-border);
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .report-zone { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (max-width: 620px) {
+  .report-zone { padding: 12px; border-radius: 10px; }
+  .report-zone .status-change select { width: 100%; }
+}
+
+/* v8.0 小 symbol：單一線性系統，尺寸與行高對齊文字 */
+.v80-ic { display: inline-block; vertical-align: -2px; flex-shrink: 0; }
+
+/* v8.0 館別排序：改用 class 控版面（不再覆寫 inline style，故無需 !important） */
+.v80-hrow, .v80-hhead {
+  display: grid; grid-template-columns: 34px 76px 1fr 72px 92px 76px;
+  align-items: center; padding: 8px 10px; font-size: 12px; min-width: 0;
+}
+.v80-hhead { background: var(--th-bg,#F4F4F4); font-size: 11px; font-weight: 500; color: var(--fg-dim,#404040); }
+.v80-hrow { border-top: 1px solid var(--section-divider,#F0F0F0); background: var(--card-bg,#fff); }
+.v80-hrow > span { min-width: 0; overflow-wrap: anywhere; }
+.v80-addform { display: grid; grid-template-columns: 1fr 2fr 80px auto; gap: 8px; align-items: end; font-size: 12px; }
+@media (max-width: 560px) {
+  .v80-hhead { display: none; }                      /* 窄螢幕隱藏表頭，改用列內堆疊 */
+  .v80-hrow {
+    grid-template-columns: 26px 1fr auto;
+    grid-template-areas: "grip name actions" "grip meta order";
+    gap: 4px 8px; padding: 10px;
+  }
+  .v80-hrow > :nth-child(1) { grid-area: grip; align-self: start; }
+  .v80-hrow > :nth-child(2) { grid-area: meta; font-size: 11px; color: var(--fg-muted,#8C8C8C); }
+  .v80-hrow > :nth-child(3) { grid-area: name; font-weight: 600; }
+  .v80-hrow > :nth-child(4) { grid-area: meta; justify-self: end; }
+  .v80-hrow > :nth-child(5) { grid-area: order; justify-self: start; }
+  .v80-hrow > :nth-child(6) { grid-area: actions; justify-self: end; }
+  .v80-hrow button { min-height: 32px; }             /* 觸控目標 */
+  .v80-addform { grid-template-columns: 1fr; }
+}
+
+/* ────────── v8.1 館別總覽：館別 → 專案 → 子案件 ────────── */
+.v81-head, .v81-row {
+  display: grid; grid-template-columns: minmax(0,2.2fr) 56px 90px 72px 60px minmax(0,1.4fr);
+  gap: 8px; align-items: center; padding: 9px 14px; font-size: 12px; min-width: 0;
+}
+.v81-head { background: var(--th-bg,#F4F4F4); font-size: 11px; font-weight: 500; color: var(--fg-dim,#404040); }
+.v81-row { border-top: 1px solid var(--section-divider,#F0F0F0); cursor: pointer; background: var(--card-bg,#fff); }
+.v81-row:hover { background: var(--mist-chip,#eef4ff); }
+.v81-row:focus-visible { outline: 2px solid var(--mist-accent,#355d8e); outline-offset: -2px; }
+.v81-row.open { background: var(--mist-chip,#eef4ff); font-weight: 600; }
+.v81-caret { color: var(--mist-ink-dim,#3f649a); width: 12px; flex-shrink: 0; }
+.v81-children { border-top: 1px solid var(--section-divider,#F0F0F0); background: var(--mist-surface); }
+.v81-case { padding: 9px 14px 9px 30px; border-bottom: 1px solid var(--section-divider,#F0F0F0); }
+.v81-case:last-child { border-bottom: 0; }
+.v81-case-main { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 12px; }
+.v81-case-name { font-weight: 600; overflow-wrap: anywhere; }
+.v81-meta { font-size: 11px; color: var(--fg-muted,#8C8C8C); display: inline-flex; align-items: center; gap: 4px; }
+.v81-last { font-size: 11px; color: var(--fg-muted,#8C8C8C); margin-top: 3px; overflow-wrap: anywhere; }
+.v81-exp, .v81-open {
+  font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--input-border,#D4D4D4); background: transparent; color: var(--fg,#1F1F1F);
+}
+.v81-exp { min-width: 24px; }
+.v81-exp-ph { display: inline-block; width: 24px; }
+.v81-open { margin-left: auto; }
+.v81-items { margin: 6px 0 2px 24px; border-left: 2px solid var(--mist-border,#cadfff); }
+.v81-item {
+  display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1.2fr) 90px 90px;
+  gap: 8px; padding: 5px 10px; font-size: 11px;
+}
+@media (max-width: 760px) {
+  .v81-head { display: none; }
+  .v81-row { grid-template-columns: 1fr auto; row-gap: 4px; }
+  .v81-row > :nth-child(n+2):nth-child(-n+5) { font-size: 11px; color: var(--fg-muted,#8C8C8C); }
+  .v81-row > :nth-child(2)::before { content: '在辦 '; }
+  .v81-row > :nth-child(3)::before { content: '待需求確認 '; }
+  .v81-row > :nth-child(4)::before { content: '待核可 '; }
+  .v81-row > :nth-child(5)::before { content: '逾期 '; }
+  .v81-item { grid-template-columns: 1fr; gap: 2px; }
+  .v81-case { padding-left: 16px; }
+  .v81-open { min-height: 30px; }
+}
+
+/* ────────── v8.0 清晰列表（我的任務主工作台）──────────
+   卡片牆改為單欄列表：掃描一列就知道「是什麼／誰在等／下一步」。
+   只在 .clear-list 容器內生效，其他沿用卡片的頁面不受影響。 */
+.case-list.clear-list { display: block; }
+.clear-list .case-card {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
+  border-radius: 8px; margin-bottom: 6px; padding: 12px 14px;
+  background: var(--card-bg,#fff); transition: background .15s, border-color .15s;
+}
+.clear-list .case-card:hover { transform: none; box-shadow: none; background: var(--mist-chip,#eef4ff); }
+.clear-list .case-card .row1 { grid-column: 1; align-items: baseline; }
+.clear-list .case-card .row2 { grid-column: 1 / -1; }
+.clear-list .case-card .row3 { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 10px; }
+.clear-list .case-card .sub { overflow-wrap: anywhere; }
+.row-next {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--mist-ink-dim,#3f649a); line-height: 1.6; margin-top: 4px;
+}
+.row-next:empty, .row-next span:empty { display: none; }
+@media (max-width: 620px) {
+  .clear-list .case-card { grid-template-columns: 1fr; }
+  .clear-list .case-card .row3 { flex-direction: column; gap: 2px; }
+}
+
+/* 桌面：清單在左、回報區（抽屜）停靠在右，不再覆蓋內容 */
+@media (min-width: 1200px) {
+  body.dock-report .drawer { box-shadow: -1px 0 0 var(--card-border,#E5E5E5); }
+  /* 只針對案件抽屜的遮罩（用 id，不會波及館別管理等其他 modal 的背景）。
+     光改 background 不夠——.drawer-bg.open 仍是 inset:0 + pointer-events:auto，
+     會整片擋住左側清單，使用者無法點下一個專案。 */
+  body.dock-report #drawer-bg.open { background: transparent; pointer-events: none; }
+  body.dock-report .view[data-view="personal"] { padding-right: calc(min(560px, 46vw) + 20px); }
+}
+
 /* ---- 季節色（春 / 夏 / 秋 / 冬，各含日夜） ---- */
 [data-season="spring"] { --season-grad: linear-gradient(135deg,#FCEAF0 0%,#F4F7EC 50%,#E9F5F0 100%);
   --blob1: rgba(232,131,158,0.30); --blob2: rgba(123,179,137,0.26); --accent:#C9577C; --accent-ink:#fff; }
@@ -960,6 +1146,12 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
 [data-season="autumn"][data-theme="dark"] { --season-grad: linear-gradient(135deg,#1E1610 0%,#17110C 55%,#1A130D 100%);
   --blob1: rgba(225,162,78,0.20); --blob2: rgba(200,100,60,0.18); --accent:#DD9148; --accent-ink:#1A130D; }
 
+/* v8.0 Mist 霧藍（預設工作台主題）—— 取自選定原型「霧藍微透」的配色。
+   整體底色、導覽選取與主要操作都走這組，而不只有回報區變藍。 */
+[data-season="mist"] { --season-grad: linear-gradient(135deg,#EDF4FF 0%,#E8EFFF 48%,#F1F6FF 100%);
+  --blob1: rgba(179,211,255,0.34); --blob2: rgba(165,200,241,0.26); --accent:#355D8E; --accent-ink:#fff; }
+[data-season="mist"][data-theme="dark"] { --season-grad: linear-gradient(135deg,#101A28 0%,#0D1521 55%,#111C2B 100%);
+  --blob1: rgba(90,135,195,0.22); --blob2: rgba(63,100,154,0.18); --accent:#8FB6E8; --accent-ink:#0F1419; }
 [data-season="winter"] { --season-grad: linear-gradient(135deg,#EDF2F9 0%,#F0F1FA 50%,#E9F1F6 100%);
   --blob1: rgba(91,131,184,0.26); --blob2: rgba(126,143,192,0.22); --accent:#4A6FA5; --accent-ink:#fff; }
 [data-season="winter"][data-theme="dark"] { --season-grad: linear-gradient(135deg,#0D131C 0%,#0B0F16 55%,#0C1118 100%);
@@ -1184,7 +1376,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
         <button class="pill" data-filter="collab">協作中</button>
         <button class="pill" data-filter="done">已完成</button>
       </div>
-      <div class="case-list" id="case-list"></div>
+      <div class="case-list clear-list" id="case-list"></div>
     </div>
     <div class="view" data-view="kanban">
       <div class="filter-bar">
@@ -1367,6 +1559,50 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
     <h3 id="d-title"></h3>
     <p id="d-sub" style="color: #8C8C8C; font-size: 13px; margin-bottom: 12px;"></p>
     <div id="d-collab-bar"></div>
+
+    <!-- v8.0 回報區上移：設計師來這裡幾乎都是為了「更新進度」，
+         把動作放在第一屏，基本資料改放下方（那是用來讀的，不是用來寫的）。
+         所有既有 id 原樣保留，既有 JS 不需改動。 -->
+    <section class="report-zone" id="d-report-zone">
+      <div class="rz-now" id="d-now">
+        <span class="rz-label">目前狀態</span>
+        <span class="rz-status" id="d-now-status">—</span>
+        <span class="rz-next" id="d-now-next"></span>
+      </div>
+
+      <div class="log-add">
+        <div class="rz-title">更新專案進度</div>
+        <textarea id="d-log-input" placeholder="這次發生了什麼？（例如：2 版提案送執辦、已收需求單位回饋、等文案）"></textarea>
+        <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-top:8px;">選擇這次發生的事（選填）</div>
+        <div id="d-log-tags" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;"></div>
+        <div id="d-log-tagby-wrap" style="display:none;margin-top:6px;">
+          <span style="font-size:11px;color:var(--fg-muted,#8C8C8C);">誰要求的？（選填）</span>
+          <div id="d-log-tagby" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;"></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+          <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);">進度發生日期</label>
+          <input type="date" id="d-log-date" style="padding:5px 8px;font-size:12px;">
+          <button class="submit" id="d-log-submit" style="margin-left:auto;">儲存進度</button>
+        </div>
+      </div>
+
+      <div class="status-change">
+        <span style="font-size: 13px; color: var(--fg-dim,#595959);">變更狀態：</span><i class="tip" data-tip="推到「待主管核可」會通知管理者，由管理者在審核中心核可後才正式結案歸檔。">ⓘ</i>
+        <select id="d-status">
+          <option value="todo">尚未開始</option>
+          <option value="wait">等待資料／協調中</option>
+          <option value="doing">設計製作中</option>
+          <option value="review">待需求單位確認（送出確稿）</option>
+          <option value="print">製作／送印中</option>
+          <option value="review_done">待主管核可（送出核可）</option>
+          <!-- 已結案 由管理者在審核中心核可後自動設定，這裡不開放選 -->
+        </select>
+      </div>
+    </section>
+
+    <div style="margin:18px 0 10px; font-size: 13px; font-weight: 500; color: var(--fg-dim,#404040);">進度紀錄</div>
+    <div class="log-timeline" id="d-timeline"></div>
+
     <div class="drawer-actions">
       <button id="d-reassign">↻ 轉派單</button>
       <button id="d-urgent-toggle">🔥 切換急件</button>
@@ -1376,37 +1612,8 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
     <div id="d-subitems"></div>
     <div id="d-archive"></div>
     <div id="d-closure"></div>
-    <div style="margin-bottom: 12px; font-size: 13px; font-weight: 500; color: #404040;">進度日誌</div>
-    <div class="log-timeline" id="d-timeline"></div>
-    <div class="log-add">
-      <textarea id="d-log-input" placeholder="更新今日進度（例如：2 版提案送執辦、已收客戶回饋、等文案）"></textarea>
-      <!-- v6.8: 事件標籤（必選，供管理分析累計改稿次數/卡關時間） -->
-      <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-top:8px;">這筆進度是？ <span style="color:#C0392B;">*</span></div>
-      <div id="d-log-tags" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;"></div>
-      <div id="d-log-tagby-wrap" style="display:none;margin-top:6px;">
-        <span style="font-size:11px;color:var(--fg-muted,#8C8C8C);">誰要求的？ <span style="color:#C0392B;">*</span></span>
-        <div id="d-log-tagby" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;"></div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
-        <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);">日期</label>
-        <input type="date" id="d-log-date" style="padding:5px 8px;font-size:12px;">
-        <button class="submit" id="d-log-submit" style="margin-left:auto;">送出</button>
-      </div>
-    </div>
-    <div class="status-change">
-      <span style="font-size: 13px; color: #595959;">變更狀態：</span><i class="tip" data-tip="流程：尚未開始→等待中→進行中→確稿中→(送印中)→確稿完成→已結案。推到「確稿完成」會通知 admin，由 admin 在審核中心通過才正式結案歸檔。">ⓘ</i>
-      <select id="d-status">
-        <option value="todo">尚未開始</option>
-        <option value="wait">等待中</option>
-        <option value="doing">進行中</option>
-        <option value="review">確稿中（提出確稿）</option>
-        <option value="print">送印中</option>
-        <option value="review_done">確稿完成（送 admin 審核）</option>
-        <!-- 已結案 由 admin 在審核中心通過後自動設定，這裡不開放選 -->
-      </select>
-    </div>
     <div class="gate-info" id="d-gate">
-      <b>⏰ 待簽核觸發中</b>：此案的 <b>確稿日</b> 剩不到 3 個工作天，系統已通知 <b>Mark</b> 安排審核事宜。卡片會以紅色邊條標示，直到設計師提出確稿。
+      <b>⏰ 確稿日將至</b>：此專案的 <b>確稿日</b> 剩不到 3 個工作天。卡片會以紅色邊條標示，直到送出確稿為止。
     </div>
   </div>
 </div>
@@ -1640,12 +1847,14 @@ let REQUEST_UNITS = [
   '宜蘭行銷','花蓮行銷','嘉義行銷','台中行銷',
 ];
 const STATUSES = [
+  // v8.0: 顯示名稱改為「說明現在的狀態 + 誰在等」。status key 一律不動，
+  // 歷史資料與既有查詢不受影響。wait 不預設等需求端（可能等素材、等協調）。
   {key:'todo', name:'尚未開始'},
-  {key:'wait', name:'等待中'},
-  {key:'doing', name:'進行中'},
-  {key:'review', name:'確稿中'},
-  {key:'review_done', name:'確稿完成'},   // v3.6: designer marks done, awaits admin
-  {key:'print', name:'送印中'},            // H6: 送印中（選填階段）
+  {key:'wait', name:'等待資料／協調中'},
+  {key:'doing', name:'設計製作中'},
+  {key:'review', name:'待需求單位確認'},
+  {key:'review_done', name:'待主管核可'},   // v3.6: designer marks done, awaits admin
+  {key:'print', name:'製作／送印中'},       // H6: 送印中（選填階段）
   {key:'closed', name:'已結案'},           // v3.6: admin approved, auto-archived
   {key:'done', name:'已結案'},             // v4.3: visually identical to closed (legacy data shows up the same)
   {key:'cancelled', name:'已取消'},        // v7.1: 取消 ≠ 結案（沒有交付，不計入達成率）
@@ -1656,6 +1865,51 @@ const SELECTABLE_STATUSES = STATUSES.filter(s => s.key !== 'done');
 // v7.1: 兩種語意必須分開，否則「取消」會被算成「已結案」而灌水達成率
 //   FINAL_STATUS_KEYS  = 已成功交付（計入結案數/達成率/交付天數）
 //   ENDED_STATUS_KEYS  = 已終結不再活躍（排除逾期/看板/急件/在辦統計）
+// v8.0: 單一線性 symbol 系統。全部走同一組 stroke 參數（1.6 / round），
+// 不引入任何 icon 相依。預設 aria-hidden：圖示一律是裝飾，語意由旁邊的
+// 文字標籤承擔；只有圖示的按鈕另外用 aria-label 給中文名稱。
+const V80_ICONS = {
+  building:   '<path d="M3 21h18M5 21V5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v16M14 9h4a1 1 0 0 1 1 1v11M8 8h3M8 12h3M8 16h3"/>',
+  folder:     '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  layers:     '<path d="M12 3 3 8l9 5 9-5zM3 14l9 5 9-5M3 11l9 5 9-5"/>',
+  grip:       '<path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/>',
+  'arrow-right': '<path d="M5 12h13M13 7l5 5-5 5"/>',
+  'circle-check':'<path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8.5 12.5l2.5 2.5 4.5-5"/>',
+  clock:      '<path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2"/>',
+  filter:     '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
+};
+function v80Icon(name, opts) {
+  const p = V80_ICONS[name];
+  if (!p) return '';
+  const o = opts || {};
+  const size = o.size || 14;
+  // 有 label 時圖示才具語意，否則對輔助技術隱藏
+  const a11y = o.label ? `role="img" aria-label="${escapeHtml(o.label)}"` : 'aria-hidden="true" focusable="false"';
+  return `<svg class="v80-ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" ${a11y}>${p}</svg>`;
+}
+
+// v8.0: 每個狀態對應「下一步該做什麼」。設計師與管理者看到的提示不同——
+// review_done 對設計師是等待、對管理者是待辦。不虛構等待對象：wait 只提醒
+// 去確認缺什麼，不冒充已知的等待方。
+const V80_NEXT_STEP = {
+  todo:        { all: '確認需求與時程後，開始製作' },
+  wait:        { all: '確認尚缺哪些資料或協調事項' },
+  doing:       { all: '完成本次製作後，更新進度或送需求單位確認' },
+  review:      { all: '收到回覆後記錄修改；已確認且交付資料齊備時再送主管核可' },
+  review_done: { designer: '等待主管核可', admin: '檢查交付資料後，核可或退回修改' },
+  print:       { all: '確認製作交付進度，依既有流程結案' },
+  closed:      { all: '查看交付資料與歷程' },
+  done:        { all: '查看交付資料與歷程' },
+  cancelled:   { all: '查看取消原因（不計為完成交付）' },
+};
+function v80NextStep(status, role) {
+  const e = V80_NEXT_STEP[status];
+  if (!e) return '';
+  const r = role || (typeof currentRole !== 'undefined' ? currentRole : 'designer');
+  return e.all || e[r === 'admin' ? 'admin' : 'designer'] || '';
+}
+
 const FINAL_STATUS_KEYS = new Set(['done', 'closed']);
 const CANCELLED_KEY = 'cancelled';
 const ENDED_STATUS_KEYS = new Set(['done', 'closed', 'cancelled']);
@@ -1845,7 +2099,11 @@ function renderPersonal() {
   const weekDue = me.filter(c => !ENDED_STATUS_KEYS.has(c.status) && c.daysLeft >= 0 && c.daysLeft <= 7);
   const overdue = me.filter(c => c.overdue);
   const urgent = me.filter(c => c.urgent && !ENDED_STATUS_KEYS.has(c.status));
-  const gate = me.filter(c => c.gateActive);
+  const gate = me.filter(c => c.gateActive); // 確稿日將至（到期提醒，非審核狀態）
+  // v8.0: 設計師最需要的區分是「現在球在我身上」還是「在等別人」
+  const waitingOthers = me.filter(c => c.status === 'review' || c.status === 'review_done');
+  const wReq = waitingOthers.filter(c => c.status === 'review').length;
+  const wApp = waitingOthers.filter(c => c.status === 'review_done').length;
   const doneThisMonth = me.filter(c => FINAL_STATUS_KEYS.has(c.status)).length;
   const collab = me.filter(c => c.designer !== ME_NAME() && (c.collaborators||[]).includes(ME_NAME()));
   kpi.innerHTML = `
@@ -1853,7 +2111,8 @@ function renderPersonal() {
     <div class="kpi" data-kf="week"><div class="label">本週到期</div><div class="value">${weekDue.length}</div><div class="sub">7 天內（上線日）</div></div>
     <div class="kpi alert" data-kf="overdue"><div class="label">已逾期</div><div class="value">${overdue.length}</div><div class="sub">請優先處理</div></div>
     <div class="kpi urgent" data-kf="urgent"><div class="label">急件</div><div class="value">${urgent.length}</div><div class="sub">標記為 🔥</div></div>
-    <div class="kpi gate" data-kf="gate"><div class="label">確稿待簽核中</div><div class="value">${gate.length}</div><div class="sub">確稿日前 3 工作天內</div></div>
+    <div class="kpi gate" data-kf="gate"><div class="label">確稿日將至</div><div class="value">${gate.length}</div><div class="sub">確稿日前 3 工作天內</div></div>
+    <div class="kpi" data-kf="waiting"><div class="label">等待他人回覆</div><div class="value">${waitingOthers.length}</div><div class="sub">${waitingOthers.length ? `需求單位 ${wReq} · 主管 ${wApp}` : '目前沒有等待中的專案'}</div></div>
     <div class="kpi collab" data-kf="collab"><div class="label">協作中</div><div class="value">${collab.length}</div><div class="sub">他人主案 · 我協作</div></div>
   `;
   // E4: KPI 卡點擊 → 套用對應篩選
@@ -1876,7 +2135,7 @@ function renderPersonal() {
   // v4.0 fix: 動態算今日日期（之前寫死 4/23）
   const _wd = ['日','一','二','三','四','五','六'];
   const _today = new Date();
-  document.getElementById('hello-sub').textContent = `今天是 ${_today.getMonth()+1}/${_today.getDate()}（${_wd[_today.getDay()]}）· 你有 ${weekDue.length} 件本週上線、${gate.length} 件進入確稿待簽核、${overdue.length} 件逾期`;
+  document.getElementById('hello-sub').textContent = `今天是 ${_today.getMonth()+1}/${_today.getDate()}（${_wd[_today.getDay()]}）· 你有 ${weekDue.length} 件本週上線、${gate.length} 件確稿日將至、${overdue.length} 件逾期`;
   const listEl = document.getElementById('case-list');
   // E2: 已完成 — 非同步抓封存案件
   if (personalFilter === 'done') { v53RenderPersonalDone(listEl); return; }
@@ -1886,6 +2145,7 @@ function renderPersonal() {
   else if (personalFilter === 'overdue') base = overdue;
   else if (personalFilter === 'urgent') base = urgent;
   else if (personalFilter === 'gate') base = gate;
+  else if (personalFilter === 'waiting') base = waitingOthers; // v8.0
   else if (personalFilter === 'collab') base = collab;
   const sortCases = arr => arr.slice().sort((a,b) => (a.overdue && !b.overdue ? -1 : !a.overdue && b.overdue ? 1 : a.goLive - b.goLive));
   listEl.innerHTML = '';
@@ -2000,13 +2260,14 @@ function makeCaseCard(c) {
       ${c.overdue ? '<span class="chip overdue">⚠ 逾期</span>' : ''}
       ${c.needsOutsourcing ? '<span class="chip" style="background:#EAE0F5;color:#6B3FA0;border-color:#D4C2EC;">📦 需發包</span>' : ''}
       ${(()=>{const cf=v58ConflictsFor(c);return cf.length?`<span class="chip" style="background:#FCE4D6;color:#9A3B12;border-color:#F0B894;" title="${escapeHtml(cf.join('；'))}">🚨 排程衝突</span>`:'';})()}
-      ${c.gateActive ? '<span class="chip gate">⏰ 待簽核</span>' : ''}
+      ${c.gateActive ? '<span class="chip gate">⏰ 確稿日將至</span>' : ''}
       ${(c.collaborators && c.collaborators.length) ? `<span class="chip collab">🤝 ${c.collaborators.length} 位協作</span>` : ''}
     </div>
     <div class="row3">
       <span>上線 ${md(c.goLive)} · 確稿 ${md(c.reviewDate)}</span>
-      <span>${isCancelled(c) ? '🚫 已取消' : FINAL_STATUS_KEYS.has(c.status) ? '已結案' : c.status === 'review_done' ? '送審中' : c.daysLeft < 0 ? `逾期 ${-c.daysLeft} 天` : `剩 ${wd} 工作天`}</span>
+      <span>${isCancelled(c) ? '🚫 已取消' : FINAL_STATUS_KEYS.has(c.status) ? '已結案' : c.status === 'review_done' ? '待主管核可' : c.daysLeft < 0 ? `逾期 ${-c.daysLeft} 天` : `剩 ${wd} 工作天`}</span>
     </div>
+    <div class="row-next">${v80Icon('arrow-right')}<span>${escapeHtml(v80NextStep(c.status, currentRole))}</span></div>
     <button class="mini-btn" title="轉派單" onclick="event.stopPropagation();openReassign('${c.id}')">↻ 轉派</button>
   `;
   return el;
@@ -2093,7 +2354,7 @@ async function v54KanbanDrop(caseId, newStatus) {
   }
   // 進終態（review_done）需要歸檔路徑 → 引導到抽屜操作
   if (newStatus === 'review_done' && !(c.archivePath && String(c.archivePath).trim())) {
-    showToast('「確稿完成」需先填檔案歸檔位置，請點開卡片操作', 'err');
+    showToast('送出主管核可前需先填交付檔案位置，請點開卡片操作', 'err');
     openDrawer(c); return;
   }
   const before = c.status;
@@ -2337,9 +2598,14 @@ function renderDashboard() {
   const done = live.filter(c => FINAL_STATUS_KEYS.has(c.status)).length;
   const overdue = live.filter(c => c.overdue).length;
   const urgent = live.filter(c => c.urgent && !ENDED_STATUS_KEYS.has(c.status)).length;
-  // A4: 「確稿待簽核中（待你審核）」應為確稿流程中的案件（確稿中 + 確稿完成），
-  // 而非 gateActive（確稿日前 3 工作天的到期提醒，已由「即將到期」widget 負責）。
-  const gate = live.filter(c => c.status === 'review' || c.status === 'review_done').length;
+  // v8.0: 原本把 review 與 review_done 合併成一個「確稿待簽核中（待你審核）」，
+  // 但 review 是在等需求單位、根本還沒送到管理者，標成「待你審核」會讓管理者
+  // 以為有事要做（審核中心只收 review_done，所以常出現 KPI 不為零而審核中心空
+  // 的矛盾）。兩者拆開，且數字與點入清單使用同一條件。
+  const waitRequester = live.filter(c => c.status === 'review').length;
+  const waitApproval  = live.filter(c => c.status === 'review_done').length;
+  // v8.0: 觀察者為唯讀，不能被給一個他執行不了的下一步（「待我核可」）
+  const canApprove = currentRole === 'admin';
   // v4.1 (B1): guard against zero-division for 達成率
   const completionRate = total > 0 ? Math.round(done / total * 100) : 0;
   // v4.1 (B2): 拿掉「VS 上月 +X」假數據（之前是寫死 total*0.12）
@@ -2349,7 +2615,8 @@ function renderDashboard() {
     <div class="kpi" id="kpi-closed" style="cursor:pointer;" title="點擊查看本月結案清單"><div class="label">本月結案</div><div class="value" id="kpi-closed-val">…</div><div class="sub" id="kpi-closed-sub">計算中…</div></div>
     <div class="kpi alert" id="kpi-overdue" style="cursor:pointer;" title="點擊查看逾期清單"><div class="label">逾期</div><div class="value">${overdue}</div><div class="sub">點擊查看清單</div></div>
     <div class="kpi urgent" id="kpi-urgent" style="cursor:pointer;" title="點擊查看急件清單"><div class="label">急件</div><div class="value">${urgent}</div><div class="sub">點擊查看清單</div></div>
-    <div class="kpi gate" id="kpi-gate" style="cursor:pointer;" title="點擊查看待簽核清單"><div class="label">確稿待簽核中</div><div class="value">${gate}</div><div class="sub">點擊查看清單</div></div>
+    <div class="kpi gate" id="kpi-wait-requester" style="cursor:pointer;" title="點擊查看待需求單位確認的專案"><div class="label">待需求單位確認</div><div class="value">${waitRequester}</div><div class="sub">等待需求單位回覆；必要時協調</div></div>
+    <div class="kpi gate" id="kpi-wait-approval" style="cursor:pointer;" title="${canApprove ? '點擊查看待你核可的專案' : '點擊查看待主管核可的專案'}"><div class="label">${canApprove ? '待我核可' : '待主管核可'}</div><div class="value">${waitApproval}</div><div class="sub">${canApprove ? (waitApproval ? '需要你檢查後核可或退回' : '目前沒有需要你處理的專案') : '查看交付與審核紀錄'}</div></div>
   `;
   // 本月結案：結案即自動封存，故需從封存資料計算（否則永遠是 0）
   v62LoadClosed().then(closed => {
@@ -2432,8 +2699,10 @@ function renderDashboard() {
   if (ovBtn) ovBtn.onclick = () => v62ShowCaseList('overdue');
   const ugBtn = document.getElementById('kpi-urgent');
   if (ugBtn) ugBtn.onclick = () => v62ShowCaseList('urgent');
-  const gtBtn = document.getElementById('kpi-gate');
-  if (gtBtn) gtBtn.onclick = () => v62ShowCaseList('gate');
+  const wrBtn = document.getElementById('kpi-wait-requester');
+  if (wrBtn) wrBtn.onclick = () => v62ShowCaseList('waitRequester');
+  const waBtn = document.getElementById('kpi-wait-approval');
+  if (waBtn) waBtn.onclick = () => v62ShowCaseList('waitApproval');
 }
 
 // 共用：總覽 KPI 卡點開的案件清單彈窗
@@ -2452,12 +2721,21 @@ const V62_KINDS = {
     badge: c => `<span style="background:#FBEAE0;color:#B5532A;border:1px solid #EDC3A8;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">${c.overdue ? '逾期 ' + (-c.daysLeft) + ' 天' : c.daysLeft === 0 ? '今天上線' : '剩 ' + c.daysLeft + ' 天'}</span>`,
     empty: '目前沒有急件',
   },
-  gate: {
-    icon: '⏰', title: '確稿待簽核中', color: '#8A6D1B', note: '依上線日排序（近→遠）',
-    filter: c => c.status === 'review' || c.status === 'review_done',
+  // v8.0: 原 gate 把 review 與 review_done 混在一起，與 KPI 同樣的問題。
+  // 拆成兩個，每個的 filter 與對應 KPI 的計算條件完全一致。
+  waitRequester: {
+    icon: '📤', title: '待需求單位確認', color: '#8A6D1B', note: '球在需求端 · 依上線日排序（近→遠）',
+    filter: c => c.status === 'review',
     sort: (a, b) => a.goLive - b.goLive,
-    badge: c => `<span style="background:#FBF3DC;color:#8A6D1B;border:1px solid #E6D49A;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">${(STATUSES.find(s => s.key === c.status) || {}).name || c.status}</span>`,
-    empty: '目前沒有待簽核案件',
+    badge: c => `<span style="background:#FBF3DC;color:#8A6D1B;border:1px solid #E6D49A;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">待需求單位確認</span>`,
+    empty: '目前沒有待需求單位確認的專案',
+  },
+  waitApproval: {
+    icon: '✅', title: '待我核可', color: '#1A6BAF', note: '需你檢查後核可或退回 · 依上線日排序（近→遠）',
+    filter: c => c.status === 'review_done',
+    sort: (a, b) => a.goLive - b.goLive,
+    badge: c => `<span style="background:#E7F0FA;color:#1A6BAF;border:1px solid #A9C9E8;border-radius:10px;padding:2px 9px;flex-shrink:0;font-weight:600;">待主管核可</span>`,
+    empty: '目前沒有需要你處理的專案',
   },
 };
 function v62ShowCaseList(kind) {
@@ -2730,6 +3008,11 @@ function openDrawer(c) {
   tl.innerHTML = logs.map(l => `<div class="log-item"><div class="log-date">${ymd(l.date)} · ${l.by}</div><div class="log-note">${l.note}</div></div>`).join('');
   const sel = document.getElementById('d-status');
   sel.value = c.status;
+  // v8.0: 回報區頂端顯示「現在是什麼狀態 + 下一步該做什麼」，依角色不同
+  const nowS = document.getElementById('d-now-status');
+  const nowN = document.getElementById('d-now-next');
+  if (nowS) nowS.textContent = (STATUSES.find(x => x.key === c.status) || {}).name || c.status;
+  if (nowN) nowN.textContent = v80NextStep(c.status, currentRole);
   const gate = document.getElementById('d-gate');
   gate.classList.toggle('show', !!c.gateActive);
   sel.onchange = e => {
@@ -3502,6 +3785,7 @@ async function reloadCase(id) {
   }
 }
 async function reloadAllCases() {
+  try { if (typeof v81Invalidate === 'function') v81Invalidate(); } catch (e) {} // v8.1 快取失效
   try {
     const fresh = await api.cases.list();
     CASES = fresh.map(normalizeCase);
@@ -5815,7 +6099,9 @@ window.renderDashboard = function() {
     const myName = (typeof v36ViewAsName !== 'undefined' && v36ViewAsName) ? v36ViewAsName : ME_NAME();
     const isAdminView = ME.role === 'admin' && !(typeof v36ViewAsName !== 'undefined' && v36ViewAsName);
     const mine = isAdminView ? live : live.filter(c => c.designer === myName || (c.collaborators||[]).includes(myName));
-    const reviewing = mine.filter(c => c.status === 'review' || c.status === 'review_done').map(c => ({...c, why:'待簽核中'}));
+    // v8.0: review 是等需求單位、review_done 才是等主管，標籤不可混用
+    const reviewing = mine.filter(c => c.status === 'review' || c.status === 'review_done')
+      .map(c => ({...c, why: c.status === 'review' ? '待需求單位確認' : '待主管核可'}));
     const overdueOnes = mine.filter(c => c.overdue).map(c => ({...c, why:'已逾期'}));
     const urgent = mine.filter(c => c.urgent && !ENDED_STATUS_KEYS.has(c.status)).map(c => ({...c, why:'急件'}));
     const pool = [...reviewing, ...overdueOnes, ...urgent]
@@ -6347,33 +6633,68 @@ function v37OpenHotelManager() {
   modal.style.display = 'block';
 }
 
+// v8.0: 館別排序草稿。null = 沒有未儲存變更。
+let v80HotelDraft = null;
+let v80HotelServer = [];   // 開啟當下的伺服器順序，供「取消變更」還原
+let v80HotelVersion = '';  // 開啟當下的版本指紋，送出時供後端偵測衝突
+
 async function v37RenderHotelManager(modal) {
-  const rows = await api.hotels.list().catch(() => []);
+  // 完整清單：含停用館別。只排序 active 的子集會造成跨館順序混亂。
+  // withVersion=1 會一併取得版本指紋（涵蓋順序/啟用狀態/更新時間）。
+  const resp = await fetchJson('GET', '/api/hotels?includeInactive=1&withVersion=1').catch(() => null);
+  if (!resp) {
+    modal.innerHTML = `<div style="padding:20px;font-size:13px;color:#C0392B;">無法載入館別，請重試。
+      <button id="v80-retry" style="margin-left:10px;padding:5px 12px;font-size:12px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:5px;cursor:pointer;">重新載入</button></div>`;
+    const rb = document.getElementById('v80-retry');
+    if (rb) rb.onclick = () => v37RenderHotelManager(modal);
+    return;
+  }
+  const server = Array.isArray(resp) ? resp : resp.hotels;
+  // 只有在沒有未儲存草稿時才更新版本基準，否則會把別人的變更當成自己的基準
+  if (!v80HotelDraft) v80HotelVersion = (resp && resp.version) || '';
+  v80HotelServer = server;
+  const rows = v80HotelDraft ? v80HotelDraft.map(id => server.find(h => h.id === id)).filter(Boolean) : server;
+  const dirty = !!v80HotelDraft;
+  const activeN = server.filter(h => h.active).length;
   modal.innerHTML = `
     <div style="display:flex;align-items:center;margin-bottom:14px;">
-      <h3 style="margin:0;font-size:16px;">🏢 館別管理</h3>
+      <h3 style="margin:0;font-size:16px;display:flex;align-items:center;gap:6px;">${v80Icon('building', {size:16})} 館別與排序</h3>
       <button id="v37-hotel-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:#8C8C8C;">×</button>
     </div>
-    <p style="color:#8C8C8C;font-size:12px;margin:0 0 12px;line-height:1.6;">新增、編輯、停用館別。停用後不再出現於下拉，但歷史案件不受影響。</p>
-    <div style="border:1px solid #E5E5E5;border-radius:6px;overflow:hidden;margin-bottom:14px;">
-      <div style="display:grid;grid-template-columns:80px 1fr 80px 80px 100px;background:#F4F4F4;padding:8px 12px;font-size:11px;font-weight:500;color:#404040;">
-        <span>區域</span><span>館別名</span><span>順序</span><span>狀態</span><span>動作</span>
+    <p style="color:var(--fg-muted,#8C8C8C);font-size:12px;margin:0 0 12px;line-height:1.7;">
+      共 ${server.length} 個館別（啟用 ${activeN}、停用 ${server.length - activeN}）。順序會同時影響總覽、篩選與建案下拉。<br>
+      停用後不再出現於建案下拉，但歷史專案不受影響，仍可查看。
+    </p>
+    ${dirty ? `<div id="v80-dirty" style="margin-bottom:10px;padding:8px 12px;border-radius:6px;background:#FBF3DC;border:1px solid #E6D49A;color:#8A6D1B;font-size:12px;">順序尚未儲存——關閉前請按「儲存館別順序」，或按「取消變更」還原。</div>` : ''}
+    <div id="v80-hotel-list" style="border:1px solid var(--card-border,#E5E5E5);border-radius:6px;overflow:hidden;margin-bottom:10px;">
+      <div class="v80-hhead">
+        <span aria-hidden="true"></span><span>區域</span><span>館別名</span><span>狀態</span><span>調整順序</span><span>動作</span>
       </div>
-      ${rows.map(h => `
-        <div style="display:grid;grid-template-columns:80px 1fr 80px 80px 100px;align-items:center;padding:8px 12px;border-top:1px solid #F0F0F0;font-size:12px;">
+      ${rows.map((h, i) => `
+        <div class="v80-hrow" draggable="true" data-id="${h.id}" data-i="${i}">
+          <span class="v80-grip" title="拖曳調整順序" style="cursor:grab;color:#9AA0A6;">${v80Icon('grip')}</span>
           <span>${escapeHtml(h.region)}</span>
-          <span>${escapeHtml(h.name)}</span>
-          <span>${h.sortOrder}</span>
+          <span style="word-break:break-word;">${escapeHtml(h.name)}</span>
           <span style="color:${h.active ? '#1F8A4C' : '#9A2E2E'};">${h.active ? '啟用' : '停用'}</span>
-          <span style="display:flex;gap:4px;">
-            <button onclick="v37HotelToggle(${h.id}, ${!h.active})" style="font-size:10px;padding:3px 8px;background:#fff;border:1px solid #D4D4D4;border-radius:3px;cursor:pointer;">${h.active ? '停用' : '啟用'}</button>
+          <span style="display:flex;gap:3px;">
+            <button class="v80-up" data-i="${i}" ${i === 0 ? 'disabled' : ''} aria-label="將 ${escapeHtml(h.name)} 上移"
+              style="font-size:11px;padding:3px 7px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:3px;cursor:${i === 0 ? 'not-allowed' : 'pointer'};opacity:${i === 0 ? .4 : 1};">↑</button>
+            <button class="v80-down" data-i="${i}" ${i === rows.length - 1 ? 'disabled' : ''} aria-label="將 ${escapeHtml(h.name)} 下移"
+              style="font-size:11px;padding:3px 7px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:3px;cursor:${i === rows.length - 1 ? 'not-allowed' : 'pointer'};opacity:${i === rows.length - 1 ? .4 : 1};">↓</button>
+          </span>
+          <span>
+            <button onclick="v37HotelToggle(${h.id}, ${!h.active})" style="font-size:10px;padding:3px 8px;background:transparent;border:1px solid var(--input-border,#D4D4D4);color:var(--fg,#1F1F1F);border-radius:3px;cursor:pointer;">${h.active ? '停用' : '啟用'}</button>
           </span>
         </div>
       `).join('')}
     </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:14px;">
+      <button id="v80-cancel" ${dirty ? '' : 'disabled'} style="padding:6px 14px;font-size:12px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:5px;cursor:${dirty ? 'pointer' : 'not-allowed'};opacity:${dirty ? 1 : .5};">取消變更</button>
+      <button id="v80-save" ${dirty ? '' : 'disabled'} style="padding:6px 16px;font-size:12px;border:none;background:${dirty ? 'var(--accent,#4A6FA5)' : '#C8C8C8'};color:#fff;border-radius:5px;cursor:${dirty ? 'pointer' : 'not-allowed'};">儲存館別順序</button>
+    </div>
     <div style="border:1px solid #1F8A4C;border-radius:6px;padding:12px;background:#F4FBF7;">
       <div style="font-size:13px;font-weight:500;margin-bottom:8px;">＋ 新增館別</div>
-      <div style="display:grid;grid-template-columns:1fr 2fr 80px auto;gap:8px;align-items:end;font-size:12px;">
+      <div class="v80-addform">
         <label>區域<input id="v37-h-region" placeholder="例：嘉義" style="width:100%;padding:6px;border:1px solid #D4D4D4;border-radius:4px;"></label>
         <label>名稱<input id="v37-h-name" placeholder="例：嘉義館" style="width:100%;padding:6px;border:1px solid #D4D4D4;border-radius:4px;"></label>
         <label>順序<input id="v37-h-sort" type="number" placeholder="自動" style="width:100%;padding:6px;border:1px solid #D4D4D4;border-radius:4px;"></label>
@@ -6381,8 +6702,91 @@ async function v37RenderHotelManager(modal) {
       </div>
     </div>
   `;
-  document.getElementById('v37-hotel-close').onclick = () => v37CloseHotelManager();
-  document.getElementById('v37-hotel-bg').onclick = () => v37CloseHotelManager();
+  // ── v8.0 排序互動：拖曳 + 上移/下移（鍵盤與手機都可用）──
+  const order = () => rows.map(h => h.id);
+  // 重建 DOM 後把焦點還給「同一個館別的同一顆按鈕」，否則鍵盤連續排序每按一次
+  // 就會跳離，無法連續操作。focusId/focusDir 由 move() 帶入。
+  const applyOrder = (ids, focusId, focusDir) => {
+    v80HotelDraft = ids;
+    v37RenderHotelManager(modal).then(() => {
+      if (!focusId) return;
+      const row = modal.querySelector(`.v80-hrow[data-id="${focusId}"]`);
+      if (!row) return;
+      let btn = row.querySelector(focusDir === 'up' ? '.v80-up' : '.v80-down');
+      // 移到頭/尾時該方向按鈕會 disabled，改聚焦另一顆，焦點不落空
+      if (!btn || btn.disabled) btn = row.querySelector(focusDir === 'up' ? '.v80-down' : '.v80-up');
+      if (btn && !btn.disabled) btn.focus();
+    });
+  };
+  const move = (from, to, dir) => {
+    if (to < 0 || to >= rows.length) return;
+    const ids = order(); const [m] = ids.splice(from, 1); ids.splice(to, 0, m);
+    applyOrder(ids, m, dir);
+  };
+  modal.querySelectorAll('.v80-up').forEach(b => b.onclick = () => move(Number(b.dataset.i), Number(b.dataset.i) - 1, 'up'));
+  modal.querySelectorAll('.v80-down').forEach(b => b.onclick = () => move(Number(b.dataset.i), Number(b.dataset.i) + 1, 'down'));
+  let dragFrom = null;
+  modal.querySelectorAll('.v80-hrow').forEach(row => {
+    row.addEventListener('dragstart', (e) => { dragFrom = Number(row.dataset.i); e.dataTransfer.effectAllowed = 'move'; row.style.opacity = '.45'; });
+    row.addEventListener('dragend', () => { row.style.opacity = ''; });
+    row.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; row.style.borderTop = '2px solid var(--mist-accent,#355d8e)'; });
+    row.addEventListener('dragleave', () => { row.style.borderTop = ''; });
+    row.addEventListener('drop', (e) => {
+      e.preventDefault(); row.style.borderTop = '';
+      const to = Number(row.dataset.i);
+      if (dragFrom !== null && dragFrom !== to) move(dragFrom, to);
+      dragFrom = null;
+    });
+  });
+  const cancelBtn = document.getElementById('v80-cancel');
+  if (cancelBtn) cancelBtn.onclick = () => { v80HotelDraft = null; v37RenderHotelManager(modal); };
+  const saveBtn = document.getElementById('v80-save');
+  if (saveBtn) saveBtn.onclick = async () => {
+    saveBtn.disabled = true; saveBtn.textContent = '儲存中…';
+    try {
+      const d = await fetchJson('POST', '/api/hotels/reorder', { ids: order(), version: v80HotelVersion });
+      v80HotelDraft = null;                       // 成功才清掉草稿
+      v80HotelVersion = d.version || '';
+      // HOTELS 是「物件陣列」且全站共用同一個參照（v37LoadHotels 以 length=0 + push
+      // 原地改寫）。若在這裡改成字串陣列，h.name / h.region 會變 undefined，
+      // 建案館別下拉與館別分布統計會一起壞掉。一律重用既有載入器。
+      await v37LoadHotels();
+      try { v81HotelDict = null; if (typeof v81Invalidate === 'function') v81Invalidate(); } catch (e) {} // v8.1 順序變更後重讀
+      // 重新填相關選單，並保留使用者原本選到的值（若該館別仍存在）
+      const hSel = document.getElementById('f-hotel');
+      if (hSel) {
+        const keep = hSel.value;
+        hSel.innerHTML = '<option value="">請選擇…</option>' +
+          HOTELS.map(h => `<option value="${h.name}">${h.region} · ${h.name}</option>`).join('');
+        hSel.value = HOTELS.some(h => h.name === keep) ? keep : '';
+      }
+      showToast('已儲存館別順序');
+      v37RenderHotelManager(modal);
+      try { refreshAll(); } catch (e) { console.warn('refresh failed', e); }
+    } catch (e) {
+      // 衝突時「保留草稿」，使用者不會白做工；由他決定要重新載入還是取消
+      const msg = (e.data && e.data.message) || e.message || '儲存失敗';
+      showToast(msg, 'err');
+      saveBtn.disabled = false; saveBtn.textContent = '儲存館別順序';
+      if (e.status === 409) {
+        const box = document.getElementById('v80-dirty');
+        if (box) {
+          box.style.background = '#FCEBEB'; box.style.borderColor = '#F09595'; box.style.color = '#A32D2D';
+          box.innerHTML = `${escapeHtml(msg)}<br>你的排序仍保留在畫面上。<button id="v80-reload" style="margin-top:6px;padding:4px 10px;font-size:11px;border:1px solid #A32D2D;background:transparent;color:#A32D2D;border-radius:4px;cursor:pointer;">重新載入並放棄我的排序</button>`;
+          const rl = document.getElementById('v80-reload');
+          if (rl) rl.onclick = () => { v80HotelDraft = null; v37RenderHotelManager(modal); };
+        }
+      }
+    }
+  };
+  // 關閉前保護未儲存草稿
+  const guardedClose = () => {
+    if (v80HotelDraft && !confirm('館別順序尚未儲存，關閉後會放棄這次調整。確定關閉嗎？')) return;
+    v80HotelDraft = null;
+    v37CloseHotelManager();
+  };
+  document.getElementById('v37-hotel-close').onclick = guardedClose;
+  document.getElementById('v37-hotel-bg').onclick = guardedClose;
   document.getElementById('v37-h-add').onclick = async () => {
     const region = document.getElementById('v37-h-region').value.trim();
     const name = document.getElementById('v37-h-name').value.trim();
@@ -6405,6 +6809,7 @@ function v37CloseHotelManager() {
   if (m) m.style.display = 'none';
 }
 async function v37HotelToggle(id, makeActive) {
+  try { v81HotelDict = null; } catch (e) {} // v8.1 停用/啟用後字典失效
   try {
     await api.hotels.update(id, { active: makeActive });
     showToast(`✓ 館別已${makeActive ? '啟用' : '停用'}`);
@@ -6619,9 +7024,15 @@ function v50DetectSeason() {
   if (m >= 8 && m <= 10) return 'autumn';  // 9–11 月
   return 'winter';                          // 12–2 月
 }
+// v8.0: 使用者已選定「霧藍微透」為工作台主題，因此 mist 是預設值。
+// 原本沒有偏好時會依月份推算（10 月＝秋色 Amber 橘），那會蓋掉選定的霧藍。
+// 四季仍保留為可手動選擇的預覽，但不會自動把 mist 換回季節色。
+const V50_DEFAULT = 'mist';
 function v50ResolveSeason() {
   const pref = v50GetSeasonPref();
-  return pref === 'auto' ? v50DetectSeason() : pref;
+  if (pref === 'auto') return V50_DEFAULT;   // 預設＝霧藍，不是依月份
+  if (pref === 'bymonth') return v50DetectSeason(); // 想要依月份的人仍可明確選
+  return pref;
 }
 function v50ApplySeason() {
   const s = v50ResolveSeason();
@@ -6632,17 +7043,16 @@ function v50ApplySeason() {
     setTimeout(v37ResizeDonut, 0);
   }
 }
-const V50_SEASON_CH = { spring: 'Bloom', summer: 'Tide', autumn: 'Amber', winter: 'Frost' };
-const V50_SEASON_EMOJI = { spring: '🌸', summer: '🌊', autumn: '🍁', winter: '❄️' };
+const V50_SEASON_CH = { mist: 'Mist 霧藍', spring: 'Bloom', summer: 'Tide', autumn: 'Amber', winter: 'Frost', bymonth: '依月份' };
+const V50_SEASON_EMOJI = { mist: '🌫', spring: '🌸', summer: '🌊', autumn: '🍁', winter: '❄️', bymonth: '📅' };
 function v50UpdateSeasonButton() {
   const btn = document.querySelector('.v50-season-toggle');
   if (!btn) return;
   const pref = v50GetSeasonPref();
   const cur = v50ResolveSeason();
-  btn.textContent = pref === 'auto'
-    ? `${V50_SEASON_EMOJI[cur]} ${V50_SEASON_CH[cur]}·Auto`
-    : `${V50_SEASON_EMOJI[pref]} ${V50_SEASON_CH[pref]}`;
-  btn.title = '點擊預覽季節：Auto → Bloom → Tide → Amber → Frost';
+  const key = (pref === 'auto') ? V50_DEFAULT : pref;
+  btn.textContent = `${V50_SEASON_EMOJI[key] || ''} ${V50_SEASON_CH[key] || key}`;
+  btn.title = '切換主題：Mist 霧藍（預設）→ Bloom → Tide → Amber → Frost → 依月份';
 }
 function v50InjectSeasonToggle() {
   const topbar = document.querySelector('.topbar');
@@ -6650,12 +7060,12 @@ function v50InjectSeasonToggle() {
   const btn = document.createElement('button');
   btn.className = 'v50-season-toggle v38-theme-toggle'; // 沿用日夜按鈕樣式
   btn.onclick = () => {
-    const order = ['auto', 'spring', 'summer', 'autumn', 'winter'];
+    const order = ['mist', 'spring', 'summer', 'autumn', 'winter', 'bymonth'];
     const cur = v50GetSeasonPref();
     const next = order[(order.indexOf(cur) + 1) % order.length];
     v50SaveSeasonPref(next);
     v50ApplySeason();
-    showToast(`Season: ${next === 'auto' ? 'Auto (by month)' : V50_SEASON_EMOJI[next] + ' ' + V50_SEASON_CH[next]}`);
+    showToast(`主題：${V50_SEASON_EMOJI[next] || ''} ${V50_SEASON_CH[next] || next}`);
   };
   const themeBtn = topbar.querySelector('.v38-theme-toggle');
   if (themeBtn) topbar.insertBefore(btn, themeBtn);
@@ -8293,8 +8703,8 @@ function v64FirstSteps(role) {
 }
 
 function v64StatusFlowHtml() {
-  const steps = ['尚未開始', '等待中', '進行中', '確稿中', '送印中', '確稿完成', '已結案'];
-  const note = { '確稿中': '送客戶/主管審稿', '送印中': '已送印刷廠（選填）', '確稿完成': '等主管審核', '已結案': '審核通過自動歸檔' };
+  const steps = ['尚未開始', '等待資料／協調中', '設計製作中', '待需求單位確認', '製作／送印中', '待主管核可', '已結案'];
+  const note = { '待需求單位確認': '已送出，等需求單位回覆', '製作／送印中': '已送印刷廠（選填）', '待主管核可': '等主管核可或退回', '已結案': '核可後自動歸檔' };
   return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:11px;">` +
     steps.map((s, i) => `<span style="background:#EEF2F6;color:#2B4A66;border-radius:10px;padding:2px 8px;">${s}</span>${i < steps.length - 1 ? '<span style="color:#B0B0B0;">→</span>' : ''}`).join('') +
     `</div><div style="margin-top:6px;font-size:11px;color:#8C8C8C;line-height:1.7;">` +
@@ -9294,7 +9704,7 @@ window.renderPersonal = function() {
   } else if (personalFilter === 'collab') {
     // 顯示「主案不是我但我負責子案件」的情況
     visible = subItems.filter(({c}) => c.designer !== ME_NAME());
-  } else if (personalFilter === 'urgent' || personalFilter === 'gate' || personalFilter === 'done') {
+  } else if (personalFilter === 'urgent' || personalFilter === 'gate' || personalFilter === 'waiting' || personalFilter === 'done') {
     // 這些 filter 是主案件特有概念（或已完成走非同步），不附掛子案件
     visible = [];
   }
@@ -9729,7 +10139,28 @@ const _v71OrigOpenDrawer = window.openDrawer;
 window.openDrawer = function(c) {
   const r = _v71OrigOpenDrawer.apply(this, arguments);
   try { v71InjectDrawerBtn(c); } catch (e) { console.warn('v71 inject failed', e); }
+  // v8.0: 在「我的任務」且螢幕夠寬時，回報區停靠在右側而不是蓋住清單，
+  // 形成「清晰列表 + 右側回報」。窄螢幕維持原本的覆蓋式詳情。
+  try {
+    const dock = currentView === 'personal' && window.matchMedia('(min-width: 1200px)').matches;
+    document.body.classList.toggle('dock-report', dock);
+  } catch (e) { console.warn('v80 dock failed', e); }
   return r;
+};
+// 關閉抽屜／切換頁面／縮到窄螢幕時都要解除停靠，否則清單會留著右側空白
+function v80Undock() { document.body.classList.remove('dock-report'); }
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  if (t && (t.id === 'drawer-bg' || (t.classList && t.classList.contains('close')))) v80Undock();
+}, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') v80Undock(); });
+window.addEventListener('resize', () => {
+  if (!window.matchMedia('(min-width: 1200px)').matches) v80Undock();
+});
+const _v80OrigSwitchView = window.switchView;
+window.switchView = function (v) {
+  if (v !== 'personal') v80Undock();
+  return _v80OrigSwitchView.apply(this, arguments);
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -10136,6 +10567,274 @@ bootstrap = async function() {
 
 // ═══ GO ═══════════════════════════════════════════════════════
 bootstrap();
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v8.1 管理者：完整館別總覽 → 專案 → 子案件 + 分級交叉篩選 ▼▼▼
+// 原則：
+//  · 第一層列出「全部館別」（含 0 專案），順序沿用館別排序。
+//  · 預設只看在辦；結案／取消可切換，且取消永遠不計入完成率。
+//  · 任何統計都與點開後的清單用同一組 filter，不另算一套。
+//  · 分級只是既有 SS/S/A/B/C/D 標籤，不新增分數、不碰考核公式。
+// ═══════════════════════════════════════════════════════════════
+const V81_LEVELS = ['SS', 'S', 'A', 'B', 'C', 'D'];
+// 子案件「完成」的判定，與既有 v51 時間軸的 isDone 完全一致（見該處
+// `it.status === 'done' || 'closed' || '結案/完成歸檔'`）。
+// 本批只負責正確呈現既有定義，不新增完成語意：
+//   · 「自行列印」是製作階段，不等於完成歸檔，不可自行推定
+//   · 既有判定不看 status2，這裡也不看
+// 先前用 /完成|已交|結案/ 比對則是錯的——「未完成」含「完成」會被誤判。
+const V81_ITEM_DONE = new Set(['done', 'closed', '結案/完成歸檔']);
+function v81ItemDone(it) {
+  return !!it && V81_ITEM_DONE.has(String(it.status || ''));
+}
+let v81Scope = 'open';        // open | closed | all
+let v81Levels = new Set();    // 空集合 = 不篩分級
+let v81OpenHotels = new Set();
+let v81OpenCases = new Set();
+let v81AllCases = null;       // 含封存，供 closed/all 範圍使用
+let v81AllCasesAt = 0;        // 取得時間，用於失效判斷
+let v81HotelDict = null;      // 完整館別字典（含停用）。HOTELS 由 v37LoadHotels
+                              // 載入且預設 active-only，不足以宣稱「完整館別」。
+const V81_CACHE_MS = 60 * 1000;
+// 任何會改動案件的動作發生後呼叫，避免切到「全部／已結案」看到舊資料
+function v81Invalidate() { v81AllCases = null; v81AllCasesAt = 0; }
+
+function v81InScope(c) {
+  const ended = ENDED_STATUS_KEYS.has(c.status) || c.archived;
+  if (v81Scope === 'open') return !ended;
+  if (v81Scope === 'closed') return ended;
+  return true;
+}
+function v81MatchLevel(c) { return !v81Levels.size || v81Levels.has(c.level); }
+function v81Cases() {
+  const src = (v81Scope === 'open') ? CASES : (v81AllCases || CASES);
+  return src.filter(c => v81InScope(c) && v81MatchLevel(c));
+}
+function v81HotelRows() {
+  const rows = v81Cases();
+  const byHotel = {};
+  // 使用完整字典（含停用館別）；尚未載入時才退回 HOTELS，並在 UI 標示範圍
+  const dict = (v81HotelDict && v81HotelDict.length) ? v81HotelDict : HOTELS;
+  dict.slice().sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999))
+    .forEach(h => { byHotel[h.name] = { name: h.name, region: h.region, active: h.active !== false, cases: [] }; });
+  const unassigned = { name: '未指定／待對應', region: '—', active: true, cases: [], orphan: true };
+  rows.forEach(c => {
+    const k = c.hotel;
+    if (k && byHotel[k]) byHotel[k].cases.push(c);
+    else unassigned.cases.push(c);   // 缺館別或歷史未對應字典者仍要看得到，不能消失
+  });
+  const list = Object.values(byHotel);
+  if (unassigned.cases.length) list.push(unassigned);
+  return list.map(h => {
+    const open = h.cases.filter(c => !(ENDED_STATUS_KEYS.has(c.status) || c.archived));
+    return {
+      ...h,
+      total: h.cases.length,
+      doing: open.length,
+      waitApproval: h.cases.filter(c => c.status === 'review_done').length,
+      waitRequester: h.cases.filter(c => c.status === 'review').length,
+      overdue: open.filter(c => c.goLive && new Date(c.goLive) < TODAY).length,
+      byLevel: V81_LEVELS.reduce((a, L) => (a[L] = h.cases.filter(c => c.level === L).length, a), {}),
+    };
+  });
+}
+
+function v81EnsureView() {
+  const main = document.querySelector('.main');
+  const all = document.querySelectorAll('div.view[data-view="hotels"]');
+  for (let i = 1; i < all.length; i++) all[i].remove();
+  let container = all[0] || null;
+  if (container && main && container.parentNode !== main) main.appendChild(container);
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'view';
+    container.dataset.view = 'hotels';
+    (main || document.body).appendChild(container);
+  }
+  if (!container.querySelector('#v81-body')) container.innerHTML = '<div id="v81-body"></div>';
+  return container;
+}
+
+async function renderHotelOverview() {
+  v81EnsureView();
+  const body = document.getElementById('v81-body');
+  if (!body) return;
+  // 失敗時提供可操作的重試，並保留目前的範圍／分級／展開狀態（renderHotelOverview
+  // 會沿用模組層的 v81Scope / v81Levels / v81OpenHotels，所以重試即可復原畫面）
+  const failBox = (msg) => {
+    body.innerHTML = `<div style="padding:24px;font-size:13px;color:#C0392B;">${escapeHtml(msg)}
+      <button id="v81-retry" style="margin-left:10px;padding:5px 14px;font-size:12px;border:1px solid #C0392B;background:transparent;color:#C0392B;border-radius:5px;cursor:pointer;">重新載入</button></div>`;
+    const rb = document.getElementById('v81-retry');
+    if (rb) rb.onclick = () => renderHotelOverview();
+  };
+
+  // 完整館別字典（含停用）。HOTELS 是 active-only，不足以列出停用館別。
+  if (!v81HotelDict) {
+    try {
+      const d = await fetchJson('GET', '/api/hotels?includeInactive=1');
+      v81HotelDict = Array.isArray(d) ? d : (d && d.hotels) || null;
+    } catch (e) { v81HotelDict = null; }   // 失敗則退回 HOTELS，下方會標示範圍
+  }
+
+  // 快取有時效，且任何案件異動會呼叫 v81Invalidate()，避免看到舊資料
+  const stale = !v81AllCases || (Date.now() - v81AllCasesAt > V81_CACHE_MS);
+  if (v81Scope !== 'open' && stale) {
+    body.innerHTML = '<div style="padding:24px;color:var(--fg-muted,#8C8C8C);font-size:12px;">載入中…</div>';
+    try {
+      const raw = await api.cases.listArchived();
+      v81AllCases = raw.map(normalizeCase);
+      v81AllCasesAt = Date.now();
+      try { v81AllCases.forEach(c => { c.overdue = !!(c.goLive && new Date(c.goLive) < TODAY && !ENDED_STATUS_KEYS.has(c.status)); }); } catch (e) {}
+    } catch (e) {
+      failBox('無法載入專案。');
+      return;
+    }
+  }
+  const rows = v81HotelRows();
+  const shown = v81Cases();
+  const scopeLabel = v81Scope === 'open' ? '在辦專案' : v81Scope === 'closed' ? '已結案／已取消' : '全部專案';
+  const chips = [];
+  if (v81Scope !== 'open') chips.push(scopeLabel);
+  if (v81Levels.size) chips.push('分級 ' + V81_LEVELS.filter(L => v81Levels.has(L)).join('、'));
+
+  body.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+      <h2 style="margin:0;display:flex;align-items:center;gap:7px;">${v80Icon('building', { size: 18 })} 館別總覽</h2>
+      <div style="margin-left:auto;display:flex;gap:4px;">
+        ${[['open', '在辦'], ['closed', '已結案／取消'], ['all', '全部']].map(([k, t]) =>
+          `<button class="v81-scope" data-s="${k}" style="padding:4px 11px;font-size:12px;border-radius:5px;cursor:pointer;
+            border:1px solid ${v81Scope === k ? 'var(--accent,#4A6FA5)' : 'var(--input-border,#D4D4D4)'};
+            background:${v81Scope === k ? 'var(--accent,#4A6FA5)' : 'transparent'};
+            color:${v81Scope === k ? '#fff' : 'var(--fg,#1F1F1F)'};">${t}</button>`).join('')}
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);line-height:1.9;margin-bottom:10px;">
+      目前範圍：<b>${scopeLabel}</b>，共 ${shown.length} 件。館別順序與建案下拉一致（可在「人員 → 館別與排序」調整）。
+      ${v81HotelDict ? '清單含停用館別。' : '<span style="color:#B5703F;">館別字典載入失敗，目前僅顯示啟用中的館別。</span>'}<br>
+      分級是既有的規模標籤，不代表急件、個人表現或目前進度。已取消的專案不計入完成率。
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+      <span style="font-size:11px;color:var(--fg-muted,#8C8C8C);display:flex;align-items:center;gap:4px;">${v80Icon('layers')} 分級</span>
+      ${V81_LEVELS.map(L => `<button class="v81-lv" data-l="${L}" style="padding:3px 10px;font-size:11px;border-radius:11px;cursor:pointer;
+        border:1px solid ${v81Levels.has(L) ? 'var(--accent,#4A6FA5)' : 'var(--input-border,#D4D4D4)'};
+        background:${v81Levels.has(L) ? 'var(--accent,#4A6FA5)' : 'transparent'};
+        color:${v81Levels.has(L) ? '#fff' : 'var(--fg,#1F1F1F)'};">${L}</button>`).join('')}
+      ${chips.length ? `<span style="font-size:11px;color:var(--fg-dim,#595959);margin-left:6px;">已套用：${chips.map(escapeHtml).join(' · ')}</span>
+        <button id="v81-clear" style="padding:3px 10px;font-size:11px;border-radius:11px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);cursor:pointer;">清除篩選</button>` : ''}
+    </div>
+    ${rows.length === 0 ? '<div style="padding:28px;text-align:center;color:var(--fg-muted,#8C8C8C);font-size:13px;">沒有符合篩選條件的專案</div>' : `
+    <div style="border:1px solid var(--card-border,#E5E5E5);border-radius:8px;overflow:hidden;">
+      <div class="v81-head">
+        <span>館別</span><span>在辦</span><span>待需求確認</span><span>待核可</span><span>逾期</span><span>分級分布</span>
+      </div>
+      ${rows.map(h => v81HotelRowHtml(h)).join('')}
+    </div>`}
+  `;
+  v81Wire(body);
+}
+
+function v81HotelRowHtml(h) {
+  const openH = v81OpenHotels.has(h.name);
+  const lv = V81_LEVELS.filter(L => h.byLevel[L]).map(L => `${L}·${h.byLevel[L]}`).join(' ') || '—';
+  return `
+    <div class="v81-row ${openH ? 'open' : ''}" data-hotel="${escapeHtml(h.name)}" role="button" tabindex="0"
+         aria-expanded="${openH}" aria-label="${escapeHtml(h.name)}，展開查看專案">
+      <span style="display:flex;align-items:center;gap:6px;min-width:0;">
+        <span class="v81-caret" aria-hidden="true">${openH ? '▾' : '▸'}</span>
+        <span style="overflow-wrap:anywhere;">${escapeHtml(h.region === '集團' || h.orphan ? h.name : h.region + '・' + h.name)}</span>
+        ${h.active === false ? '<span style="font-size:10px;color:#9A2E2E;border:1px solid #E0AFAF;border-radius:8px;padding:1px 6px;">停用</span>' : ''}
+        ${h.orphan ? '<span style="font-size:10px;color:#8A6D1B;border:1px solid #E3C98A;border-radius:8px;padding:1px 6px;">未對應字典</span>' : ''}
+      </span>
+      <span>${h.doing}</span>
+      <span>${h.waitRequester || '—'}</span>
+      <span>${h.waitApproval || '—'}</span>
+      <span style="${h.overdue ? 'color:#A32D2D;font-weight:600;' : ''}">${h.overdue || '—'}</span>
+      <span style="font-size:11px;color:var(--fg-muted,#8C8C8C);overflow-wrap:anywhere;">${lv}</span>
+    </div>
+    ${openH ? `<div class="v81-children">${
+      h.cases.length === 0
+        ? '<div style="padding:12px 16px;font-size:12px;color:var(--fg-muted,#8C8C8C);">此館別目前沒有符合條件的專案</div>'
+        : h.cases.slice().sort((a, b) => (a.goLive || 0) - (b.goLive || 0)).map(c => v81CaseRowHtml(c)).join('')
+    }</div>` : ''}
+  `;
+}
+
+function v81CaseRowHtml(c) {
+  const openC = v81OpenCases.has(c.id);
+  const items = Array.isArray(c.items) ? c.items : [];
+  const openN = items.filter(it => !v81ItemDone(it)).length;
+  const st = (STATUSES.find(s => s.key === c.status) || {}).name || c.status;
+  const next = v80NextStep(c.status, currentRole);
+  // v51 儲存時是 [entry, ...serverLogs]，最新的在第一筆，與既有時間軸一致
+  const lastLog = (c.logs && c.logs.length) ? c.logs[0] : null;
+  return `
+    <div class="v81-case" data-id="${escapeHtml(c.id)}">
+      <div class="v81-case-main">
+        ${items.length ? `<button class="v81-exp" data-id="${escapeHtml(c.id)}" aria-expanded="${openC}" aria-label="展開 ${escapeHtml(c.name)} 的子案件">${openC ? '▾' : '▸'}</button>` : '<span class="v81-exp-ph" aria-hidden="true"></span>'}
+        <span class="v81-case-name">${escapeHtml(c.name)}</span>
+        <span class="chip level-${c.level}">${c.level}</span>
+        <span class="chip status-${c.status}">${escapeHtml(st)}</span>
+        <span class="v81-meta">${escapeHtml(c.designer || '未填')}</span>
+        <span class="v81-meta">上線 ${c.goLive ? md(c.goLive) : '未填'}</span>
+        ${items.length ? `<span class="v81-meta">${v80Icon('folder')} 子案件未完成 ${openN}／共 ${items.length}</span>` : ''}
+        <button class="v81-open" data-id="${escapeHtml(c.id)}">開啟</button>
+      </div>
+      ${next ? `<div class="row-next">${v80Icon('arrow-right')}<span>${escapeHtml(next)}</span></div>` : ''}
+      ${lastLog ? `<div class="v81-last">最近更新 ${lastLog.date ? ymd(lastLog.date) : '—'}：${escapeHtml(String(lastLog.note || '').slice(0, 60))}</div>` : ''}
+      ${openC && items.length ? `<div class="v81-items">${items.map(it => `
+        <div class="v81-item">
+          <span>${escapeHtml(it.n || '(未命名)')}</span>
+          <span class="v81-meta">${escapeHtml(it.type || '—')}</span>
+          <span class="v81-meta">${escapeHtml(it.owner || '未指派')}</span>
+          <span class="v81-meta">${escapeHtml(v51StageInfo(it.status).name || '未填')}${it.status2 ? ' · ' + escapeHtml(v51StageInfo(it.status2).name) : ''}</span>
+        </div>`).join('')}</div>` : ''}
+    </div>`;
+}
+
+function v81Wire(body) {
+  body.querySelectorAll('.v81-scope').forEach(b => b.onclick = () => { v81Scope = b.dataset.s; renderHotelOverview(); });
+  body.querySelectorAll('.v81-lv').forEach(b => b.onclick = () => {
+    const L = b.dataset.l;
+    if (v81Levels.has(L)) v81Levels.delete(L); else v81Levels.add(L);
+    renderHotelOverview();
+  });
+  const clr = document.getElementById('v81-clear');
+  if (clr) clr.onclick = () => { v81Levels.clear(); v81Scope = 'open'; renderHotelOverview(); };
+  const toggleHotel = (name) => {
+    if (v81OpenHotels.has(name)) v81OpenHotels.delete(name); else v81OpenHotels.add(name);
+    renderHotelOverview();
+  };
+  body.querySelectorAll('.v81-row').forEach(r => {
+    r.onclick = () => toggleHotel(r.dataset.hotel);
+    r.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHotel(r.dataset.hotel); } };
+  });
+  body.querySelectorAll('.v81-exp').forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    const id = b.dataset.id;
+    if (v81OpenCases.has(id)) v81OpenCases.delete(id); else v81OpenCases.add(id);
+    renderHotelOverview();
+  });
+  body.querySelectorAll('.v81-open').forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    const c = (CASES.find(x => x.id === b.dataset.id)) || (v81AllCases || []).find(x => x.id === b.dataset.id);
+    if (c) openDrawer(c);
+  });
+}
+
+NAV_DEF.admin.push({ key: 'hotels', label: '館別總覽' });
+const _v81OrigSwitchView = window.switchView;
+window.switchView = function (v) {
+  if (v === 'hotels') {
+    v81EnsureView();
+    currentView = 'hotels';
+    document.querySelectorAll('div.view').forEach(x => x.classList.toggle('active', x.dataset.view === 'hotels'));
+    renderNav();
+    renderHotelOverview();
+    return;
+  }
+  return _v81OrigSwitchView.apply(this, arguments);
+};
+
 </script>
 </body>
 </html>
