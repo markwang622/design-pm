@@ -11113,6 +11113,10 @@ async function renderRequesterAnalytics() {
   v69EnsureView();
   const body = document.getElementById('v69-body');
   if (!body) return;
+  // v9.8: 在任何 await 之前先同步換成載入狀態，移除上一輪仍可點的舊表格。
+  // 否則切頁時 v69AllCases 已被清空，舊 row 卻還在，點「未填」會開出 0 件的 modal。
+  // #v69-range 在 #v69-body 之外，不受影響。
+  body.innerHTML = '<div class="v69-loading" aria-busy="true" style="padding:24px;color:var(--fg-muted,#8C8C8C);font-size:12px;">載入需求單位分析…</div>';
   // 範圍鈕
   document.querySelectorAll('#v69-range [data-r]').forEach(b => {
     b.classList.toggle('active', b.dataset.r === v69Range);

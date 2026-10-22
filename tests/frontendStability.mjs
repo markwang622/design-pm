@@ -62,4 +62,14 @@ await test('unknown status is rendered safely in the drawer and transfer templat
     assert.match(result,/legacy/);assert(!result.includes('<img'));assert(result.includes('&lt;img'));
   }
 });
+const renderStart=source.indexOf('async function renderRequesterAnalytics()'),renderEnd=source.indexOf('// 點單位 →',renderStart);
+assert(renderStart>=0&&renderEnd>renderStart,'actual requester render found');
+for(const fail of [false,true])await test('requester reload clears stale clickable rows before '+(fail?'a failed':'an empty')+' response',async()=>{
+  const body={innerHTML:'<tr class="v69-row">stale result</tr>'};let resolve,reject;
+  const pending=new Promise((a,b)=>{resolve=a;reject=b;});
+  const c={v69EnsureView(){},document:{getElementById:()=>body,querySelectorAll:()=>[]},v69LoadAll:()=>pending,v69InRange:()=>true,v69Aggregate:()=>[],escapeHtml:value=>String(value).replace(/</g,'&lt;')};
+  vm.createContext(c);vm.runInContext(source.slice(renderStart,renderEnd),c);
+  const render=c.renderRequesterAnalytics();assert(!body.innerHTML.includes('v69-row'));assert.match(body.innerHTML,/載入/);
+  if(fail)reject(Error('<fault>'));else resolve([]);await render;assert(!body.innerHTML.includes('v69-row'));assert.match(body.innerHTML,fail?/載入失敗/:/沒有案件/);
+});
 console.log(JSON.stringify({passed,liveNetwork:false,caseWrites:0}));
