@@ -4513,7 +4513,9 @@ async function bootstrap() {
     if (ME.role === 'observer') document.body.classList.add('observer-mode', 'real-observer');
     // 4. wire header identity + logout
     try {
-      const hdr = document.querySelector('header .sub') || document.querySelector('header');
+      // v9.7: 新殼的品牌列是 .topbar（div），舊 selector 只找 <header> 會回 null，
+      // 導致 identity/登出鈕完全沒建出。先找 .topbar，保留舊 header 作 fallback。
+      const hdr = document.querySelector('.topbar') || document.querySelector('header .sub') || document.querySelector('header');
       if (hdr && !document.getElementById('user-badge')) {
         const badge = document.createElement('span');
         badge.id = 'user-badge';
