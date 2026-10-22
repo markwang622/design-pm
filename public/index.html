@@ -5301,7 +5301,7 @@ async function v33InjectDrawerExtras(c) {
       <label>分級<select id="v33-level" style="width:100%;padding:4px 6px;border:1px solid #D4D4D4;border-radius:4px;">
         ${['SS','S','A','B','C','D'].map(l=>`<option value="${l}" ${c.level===l?'selected':''}>${l}</option>`).join('')}
       </select></label>
-      <label class="v33-wide">主負責人<select id="v33-designer" style="width:100%;padding:4px 6px;border:1px solid #D4D4D4;border-radius:4px;">
+      <label class="v33-wide">主負責人<select id="v33-designer" ${!isAdmin && c.designer !== ME_NAME() && c._designerId !== ME.id ? 'disabled title="主負責人由原主責或管理員調整"' : ''} style="width:100%;padding:4px 6px;border:1px solid #D4D4D4;border-radius:4px;">
         ${STAFF.filter(s=>s.active).map(s=>`<option value="${s.id}" ${s.name===c.designer?'selected':''}>${s.name}</option>`).join('')}
       </select></label>
     </div>
@@ -11607,6 +11607,6 @@ window.switchView = function (v) {
 };
 
 </script>
-<script src="/workbench-features.js?v=334ab90ac5fd"></script>
+<script src="/workbench-features.js?v=030bd0a3551b"></script>
 </body>
 </html>

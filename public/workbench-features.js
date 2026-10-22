@@ -174,14 +174,5 @@
       };
     }
   };
-  const originalDrawer=window.openDrawer;
-  window.openDrawer=async function(c){
-    await originalDrawer.apply(this,arguments);
-    const collab=ME?.role!=='admin' && c._designerId!==ME?.id && (c._collaboratorIds||[]).includes(ME?.id);
-    if(collab){
-      const select=document.getElementById('v33-designer');if(select){select.disabled=true;select.title='主負責人由原主責或管理員調整';}
-      const cancel=document.getElementById('v71-open');if(cancel)cancel.disabled=true;
-    }
-  };
   ensureAccountButton();
 })();
