@@ -325,21 +325,16 @@ input.v36-readonly, select.v36-readonly, textarea.v36-readonly {
 button { font-family: inherit; cursor: pointer; border: none; background: transparent; color: inherit; }
 h1, h2, h3, h4 { font-weight: 500; }
 .app { display: flex; flex-direction: column; min-height: 100vh; }
+/* v9.0: 深灰橫向主視覺已由霧藍 shell 取代。保留結構屬性，顏色交給 v9.0。 */
 .topbar {
-  background: #1F1F1F; color: #FAFAFA;
   padding: 14px 24px;
   display: flex; align-items: center; gap: 16px;
-  border-bottom: 1px solid #000;
 }
 .logo { font-weight: 500; font-size: 15px; letter-spacing: 0.5px; }
 .logo .dim { opacity: 0.5; font-weight: 400; margin-left: 6px; }
-.nav { display: flex; gap: 4px; flex: 1; }
-.nav button {
-  color: #BFBFBF; padding: 8px 14px; border-radius: 6px;
-  font-size: 13px; transition: all 0.15s;
-}
-.nav button:hover { background: #404040; color: #FAFAFA; }
-.nav button.active { background: #FAFAFA; color: #1F1F1F; font-weight: 500; }
+/* v9.0: nav 改為左側垂直 rail，樣式見 .app-rail #nav */
+.nav { display: flex; gap: 4px; }
+.nav button { padding: 8px 14px; border-radius: 6px; font-size: 13px; transition: all 0.15s; }
 .role-switch {
   display: flex; border: 1px solid #595959; border-radius: 6px; overflow: hidden;
 }
@@ -1137,39 +1132,9 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
   .v81-open { min-height: 30px; }
 }
 
-/* ────────── v8.0 清晰列表（我的任務主工作台）──────────
-   卡片牆改為單欄列表：掃描一列就知道「是什麼／誰在等／下一步」。
-   只在 .clear-list 容器內生效，其他沿用卡片的頁面不受影響。 */
-.case-list.clear-list { display: block; }
-.clear-list .case-card {
-  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
-  border-radius: 8px; margin-bottom: 6px; padding: 12px 14px;
-  background: var(--card-bg,#fff); transition: background .15s, border-color .15s;
-}
-.clear-list .case-card:hover { transform: none; box-shadow: none; background: var(--mist-chip,#eef4ff); }
-.clear-list .case-card .row1 { grid-column: 1; align-items: baseline; }
-.clear-list .case-card .row2 { grid-column: 1 / -1; }
-.clear-list .case-card .row3 { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 10px; }
-.clear-list .case-card .sub { overflow-wrap: anywhere; }
-.row-next {
-  grid-column: 1 / -1; display: flex; align-items: center; gap: 5px;
-  font-size: 11px; color: var(--mist-ink-dim,#3f649a); line-height: 1.6; margin-top: 4px;
-}
-.row-next:empty, .row-next span:empty { display: none; }
-@media (max-width: 620px) {
-  .clear-list .case-card { grid-template-columns: 1fr; }
-  .clear-list .case-card .row3 { flex-direction: column; gap: 2px; }
-}
+/* v8.0 的 .clear-list 卡片列與 dock 規則已由 v9.0 工作區版面取代，整段移除，
+   避免 grid-column 等殘留屬性與新的四欄列衝突。 */
 
-/* 桌面：清單在左、回報區（抽屜）停靠在右，不再覆蓋內容 */
-@media (min-width: 1200px) {
-  body.dock-report .drawer { box-shadow: -1px 0 0 var(--card-border,#E5E5E5); }
-  /* 只針對案件抽屜的遮罩（用 id，不會波及館別管理等其他 modal 的背景）。
-     光改 background 不夠——.drawer-bg.open 仍是 inset:0 + pointer-events:auto，
-     會整片擋住左側清單，使用者無法點下一個專案。 */
-  body.dock-report #drawer-bg.open { background: transparent; pointer-events: none; }
-  body.dock-report .view[data-view="personal"] { padding-right: calc(min(560px, 46vw) + 20px); }
-}
 
 /* ---- 季節色（春 / 夏 / 秋 / 冬，各含日夜） ---- */
 [data-season="spring"] { --season-grad: linear-gradient(135deg,#FCEAF0 0%,#F4F7EC 50%,#E9F5F0 100%);
@@ -1231,10 +1196,14 @@ body::before {
 [data-theme="dark"] .kpi.collab { background: var(--glass-collab) !important; border-color: var(--glass-border) !important; }
 
 /* 案件卡 / 看板卡：玻璃面 + 左側狀態色條（亮暗一致） */
+/* v9.0: 移除這條的 !important —— 工作區列表是「同一表面＋分隔線」而非一張張玻璃卡，
+   拿掉 !important 後，.ws-list-surface .case-card（特異性 0,2,0）就能自然勝過
+   .case-card（0,1,0），不需要再疊一層覆寫，也不用寫脆弱的 :not() 選擇器。
+   其他頁（看板、歷史案件等）的卡片外觀完全不變。 */
 .case-card, .kb-card {
-  background: var(--glass-bg) !important;
-  border: 1px solid var(--glass-border) !important;
-  border-left: 3px solid var(--cc-status, transparent) !important;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-left: 3px solid var(--cc-status, transparent);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
@@ -1259,16 +1228,15 @@ body::before {
 }
 
 /* Topbar：深色玻璃 */
+/* v9.0: 品牌列改為淺色微透，背景由 v9.0 規則定義，這裡只保留轉場 */
 .topbar {
-  background: var(--topbar-glass) !important;
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
   backdrop-filter: blur(20px) saturate(1.4);
-  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
   transition: background-color 0.4s ease;
 }
 
 /* ---- accent 套用至互動元件 ---- */
-.nav button.active        { background: var(--accent) !important; color: var(--accent-ink) !important; }
+/* v9.0: rail 的選取樣式自行定義，不走 accent 實底 */
 .create-btn               { background: var(--accent) !important; color: var(--accent-ink) !important; }
 .create-btn:hover         { filter: brightness(1.08); }
 .filter-bar .pill.active  { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
@@ -1375,12 +1343,459 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
 .v57-agenda-ev { display:flex; align-items:center; gap:8px; font-size:12px; padding:4px 6px; border-radius:5px; cursor:pointer; }
 .v57-agenda-ev:hover { background:var(--hover-bg,#F2F2F2); }
 @media (max-width:768px){ .v57-cell{ min-height:64px; } .v57-ev{ font-size:9px; } }
+/* ═══════════════════════════════════════════════════════════════
+   v9.0 霧藍微透 shell —— 依核定原型（#hf-glass / data-theme=luxe）
+   palette 直接沿用原型，不另行設計。
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --hf-bg:#edf3fa; --hf-paper:#ffffff; --hf-ink:#233b56; --hf-muted:#526983;
+  --hf-line:#d6e1ef; --hf-soft:#f4f8ff; --hf-accent:#315ea8; --hf-accent-ink:#ffffff;
+  --hf-tint:#eaf1ff; --hf-rail:#17365a; --hf-rail-current:#2c5180;
+  --hf-rail-ink:#f1f6ff; --hf-rail-muted:#b9cce5;
+  --hf-surface: rgba(255,255,255,0.72);
+  --hf-radius: 15px;
+}
+[data-theme="dark"] {
+  --hf-bg:#101d30; --hf-paper:#192b42; --hf-ink:#edf4ff; --hf-muted:#afc2db;
+  --hf-line:#354c69; --hf-soft:#20354e; --hf-accent:#b1ceff; --hf-accent-ink:#1d365e;
+  --hf-tint:#29456c; --hf-rail:#10213b; --hf-rail-current:#29476f;
+  --hf-rail-ink:#edf4ff; --hf-rail-muted:#aec5e3;
+  --hf-surface: rgba(25,43,66,0.72);
+}
+
+/* ── Shell 骨架：品牌列橫跨頂部，其下為 rail + 工作區 ── */
+body { background: var(--hf-bg); color: var(--hf-ink); }
+.app {
+  display: grid;
+  grid-template-columns: 185px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100vh;
+  /* 核定原型 data-glass 的三個光暈，色與位置照抄，不再自行淡化 */
+  background:
+    radial-gradient(ellipse at 88% 13%, #a9c8f5, transparent 50%),
+    radial-gradient(ellipse at 16% 65%, #bddfe5, transparent 46%),
+    radial-gradient(ellipse at 85% 90%, #d6d4ef, transparent 44%),
+    var(--hf-bg);
+}
+[data-theme="dark"] .app {
+  background:
+    radial-gradient(ellipse at 88% 13%, rgba(169,200,245,0.20), transparent 50%),
+    radial-gradient(ellipse at 16% 65%, rgba(189,223,229,0.14), transparent 46%),
+    radial-gradient(ellipse at 85% 90%, rgba(214,212,239,0.14), transparent 44%),
+    var(--hf-bg);
+}
+
+/* ── 1. 淺色微透品牌列 ── */
+.topbar {
+  grid-column: 1 / -1; grid-row: 1;
+  background: rgba(255,255,255,0.78);
+  border-bottom: 1px solid var(--hf-line);
+  color: var(--hf-ink);
+  padding: 13px 24px; gap: 14px;
+}
+[data-theme="dark"] .topbar { background: rgba(25,43,66,0.78); }
+/* margin-right:auto 由 logo 負責把控制群推到右側。
+   原本靠 .create-btn 的 margin-left:auto，但 v56 speed-dial 常把它隱藏，
+   一旦隱藏整群控制項就會黏回 logo 旁。 */
+.logo { display: flex; align-items: center; gap: 11px; font-weight: 400; margin-right: auto; }
+.brand-mark {
+  width: 34px; height: 34px; padding: 7px; box-sizing: border-box; flex-shrink: 0;
+  border-radius: 10px; background: linear-gradient(140deg, #3a6fb5, #24497c);
+  fill: #fff; stroke: none;
+}
+.brand-text { display: flex; flex-direction: column; line-height: 1.25; }
+.brand-text { font-size: 15px; font-weight: 600; color: var(--hf-ink); letter-spacing: .2px; }
+.logo .dim { font-size: 11px; font-weight: 400; color: var(--hf-muted); opacity: 1; margin: 1px 0 0; }
+.topbar .create-btn { margin-left: 0; }
+/* 這些控制項原本是為深色 topbar 設計（白字），在淺色列上會變成看不見的空按鈕 */
+.topbar .v38-theme-toggle,
+.topbar .v50-season-toggle,
+.topbar .rail-toggle,
+.topbar #user-badge,
+.topbar #user-badge button,
+.topbar .role-switch button,
+.topbar .help-btn, .topbar #v64-help-btn {
+  color: var(--hf-ink);
+  border-color: var(--hf-line);
+  background: var(--hf-paper);
+}
+/* v9.1: 品牌列控制項統一樣式（取代各產生器的 inline 色） */
+.tb-ctl {
+  padding: 6px 12px; border-radius: 7px; font-size: 12px; cursor: pointer;
+  background: var(--hf-paper); color: var(--hf-ink); border: 1px solid var(--hf-line);
+}
+.tb-ctl:hover { background: var(--hf-tint); }
+.tb-ctl:focus-visible { outline: 2px solid var(--hf-accent); outline-offset: 1px; }
+.tb-ctl-sm { padding: 3px 9px; font-size: 11px; border-radius: 5px; }
+.tb-ctl-round { width: 28px; height: 28px; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+.tb-select { border-left: none; border-radius: 0 7px 7px 0; }
+.tb-identity { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--hf-muted); }
+.tb-identity .tb-who { white-space: nowrap; }
+.topbar .v38-theme-toggle:hover,
+.topbar .v50-season-toggle:hover,
+.topbar .rail-toggle:hover { background: var(--hf-tint); }
+.topbar .role-switch { border-color: var(--hf-line); }
+.topbar .role-switch button.active { background: var(--hf-accent); color: var(--hf-accent-ink); }
+.topbar #user-badge { color: var(--hf-muted); background: transparent; border: 0; }
+.topbar #user-badge button { font-size: 11px; }
+/* 靠右成組，不再黏在 logo 旁 */
+.topbar > .create-btn { order: 10; }
+.topbar > .v50-season-toggle { order: 11; }
+.topbar > .v38-theme-toggle { order: 12; }
+.topbar > #v64-help-btn, .topbar > .help-btn { order: 13; }
+.topbar > .role-switch { order: 14; }
+.topbar > #user-badge { order: 15; }
+
+/* ── 2. 桌面左側深霧藍垂直導航 ── */
+.app-rail {
+  grid-column: 1; grid-row: 2;
+  background: linear-gradient(180deg, #244a78 0%, #122a48 100%);
+  padding: 18px 12px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px;
+}
+[data-theme="dark"] .app-rail { background: linear-gradient(180deg, #16304f 0%, #0d1c31 100%); }
+.app-rail .rail-label {
+  font-size: 11px; color: var(--hf-rail-muted); padding: 2px 10px 8px; letter-spacing: .5px;
+}
+.app-rail #nav { display: flex; flex-direction: column; gap: 3px; }
+.app-rail #nav button {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  padding: 9px 11px; border-radius: 9px; font-size: 13px;
+  color: var(--hf-rail-muted); background: transparent; border: 1px solid transparent;
+}
+.app-rail #nav button:hover { background: rgba(255,255,255,0.07); color: var(--hf-rail-ink); }
+.app-rail #nav button.active {
+  background: var(--hf-rail-current); color: var(--hf-rail-ink); font-weight: 500;
+  border-color: rgba(255,255,255,0.18);
+}
+.app-rail #nav button:focus-visible { outline: 2px solid #9ec5f5; outline-offset: 1px; }
+.rail-toggle {
+  display: none; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
+  border: 1px solid var(--hf-line); background: transparent; color: var(--hf-ink); cursor: pointer;
+}
+
+/* ── 工作區 ── */
+.main {
+  grid-column: 2; grid-row: 2;
+  padding: 26px 30px 40px; max-width: none; margin: 0; overflow-y: auto;
+}
+
+
+
+/* ── 3. 工作區標題 / 緊湊數量 tabs / 工作概況收合 ── */
+.ws-head { margin-bottom: 16px; }
+.ws-title { font-size: 30px; font-weight: 700; letter-spacing: .5px; margin: 0 0 4px; color: var(--hf-ink); }
+.ws-sub { font-size: 13px; color: var(--hf-muted); margin: 0; }
+.ws-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 14px; }
+.ws-tab {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 15px; border-radius: 11px; cursor: pointer;
+  font-size: 13px; color: var(--hf-muted);
+  background: transparent; border: 1px solid transparent;
+}
+.ws-tab:hover { background: rgba(255,255,255,0.5); }
+.ws-tab.active {
+  background: var(--hf-paper); color: var(--hf-ink); font-weight: 600;
+  border-color: var(--hf-line); box-shadow: 0 1px 3px rgba(29,61,101,0.07);
+}
+.ws-tab .n { font-size: 12px; color: var(--hf-muted); font-weight: 400; }
+.ws-tab.active .n { color: var(--hf-accent); font-weight: 600; }
+.ws-overview {
+  background: var(--hf-surface); border: 1px solid var(--hf-line);
+  border-radius: var(--hf-radius); margin-bottom: 14px; padding: 0 16px;
+}
+.ws-overview > summary {
+  cursor: pointer; padding: 11px 0; font-size: 13px; font-weight: 500; color: var(--hf-ink);
+  list-style: none;
+}
+.ws-overview > summary::-webkit-details-marker { display: none; }
+.ws-overview > summary::before { content: '▸ '; color: var(--hf-muted); }
+.ws-overview[open] > summary::before { content: '▾ '; }
+.ws-overview[open] { padding-bottom: 14px; }
+.ws-overview .kpi-row { margin-bottom: 10px; }
+
+/* ── 4+5. 列表與右側面板並排；面板與列表頂端對齊 ── */
+.ws-split { display: grid; grid-template-columns: minmax(0,1fr); gap: 18px; align-items: start; }
+.ws-list-surface {
+  background: var(--hf-surface); border: 1px solid var(--hf-line);
+  border-radius: var(--hf-radius); overflow: hidden; min-width: 0;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.75),
+              0 2px 4px rgba(29,61,101,0.06), 0 18px 50px rgba(41,76,122,0.09);
+}
+[data-theme="dark"] .ws-list-surface { box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 50px rgba(0,0,0,0.3); }
+@supports (backdrop-filter: blur(1px)) {
+  .ws-list-surface, .ws-overview { -webkit-backdrop-filter: blur(22px) saturate(118%); backdrop-filter: blur(22px) saturate(118%); }
+}
+.list-head {
+  display: grid; grid-template-columns: minmax(0,1fr) 128px 86px; gap: 12px;
+  padding: 10px 18px; font-size: 11.5px; color: var(--hf-muted);
+  border-bottom: 1px solid var(--hf-line);
+}
+.list-head > :nth-child(2) { text-align: right; }
+.list-head > :nth-child(3) { text-align: right; }
+
+/* 緊湊列：同一表面內，用分隔線而非一張張圓角卡 */
+.ws-list-surface .case-list.clear-list { display: block; }
+.ws-list-surface .case-card {
+  display: grid; grid-template-columns: 40px minmax(0,1fr) 128px 86px;
+  gap: 12px; align-items: center;
+  min-height: 83px; padding: 11px 18px; margin: 0;
+  border: 0; border-bottom: 1px solid var(--hf-line); border-radius: 0;
+  background: transparent; box-shadow: none; position: relative;
+  border-left: 3px solid transparent;
+}
+.ws-list-surface .case-card:last-child { border-bottom: 0; }
+.ws-list-surface .case-card:hover { background: rgba(255,255,255,0.55); }
+.ws-list-surface .case-card.is-selected {
+  background: linear-gradient(100deg, #e5edff, #f0f6ff);
+  border-left-color: var(--hf-accent);
+}
+[data-theme="dark"] .ws-list-surface .case-card.is-selected {
+  background: linear-gradient(100deg, #28446b, #233c5b);
+}
+/* 製作物小 symbol 方塊 */
+.case-thumb {
+  width: 38px; height: 38px; border-radius: 9px; display: flex;
+  align-items: center; justify-content: center; font-size: 11px; font-weight: 600;
+  color: #44607f; background: var(--hf-tint); border: 1px solid var(--hf-line);
+  flex-shrink: 0; letter-spacing: .5px;
+}
+/* 舊卡片版面的間距與分隔線會被帶進新列：
+     .case-card .row1 margin-bottom:8px
+     .case-card .row2 margin-top:10px
+     .case-card .row3 margin-top/padding-top:10px + border-top
+   其中 row3 的 border-top 就是日期上方那條多餘的線，三者合計把手機列撐到約 190px。
+   這裡只在 .ws-list-surface 內歸零，間距改由新 grid 的 gap 控制；其他頁卡片不受影響。 */
+.ws-list-surface .case-card .row1,
+.ws-list-surface .case-card .row2,
+.ws-list-surface .case-card .row3 {
+  margin: 0; padding-top: 0; border-top: 0;
+}
+
+/* 四欄列：每個子元素都明確指定 grid-column，不依賴任何殘留值 */
+.ws-list-surface .case-card > .case-thumb { grid-column: 1; grid-row: 1; }
+.ws-list-surface .case-card > .row1 { grid-column: 2; grid-row: 1; display: block; min-width: 0; }
+.ws-list-surface .case-card > .row2 { grid-column: 3; grid-row: 1; }
+.ws-list-surface .case-card > .row3 { grid-column: 4; grid-row: 1; }
+.ws-list-surface .case-card .title { font-size: 14px; font-weight: 600; color: var(--hf-ink); overflow-wrap: anywhere; }
+.ws-list-surface .case-card .sub, .ws-list-surface .case-card .case-id { font-size: 11.5px; color: var(--hf-muted); }
+.ws-list-surface .case-card .row2 { display: flex; justify-content: flex-end; align-items: center; }
+.ws-list-surface .case-card .row2 .chip { white-space: nowrap; }
+/* 精簡身份 meta：單行、超出省略，避免把列撐成 3 行 */
+.ws-list-surface .case-card .row-meta {
+  display: flex; align-items: center; gap: 5px; margin-top: 3px;
+  font-size: 10.5px; color: var(--hf-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ws-list-surface .case-card .row-meta .chip { padding: 0 5px; font-size: 10px; line-height: 15px; }
+.ws-list-surface .case-card .row-meta .m-flag {
+  padding: 0 5px; border-radius: 4px; background: var(--hf-soft); border: 1px solid var(--hf-line);
+}
+.ws-list-surface .case-card .row-meta .m-urgent { background: #FDE9E0; border-color: #F3C2AC; color: #9A3B12; }
+.ws-list-surface .case-card .row-meta .m-overdue { background: #FCEBEB; border-color: #F09595; color: #A32D2D; }
+/* 桌面不必每行顯示案號 */
+.ws-list-surface .case-card .row-meta .case-id { font-size: 10px; opacity: .65; }
+@media (min-width: 1180px) { .ws-list-surface .case-card .row-meta .case-id { display: none; } }
+.ws-list-surface .case-card .row3 { display: block; text-align: right; }
+.ws-list-surface .case-card .row3 span { display: block; }
+.ws-list-surface .case-card .row3 .d-main { font-size: 14px; font-weight: 700; color: var(--hf-ink); }
+.ws-list-surface .case-card .row3 .d-rel { font-size: 11px; color: var(--hf-muted); }
+.ws-list-surface .case-card .row-next, .ws-list-surface .case-card .mini-btn,
+.ws-list-surface .case-card .avatar-stack { display: none; }
+
+/* 手機 <=620px：列改為兩列堆疊，不擠壓成不可讀的窄欄 */
+@media (max-width: 620px) {
+  .ws-list-surface .case-card {
+    grid-template-columns: 38px minmax(0,1fr) auto;
+    row-gap: 6px; min-height: 0; padding: 12px 14px;
+  }
+  .ws-list-surface .case-card > .case-thumb { grid-column: 1; grid-row: 1 / span 2; align-self: start; }
+  .ws-list-surface .case-card > .row1 { grid-column: 2 / -1; grid-row: 1; }
+  .ws-list-surface .case-card > .row2 { grid-column: 2; grid-row: 2; justify-content: flex-start; }
+  .ws-list-surface .case-card > .row3 { grid-column: 3; grid-row: 2; }
+  .list-head { display: none; }
+  .ws-title { font-size: 24px; }
+  .main { padding: 18px 14px 32px; }
+}
+
+.ws-panel-empty {
+  background: var(--hf-surface); border: 1px dashed var(--hf-line);
+  border-radius: var(--hf-radius); padding: 22px 18px;
+  font-size: 12.5px; color: var(--hf-muted); line-height: 1.8;
+}
+@media (max-width: 1179px) { .ws-panel-empty { display: none; } }
+
+/* 右側微透面板：嵌在工作區、與列表頂端對齊，不是全高白抽屜 */
+@media (min-width: 1180px) {
+  .ws-split { grid-template-columns: minmax(0,1fr) 358px; }
+  /* 嵌入式面板不是 modal，整頁遮罩必須完全停用（它 inset:0 會攔截所有點擊）。
+     手機 <1180px 仍走覆蓋式抽屜，遮罩照常保留。 */
+  body.has-panel #drawer-bg,
+  body.has-panel #drawer-bg.open { display: none; opacity: 0; pointer-events: none; }
+  body.has-panel .drawer {
+    position: sticky; inset: auto; transform: none; width: auto; height: auto;
+    max-height: calc(100vh - 150px); overflow-y: auto;
+    border: 1px solid var(--hf-line); border-radius: var(--hf-radius);
+    background: var(--hf-surface); box-shadow: 0 2px 4px rgba(29,61,101,0.06), 0 18px 50px rgba(41,76,122,0.09);
+  }
+}
+
+
+/* ── 6. 面板內容：淡藍標頭、線性 symbol 格狀進度選項、白實底輸入 ── */
+body.has-panel .drawer-head {
+  background: linear-gradient(115deg, #e5edff, #f0f6ff);
+  border-bottom: 1px solid var(--hf-line); padding: 14px 16px 12px;
+  border-radius: var(--hf-radius) var(--hf-radius) 0 0;
+}
+[data-theme="dark"] body.has-panel .drawer-head { background: linear-gradient(115deg, #28446b, #233c5b); }
+body.has-panel .drawer-head .case-id { font-size: 11px; color: var(--hf-muted); }
+body.has-panel .drawer-body { padding: 14px 16px 18px; }
+body.has-panel .drawer-body h3 { font-size: 19px; margin-bottom: 4px; color: var(--hf-ink); }
+body.has-panel .report-zone { background: transparent; border: 0; padding: 0; }
+body.has-panel .report-zone::before { display: none; }
+.report-zone .log-add textarea { background: var(--hf-paper); border-color: var(--hf-line); }
+body.has-panel .log-timeline { font-size: 11.5px; color: var(--hf-muted); }
+/* 基本資料／時程／子案件收進可展開區，保留全部功能 */
+body.has-panel #d-grid { font-size: 12px; }
+
+
+/* ── v9.1 面板視覺補強：提高特異性蓋過既有深色/白底規則 ── */
+body.has-panel .drawer,
+body.has-panel .drawer .drawer-body { background: transparent; color: var(--hf-ink); }
+body.has-panel .drawer { background: var(--hf-surface); }
+@supports (backdrop-filter: blur(1px)) {
+  body.has-panel .drawer { -webkit-backdrop-filter: blur(22px) saturate(118%); backdrop-filter: blur(22px) saturate(118%); }
+}
+/* v9.1 標頭三層結構 */
+.drawer-head { flex-direction: column; align-items: stretch; gap: 0; }
+.dh-top { display: flex; align-items: center; gap: 8px; }
+.dh-top .close { margin-left: auto; color: var(--hf-muted); line-height: 1; }
+.drawer-head h3#d-title {
+  font-size: 18px; font-weight: 700; color: var(--hf-ink);
+  margin: 6px 0 2px; line-height: 1.35; overflow-wrap: anywhere;
+}
+.drawer-head p#d-sub { font-size: 12px; color: var(--hf-muted); margin: 0; overflow-wrap: anywhere; }
+.dh-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 9px;
+}
+.dh-meta #d-chips { display: inline-flex; gap: 4px; }
+.dh-due { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--hf-ink); }
+.dh-extra { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.dh-extra:empty { display: none; }
+/* 進度選項：小格狀。來源 inline 幾何已移除，這裡是唯一的樣式來源，不需 !important。 */
+.log-tagbox { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 5px; }
+.log-tagbox-by { display: flex; flex-wrap: wrap; gap: 5px; }
+.log-chip {
+  display: flex; align-items: center; gap: 6px; justify-content: flex-start;
+  padding: 8px 9px; border-radius: 9px; font-size: 11.5px; line-height: 1.35;
+  border: 1px solid var(--hf-line, #d6e1ef); background: var(--hf-paper, #fff);
+  color: var(--hf-ink, #233b56); cursor: pointer; text-align: left; white-space: normal;
+}
+.log-chip:hover { background: var(--hf-tint, #eaf1ff); }
+.log-chip.is-on {
+  border-color: var(--chip-accent, var(--hf-accent));
+  background: var(--hf-tint, #eaf1ff);
+  color: var(--chip-accent, var(--hf-accent)); font-weight: 600;
+}
+.log-chip:focus-visible { outline: 2px solid var(--hf-accent); outline-offset: 1px; }
+.log-tagbox-by .log-chip { padding: 4px 10px; border-radius: 12px; font-size: 11px; }
+/* 主按鈕：霧藍。.log-add button.submit (0,2,1) 仍在，故用 .log-submit 提升到 (0,3,1)。 */
+.log-add button.submit.log-submit {
+  background: var(--hf-accent); color: var(--hf-accent-ink);
+  border-radius: 9px; padding: 8px 16px; font-size: 12.5px; border: 0; margin-left: auto;
+}
+.log-add button.submit.log-submit:hover { filter: brightness(1.08); }
+/* 目前狀態列與下一步 */
+body.has-panel .rz-now { background: transparent; }
+/* 可展開的專案資料 */
+.d-more {
+  margin-top: 14px; border-top: 1px solid var(--hf-line); padding-top: 10px;
+}
+.d-more > summary {
+  cursor: pointer; font-size: 12.5px; font-weight: 500; color: var(--hf-ink);
+  list-style: none; padding: 4px 0;
+}
+.d-more > summary::-webkit-details-marker { display: none; }
+.d-more > summary::before { content: '▸ '; color: var(--hf-muted); }
+.d-more[open] > summary::before { content: '▾ '; }
+/* 最近紀錄降為次要 */
+body.has-panel #d-timeline { max-height: 190px; overflow-y: auto; }
+
+
+/* ────────── v9.2 手機／平板：單欄 shell，rail 收為抽屜 ──────────
+   <=768px 主內容必須拿到完整寬度；rail 預設移出畫面，由品牌列上可見且
+   有 aria-label 的選單鈕開關。 */
+@media (max-width: 768px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail-toggle { display: inline-flex; }          /* 桌面隱藏、此處顯示 */
+  .app-rail {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 240px; z-index: 60;
+    transform: translateX(-100%); transition: transform .22s ease;
+    box-shadow: 2px 0 18px rgba(16,29,48,0.28);
+    padding-top: 14px;
+  }
+  .app.rail-open .app-rail { transform: translateX(0); }
+  .app.rail-open::after {
+    content: ''; position: fixed; inset: 0; z-index: 59;
+    background: rgba(16,29,48,0.42);
+  }
+  .main { grid-column: 1; padding: 18px 14px 40px; }
+  .topbar { padding: 10px 12px; gap: 8px; flex-wrap: wrap; }
+  .topbar .logo { gap: 8px; }
+  .brand-mark { width: 30px; height: 30px; }
+  .brand-text { font-size: 14px; }
+  /* 次要控制收進可捲動的控制區，避免頂 bar 擠滿；全部仍可到達 */
+  .topbar .tb-ctl, .topbar .v38-theme-toggle, .topbar .v50-season-toggle,
+  .topbar .role-switch, .topbar .tb-identity {
+    order: 20; font-size: 11px;
+  }
+  .topbar > .create-btn { order: 5; margin-left: auto; }
+  /* 列表表面不可裁切內容 */
+  .ws-list-surface { overflow: visible; }
+  .ws-split { gap: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-rail { transition: none; }
+}
+
+/* 手機：面板＝完整詳情頁，並有明確「返回列表」。
+   base 必須寫在 media 之前 —— 兩者特異性相同 (0,1,0)，媒體查詢不會提升特異性，
+   先前把 media 放在 base 前面，display:none 反而後出現而勝出，按鈕永遠隱藏。 */
+.dh-back {
+  display: none; align-items: center; gap: 5px;
+  background: transparent; border: 0; cursor: pointer;
+  font-size: 12.5px; color: var(--hf-accent); padding: 2px 0;
+}
+.dh-back:focus-visible { outline: 2px solid var(--hf-accent); outline-offset: 2px; }
+@media (max-width: 1179px) {
+  .dh-back { display: inline-flex; }
+}
+
+@media (max-width: 620px) {
+  .ws-title { font-size: 24px; }
+  .ws-tabs { gap: 2px; }
+  .ws-tab { padding: 7px 11px; font-size: 12.5px; }
+  /* 手機抽屜為整頁詳情 */
+  .drawer { width: 100%; }
+  .drawer-head { padding: 14px 16px 12px; }
+  .drawer-head h3#d-title { font-size: 17px; }
+}
+
 </style>
 </head>
 <body>
 <div class="app">
   <div class="topbar">
-    <div class="logo">藝術設計部<span class="dim">· 專案管理系統</span></div>
+    <div class="logo">
+      <svg class="brand-mark" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/>
+        <rect x="3" y="13" width="8" height="8" rx="2"/><circle cx="17" cy="17" r="4"/>
+      </svg>
+      <span class="brand-text">藝術設計部<span class="dim">專案管理工作台</span></span>
+    </div>
+    <!-- v9.0: #nav 於 bootstrap 時搬進左側 rail（見 v90MountRail），
+         元素本身不變，renderNav 與權限邏輯完全沿用 -->
     <div class="nav" id="nav"></div>
     <button class="create-btn" id="create-btn">＋ 建立專案</button>
     <div class="role-switch" id="role-switch">
@@ -1395,29 +1810,35 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
   </div>
   <div class="main" style="visibility:hidden;">
     <div class="view active" data-view="personal">
-      <div class="greeting">
-        <h2 id="hello"></h2>
-        <p id="hello-sub"></p>
+      <!-- v9.0: 工作區直接以「我的任務」為標題；原問候語降為副標，
+           KPI 詳細資訊移入預設收合的「工作概況」，不再占據第一屏。 -->
+      <div class="ws-head">
+        <h1 class="ws-title">我的任務</h1>
+        <p class="ws-sub" id="hello-sub"></p>
+        <span id="hello" hidden></span>
       </div>
-      <div class="kpi-row" id="personal-kpi"></div>
-      <!-- v8.2: legend 由 STATUSES 產生（見 v82RenderLegend），避免與卡片用詞不一致 -->
-      <div class="legend-row" id="personal-legend"></div>
-      <div class="filter-bar" id="personal-filter">
-        <button class="pill active" data-filter="all">全部</button>
-        <button class="pill" data-filter="week">本週到期</button>
-        <!-- v8.2: 「本月」在 renderPersonal 與子案件檢視都沒有對應分支，等同「全部」，
-             是一顆無作用的按鈕，故移除，而不是給它一個名不副實的名稱。 -->
-        <button class="pill" data-filter="overdue">逾期</button>
-        <button class="pill" data-filter="urgent">急件</button>
-        <!-- gate 的條件是 c.gateActive（確稿日前 3 工作天），不是 review 狀態 -->
-        <button class="pill" data-filter="gate">確稿日將至</button>
-        <!-- waiting = review + review_done，兩者都不在我手上 -->
-        <button class="pill" data-filter="waiting">等待他人回覆</button>
-        <button class="pill" data-filter="collab">協作中</button>
-        <!-- done 走 v53RenderPersonalDone，條件是 FINAL_STATUS_KEYS（done + closed） -->
-        <button class="pill" data-filter="done">已結案</button>
+      <div class="ws-tabs" id="ws-tabs"></div>
+      <details class="ws-overview" id="ws-overview">
+        <summary>工作概況</summary>
+        <div class="kpi-row" id="personal-kpi"></div>
+        <div class="legend-row" id="personal-legend"></div>
+        <div class="filter-bar" id="personal-filter">
+          <button class="pill active" data-filter="all">全部</button>
+          <button class="pill" data-filter="week">本週到期</button>
+          <button class="pill" data-filter="overdue">逾期</button>
+          <button class="pill" data-filter="urgent">急件</button>
+          <button class="pill" data-filter="gate">確稿日將至</button>
+          <button class="pill" data-filter="waiting">等待他人回覆</button>
+          <button class="pill" data-filter="collab">協作中</button>
+          <button class="pill" data-filter="done">已結案</button>
+        </div>
+      </details>
+      <div class="ws-split">
+        <div class="ws-list-surface">
+          <div class="list-head"><span>案件</span><span>目前進度</span><span>上線日</span></div>
+          <div class="case-list clear-list" id="case-list"></div>
+        </div>
       </div>
-      <div class="case-list clear-list" id="case-list"></div>
     </div>
     <div class="view" data-view="kanban">
       <div class="filter-bar">
@@ -1591,14 +2012,24 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
 <!-- Case drawer -->
 <div class="drawer-bg" id="drawer-bg"></div>
 <div class="drawer" id="drawer">
+  <!-- v9.1: 標頭依原型改為三層——頂行案號＋關閉、案名、館別／需求單位、
+       底行目前狀態＋上線日。案名與副標實際移入淡藍標頭（不再留在白色 body），
+       關閉鈕與案號同一行，避免因 chip 換行而孤立成一列。
+       所有既有 id 原樣保留，openDrawer 的賦值邏輯不需改動。 -->
   <div class="drawer-head">
-    <span class="case-id" id="d-id"></span>
-    <span id="d-chips"></span>
-    <button class="close" id="drawer-close">×</button>
+    <div class="dh-top">
+      <button class="dh-back" id="d-back" type="button" aria-label="返回專案列表">← 返回列表</button>
+      <span class="case-id" id="d-id"></span>
+      <button class="close" id="drawer-close" aria-label="關閉">×</button>
+    </div>
+    <h3 id="d-title"></h3>
+    <p id="d-sub"></p>
+    <div class="dh-meta">
+      <span id="d-chips"></span>
+      <span class="dh-due" id="d-head-due"></span>
+    </div>
   </div>
   <div class="drawer-body">
-    <h3 id="d-title"></h3>
-    <p id="d-sub" style="color: #8C8C8C; font-size: 13px; margin-bottom: 12px;"></p>
     <div id="d-collab-bar"></div>
 
     <!-- v8.0 回報區上移：設計師來這裡幾乎都是為了「更新進度」，
@@ -1615,15 +2046,15 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
         <div class="rz-title">更新專案進度</div>
         <textarea id="d-log-input" placeholder="這次發生了什麼？（例如：2 版提案送執辦、已收需求單位回饋、等文案）"></textarea>
         <div style="font-size:11px;color:var(--fg-muted,#8C8C8C);margin-top:8px;">選擇這次發生的事（選填）</div>
-        <div id="d-log-tags" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;"></div>
+        <div id="d-log-tags" class="log-tagbox"></div>
         <div id="d-log-tagby-wrap" style="display:none;margin-top:6px;">
           <span style="font-size:11px;color:var(--fg-muted,#8C8C8C);">誰要求的？（選填）</span>
-          <div id="d-log-tagby" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;"></div>
+          <div id="d-log-tagby" class="log-tagbox log-tagbox-by"></div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
           <label style="font-size:11px;color:var(--fg-muted,#8C8C8C);">進度發生日期</label>
           <input type="date" id="d-log-date" style="padding:5px 8px;font-size:12px;">
-          <button class="submit" id="d-log-submit" style="margin-left:auto;">儲存進度</button>
+          <button class="submit log-submit" id="d-log-submit">儲存進度</button>
         </div>
       </div>
 
@@ -1644,15 +2075,21 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
     <div style="margin:18px 0 10px; font-size: 13px; font-weight: 500; color: var(--fg-dim,#404040);">進度紀錄</div>
     <div class="log-timeline" id="d-timeline"></div>
 
-    <div class="drawer-actions">
-      <button id="d-reassign">↻ 轉派單</button>
-      <button id="d-urgent-toggle">🔥 切換急件</button>
-    </div>
-    <dl class="detail-grid" id="d-grid"></dl>
-    <div id="d-timeline-box"></div>
-    <div id="d-subitems"></div>
-    <div id="d-archive"></div>
-    <div id="d-closure"></div>
+    <!-- v9.1: 基本資料／時程／子案件收進可展開區，第一屏留給回報。
+         所有 id 原樣保留，既有渲染與權限邏輯不變。 -->
+    <details class="d-more" id="d-more">
+      <summary>專案資料與時程</summary>
+      <div id="d-head-extra" class="dh-extra"></div>
+      <div class="drawer-actions">
+        <button id="d-reassign">↻ 轉派單</button>
+        <button id="d-urgent-toggle">🔥 切換急件</button>
+      </div>
+      <dl class="detail-grid" id="d-grid"></dl>
+      <div id="d-timeline-box"></div>
+      <div id="d-subitems"></div>
+      <div id="d-archive"></div>
+      <div id="d-closure"></div>
+    </details>
     <div class="gate-info" id="d-gate">
       <b>⏰ 確稿日將至</b>：此專案的 <b>確稿日</b> 剩不到 3 個工作天。卡片會以紅色邊條標示，直到送出確稿為止。
     </div>
@@ -1906,6 +2343,156 @@ const SELECTABLE_STATUSES = STATUSES.filter(s => s.key !== 'done');
 // v7.1: 兩種語意必須分開，否則「取消」會被算成「已結案」而灌水達成率
 //   FINAL_STATUS_KEYS  = 已成功交付（計入結案數/達成率/交付天數）
 //   ENDED_STATUS_KEYS  = 已終結不再活躍（排除逾期/看板/急件/在辦統計）
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v9.0 工作區：數量 tabs、選取列、嵌入式回報面板 ▼▼▼
+// tabs 對應真實資料集合，不是樣本；語意沿用既有 filter。
+// ═══════════════════════════════════════════════════════════════
+let v90Tab = 'all';
+let v90SelectedId = null;
+
+// 「我可處理」＝球在我身上（排除等需求端/等主管/已終結）
+function v90Actionable(c) {
+  return !ENDED_STATUS_KEYS.has(c.status) && c.status !== 'review' && c.status !== 'review_done';
+}
+function v90WaitingOthers(c) {
+  return c.status === 'review' || c.status === 'review_done';
+}
+function v90RenderTabs(all) {
+  const el = document.getElementById('ws-tabs');
+  if (!el) return;
+  const defs = [
+    { k: 'all',        label: '全部',     n: all.length },
+    { k: 'actionable', label: '我可推進', n: all.filter(v90Actionable).length },
+    { k: 'waiting',    label: '等回覆',   n: all.filter(v90WaitingOthers).length },
+  ];
+  el.innerHTML = defs.map(d =>
+    `<button class="ws-tab ${v90Tab === d.k ? 'active' : ''}" data-t="${d.k}" aria-pressed="${v90Tab === d.k}">
+       ${d.label}<span class="n">${d.n}</span>
+     </button>`).join('');
+  el.querySelectorAll('.ws-tab').forEach(b => b.onclick = () => {
+    v90Tab = b.dataset.t;
+    if (typeof renderPersonal === 'function') renderPersonal();
+  });
+}
+function v90ApplyTab(list) {
+  if (v90Tab === 'actionable') return list.filter(v90Actionable);
+  if (v90Tab === 'waiting') return list.filter(v90WaitingOthers);
+  return list;
+}
+// 標記選取列，並在桌面把回報面板嵌進工作區
+function v90MarkSelected(id) {
+  v90SelectedId = id;
+  document.querySelectorAll('#case-list .case-card').forEach(el => {
+    el.classList.toggle('is-selected', el.dataset.cid === id);
+  });
+}
+function v90MountPanel() {
+  const split = document.querySelector('.ws-split');
+  const drawer = document.querySelector('.drawer');
+  if (!split || !drawer) return;
+  const wide = window.matchMedia('(min-width: 1180px)').matches;
+  const inPersonal = currentView === 'personal';
+  if (wide && inPersonal) {
+    if (drawer.parentNode !== split) split.appendChild(drawer);   // 搬進工作區，與列表頂端對齊
+    document.body.classList.add('has-panel');
+  } else {
+    // 其他頁或窄螢幕：還原成原本的覆蓋式抽屜，既有行為不變
+    if (drawer.parentNode === split) document.body.appendChild(drawer);
+    document.body.classList.remove('has-panel');
+  }
+}
+// 面板清空：篩選後沒有任何可選案件時，不能留著上一個案子的可寫表單
+function v90ClearPanel() {
+  v90SelectedId = null;
+  const d = document.getElementById('drawer');
+  const bg = document.getElementById('drawer-bg');
+  if (d) d.classList.remove('open');
+  if (bg) bg.classList.remove('open');
+  document.querySelectorAll('#case-list .case-card').forEach(el => el.classList.remove('is-selected'));
+  const split = document.querySelector('.ws-split');
+  if (!split) return;
+  let empty = document.getElementById('ws-panel-empty');
+  const wide = window.matchMedia('(min-width: 1180px)').matches && currentView === 'personal';
+  if (!wide) { if (empty) empty.remove(); return; }
+  if (!empty) {
+    empty = document.createElement('div');
+    empty.id = 'ws-panel-empty';
+    empty.className = 'ws-panel-empty';
+    split.appendChild(empty);
+  }
+  empty.textContent = '沒有可顯示的專案。調整上方篩選後，選一筆查看與更新進度。';
+}
+// 桌面進入「我的任務」時預設選一件，避免右欄空白；手機不自動跳詳情
+function v90AutoSelect() {
+  if (currentView !== 'personal') return;
+  if (!window.matchMedia('(min-width: 1180px)').matches) {
+    // 手機：列表→詳情由使用者點擊決定，不自動開啟
+    return;
+  }
+  const rows = document.querySelectorAll('#case-list .case-card[data-cid]');
+  if (!rows.length) { v90ClearPanel(); return; }          // 修正 2：無結果就清空面板
+  const ids = Array.from(rows).map(r => r.dataset.cid);
+  const target = (v90SelectedId && ids.includes(v90SelectedId)) ? v90SelectedId : ids[0];
+  const c = CASES.find(x => x.id === target);
+  if (!c) { v90ClearPanel(); return; }
+  const empty = document.getElementById('ws-panel-empty');
+  if (empty) empty.remove();
+  // 修正 1：只要「目前面板顯示的案子」不是 target，就用真實資料重開，
+  // 否則會出現「高亮 A、表單仍是 B」的不一致。
+  const openNow = document.querySelector('.drawer.open');
+  const shownId = (typeof currentCase !== 'undefined' && currentCase) ? currentCase.id : null;
+  if (!openNow || shownId !== target) openDrawer(c);
+  else v90MarkSelected(target);
+}
+window.addEventListener('resize', () => { try { v90MountPanel(); } catch (e) {} });
+
+// ═══════════════════════════════════════════════════════════════
+// ▼▼▼ v9.0 Shell 改造：淺色品牌列 + 桌面左側深霧藍垂直導航 ▼▼▼
+// 只搬移既有 #nav 節點，不重建導覽項目，因此 renderNav 產生的按鈕、
+// 權限分群與既有 onclick 全部原樣沿用，不會出現失效按鈕。
+// ═══════════════════════════════════════════════════════════════
+function v90MountRail() {
+  const app = document.querySelector('.app');
+  const nav = document.getElementById('nav');
+  const main = document.querySelector('.main');
+  if (!app || !nav || !main) return;
+  let rail = document.getElementById('app-rail');
+  if (!rail) {
+    rail = document.createElement('aside');
+    rail.id = 'app-rail';
+    rail.className = 'app-rail';
+    rail.innerHTML = '<div class="rail-label">工作區</div>';
+    app.insertBefore(rail, main);
+  }
+  if (nav.parentNode !== rail) rail.appendChild(nav);   // 搬移，不複製
+  // 手機：品牌列上的導覽開關
+  let btn = document.getElementById('rail-toggle');
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.id = 'rail-toggle';
+    btn.className = 'rail-toggle';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', '開啟導覽選單');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+    btn.onclick = () => {
+      const open = app.classList.toggle('rail-open');
+      btn.setAttribute('aria-expanded', String(open));
+      btn.setAttribute('aria-label', open ? '關閉導覽選單' : '開啟導覽選單');
+    };
+    const tb = document.querySelector('.topbar');
+    if (tb) tb.insertBefore(btn, tb.firstChild);
+  }
+  // 點導覽項目後關閉手機選單
+  nav.addEventListener('click', (e) => {
+    if (e.target.closest('button')) {
+      app.classList.remove('rail-open');
+      const t = document.getElementById('rail-toggle');
+      if (t) { t.setAttribute('aria-expanded', 'false'); t.setAttribute('aria-label', '開啟導覽選單'); }
+    }
+  });
+}
+
 // v8.2: 個人頁狀態圖例改由 STATUSES 產生，與卡片、抽屜共用同一套主案狀態詞。
 // 色票沿用既有 .case-card.s-<key> 的底色，不新增配色，也不動狀態資料。
 const V82_LEGEND_SW = {
@@ -2212,6 +2799,7 @@ function renderPersonal() {
   else if (personalFilter === 'gate') base = gate;
   else if (personalFilter === 'waiting') base = waitingOthers; // v8.0
   else if (personalFilter === 'collab') base = collab;
+  try { v90RenderTabs(me); base = v90ApplyTab(base); } catch (e) { console.warn('v90 tabs failed', e); } // v9.0
   const sortCases = arr => arr.slice().sort((a,b) => (a.overdue && !b.overdue ? -1 : !a.overdue && b.overdue ? 1 : a.goLive - b.goLive));
   listEl.innerHTML = '';
   if (personalFilter === 'collab') {
@@ -2252,6 +2840,7 @@ function renderPersonal() {
       other.forEach(c => listEl.appendChild(makeCaseCard(c)));
     }
   }
+  try { v90MountPanel(); v90AutoSelect(); } catch (e) { console.warn('v90 autoselect failed', e); } // v9.0
 }
 // E1/E2/E4 helpers
 function v53SetPersonalFilter(f) {
@@ -2299,38 +2888,49 @@ async function v53RenderPersonalDone(listEl) {
 function makeCaseCard(c) {
   const el = document.createElement('div');
   el.className = 'case-card s-' + c.status + (c.urgent ? ' urgent' : '') + (c.overdue ? ' overdue' : '');
+  el.dataset.cid = c.id;   // v9.0: 供選取列標記
   el.onclick = () => openDrawer(c);
   const status = STATUSES.find(s => s.key === c.status);
   const wd = c.status !== 'done' && c.goLive > TODAY ? workdaysBetween(TODAY, c.goLive) : null;
   const collabHtml = (c.collaborators && c.collaborators.length)
     ? `<span class="avatar-stack" title="協作者：${c.collaborators.join('、')}">${c.collaborators.map(n => `<span class="avatar">${n.slice(0,2)}</span>`).join('')}</span>`
     : '';
+  // v9.0: 列首的製作物小 symbol —— 取既有分類/製作物的前兩字，純視覺輔助
+  const thumbTxt = String((c.deliverables && c.deliverables[0]) || c.cat || c.name || '案').replace(/^[0-9\s]+/, '').slice(0, 2);
+  const relDay = (() => {
+    if (!c.goLive) return '';
+    // 已結案／已取消不是逾期，只顯示日期關係即可
+    const ended = ENDED_STATUS_KEYS.has(c.status) || c.archived;
+    const d = Math.round((new Date(c.goLive) - TODAY) / 86400000);
+    if (ended) return isCancelled(c) ? '已取消' : '已結案';
+    if (d === 0) return '今天'; if (d === 1) return '明天'; if (d === -1) return '昨天';
+    return d < 0 ? `逾期 ${-d} 天` : `${d} 天後`;
+  })();
   el.innerHTML = `
+    <div class="case-thumb" aria-hidden="true">${escapeHtml(thumbTxt)}</div>
     <div class="row1">
       <div>
-        <div class="case-id">${c.id}</div>
         <div class="title">${c.name}</div>
-        <div class="sub">${c.sub}${(c.items && c.items.length > 1) ? ` · 共 ${c.items.length} 子案` : ''}</div>
+        <div class="sub">${escapeHtml(c.hotel || '')}${c.unit ? ' · ' + escapeHtml(c.unit) : ''}</div>
+        <div class="row-meta">
+          <span class="chip level-${c.level}">${c.level}</span>
+          ${c.urgent ? '<span class="m-flag m-urgent">急件</span>' : ''}
+          ${c.overdue ? '<span class="m-flag m-overdue">逾期</span>' : ''}
+          ${c.gateActive ? '<span class="m-flag">確稿日將至</span>' : ''}
+          ${c.needsOutsourcing ? '<span class="m-flag">需發包</span>' : ''}
+          ${(c.items && c.items.length > 1) ? `<span class="m-flag">${c.items.length} 子案</span>` : ''}
+          ${(c.collaborators && c.collaborators.length) ? `<span class="m-flag">協作 ${c.collaborators.length}</span>` : ''}
+          <span class="case-id">${c.id}</span>
+        </div>
       </div>
-      <div style="display:flex;align-items:center;gap:4px;">
-        ${collabHtml}
-        <span class="avatar" title="主負責：${c.designer}">${c.designer.slice(0,2)}</span>
-      </div>
+
     </div>
     <div class="row2">
-      <span class="chip level-${c.level}">${c.level}</span>
       <span class="chip status-${c.status}">${status.name}</span>
-      <span class="chip">${c.hotel}</span>
-      ${c.urgent ? '<span class="chip urgent">🔥 急件</span>' : ''}
-      ${c.overdue ? '<span class="chip overdue">⚠ 逾期</span>' : ''}
-      ${c.needsOutsourcing ? '<span class="chip" style="background:#EAE0F5;color:#6B3FA0;border-color:#D4C2EC;">📦 需發包</span>' : ''}
-      ${(()=>{const cf=v58ConflictsFor(c);return cf.length?`<span class="chip" style="background:#FCE4D6;color:#9A3B12;border-color:#F0B894;" title="${escapeHtml(cf.join('；'))}">🚨 排程衝突</span>`:'';})()}
-      ${c.gateActive ? '<span class="chip gate">⏰ 確稿日將至</span>' : ''}
-      ${(c.collaborators && c.collaborators.length) ? `<span class="chip collab">🤝 ${c.collaborators.length} 位協作</span>` : ''}
     </div>
     <div class="row3">
-      <span>上線 ${md(c.goLive)} · 確稿 ${md(c.reviewDate)}</span>
-      <span>${isCancelled(c) ? '🚫 已取消' : FINAL_STATUS_KEYS.has(c.status) ? '已結案' : c.status === 'review_done' ? '待主管核可' : c.daysLeft < 0 ? `逾期 ${-c.daysLeft} 天` : `剩 ${wd} 工作天`}</span>
+      <span class="d-main">${md(c.goLive)}</span>
+      <span class="d-rel">${escapeHtml(relDay)}</span>
     </div>
     <div class="row-next">${v80Icon('arrow-right')}<span>${escapeHtml(v80NextStep(c.status, currentRole))}</span></div>
     <button class="mini-btn" title="轉派單" onclick="event.stopPropagation();openReassign('${c.id}')">↻ 轉派</button>
@@ -2943,14 +3543,19 @@ function renderStaff() {
 function openDrawer(c) {
   currentCase = c;
   document.getElementById('d-id').textContent = c.id;
-  document.getElementById('d-chips').innerHTML = `
+  // v9.1: 標頭底行只放「目前狀態」，分級／急件／逾期等移入資料區（#d-head-extra），
+  // 否則 chip 會把關閉鈕擠到單獨一行，與原型 header 不符。
+  document.getElementById('d-chips').innerHTML =
+    `<span class="chip status-${c.status}">${STATUSES.find(s=>s.key===c.status).name}</span>`;
+  const dueEl = document.getElementById('d-head-due');
+  if (dueEl) dueEl.textContent = c.goLive ? `上線 ${md(c.goLive)}` : '';
+  const exEl = document.getElementById('d-head-extra');
+  if (exEl) exEl.innerHTML = `
     <span class="chip level-${c.level}">${c.level}</span>
-    <span class="chip status-${c.status}">${STATUSES.find(s=>s.key===c.status).name}</span>
     ${c.urgent ? '<span class="chip urgent">🔥 急件</span>' : ''}
     ${c.overdue ? '<span class="chip overdue">⚠ 逾期</span>' : ''}
-    ${c.gateActive ? '<span class="chip gate">⏰ 待簽核中</span>' : ''}
-    ${c.archived ? '<span class="chip archived">已封存</span>' : ''}
-  `;
+    ${c.gateActive ? '<span class="chip gate">⏰ 確稿日將至</span>' : ''}
+    ${c.archived ? '<span class="chip archived">已封存</span>' : ''}`;
   document.getElementById('d-title').textContent = c.name;
   document.getElementById('d-sub').textContent = c.sub + ' · ' + c.hotel + ' · ' + c.unit;
 
@@ -3154,11 +3759,15 @@ function exportDetail(c) {
   showToast('明細已匯出至剪貼簿（示意）');
   console.log(lines.join('\n'));
 }
-document.getElementById('drawer-close').onclick =
-document.getElementById('drawer-bg').onclick = () => {
+const v92CloseDrawer = () => {
   document.getElementById('drawer').classList.remove('open');
   document.getElementById('drawer-bg').classList.remove('open');
 };
+document.getElementById('drawer-close').onclick =
+document.getElementById('drawer-bg').onclick = v92CloseDrawer;
+// v9.2: 手機的「返回列表」與關閉等價，但語意對使用者更清楚
+const _v92Back = document.getElementById('d-back');
+if (_v92Back) _v92Back.onclick = v92CloseDrawer;
 
 // ============== Create modal ==============
 function openCreateModal() {
@@ -3807,8 +4416,8 @@ async function bootstrap() {
       if (hdr && !document.getElementById('user-badge')) {
         const badge = document.createElement('span');
         badge.id = 'user-badge';
-        badge.style.cssText = 'margin-left:12px;font-size:12px;color:#6B6B6B;';
-        badge.innerHTML = `👤 ${ME.name} · ${ME.role === 'admin' ? '管理員' : ME.role === 'observer' ? '觀察者（唯讀）' : '設計師'} <button id="logout-btn" style="margin-left:8px;padding:3px 8px;font-size:11px;background:#F5F5F5;border:1px solid #D4D4D4;border-radius:4px;cursor:pointer;">登出</button>`;
+        badge.className = 'tb-identity';   // v9.1: 顏色由 class 控制
+        badge.innerHTML = `<span class="tb-who">👤 ${ME.name} · ${ME.role === 'admin' ? '管理員' : ME.role === 'observer' ? '觀察者（唯讀）' : '設計師'}</span> <button id="logout-btn" class="tb-ctl tb-ctl-sm">登出</button>`;
         hdr.appendChild(badge);
         document.getElementById('logout-btn').onclick = async () => {
           try { await api.logout(); } catch {}
@@ -3823,6 +4432,7 @@ async function bootstrap() {
       });
     } catch (e) { console.warn('role-switch toggle failed', e); }
     // 6. initial render — each protected so any one failure doesn't hide loader
+    try { v90MountRail(); } catch (e) { console.warn('v90 rail failed', e); }   // v9.0: 先建 rail
     try { renderNav(); } catch (e) { console.warn('renderNav failed', e); }
     try { switchView(currentView); } catch (e) { console.warn('switchView failed', e); }
     try { showEmail('reviewGate'); } catch (e) { console.warn('showEmail failed', e); }
@@ -4047,11 +4657,12 @@ const V68_REVISE_BY = ['需求單位', '主管', '客戶', '設計內部'];
 const v68Tag = (k) => V68_LOG_TAGS.find(t => t.key === k) || null;
 let v68SelTag = null, v68SelBy = null;
 
+// v9.1: 幾何（padding/圓角/排列）全部交給 .log-chip class，inline 只保留
+// 「選取時的強調色」這一個真的需要依標籤動態決定的值。
+// 原本整套 inline pill 樣式會勝過任何非 !important 規則，使面板無法改成格狀。
 function v68ChipHtml(label, color, active, attr) {
-  return `<button type="button" ${attr} style="padding:3px 9px;font-size:11px;border-radius:12px;cursor:pointer;
-    border:1px solid ${active ? color : 'var(--input-border,#D4D4D4)'};
-    background:${active ? color : 'transparent'};
-    color:${active ? '#fff' : 'var(--fg,#1F1F1F)'};">${label}</button>`;
+  const styleVar = active ? ` style="--chip-accent:${color}"` : '';
+  return `<button type="button" class="log-chip${active ? ' is-on' : ''}" ${attr}${styleVar}>${label}</button>`;
 }
 function v68RenderTagPicker() {
   const box = document.getElementById('d-log-tags');
@@ -5968,7 +6579,7 @@ function v36BuildUserMenu() {
   if (ME.role !== 'admin') {
     // Just show name
     const span = document.createElement('span');
-    span.style.cssText = 'padding:6px 12px;color:#FAFAFA;';
+    span.style.cssText = 'padding:6px 12px;color:var(--hf-ink);';   // v9.2: 淺色品牌列上白字看不見
     span.textContent = ME.name;
     rs.appendChild(span);
     return;
@@ -5981,7 +6592,7 @@ function v36BuildUserMenu() {
   rs.appendChild(adminBtn);
 
   const sel = document.createElement('select');
-  sel.style.cssText = 'background:#2B2B2B;color:#FAFAFA;border:1px solid #595959;border-left:none;padding:6px 8px;font-size:12px;cursor:pointer;';
+  sel.className = 'tb-ctl tb-select';   // v9.1: 原本 inline 深底白字，在淺色品牌列上變成看不見的空框
   sel.innerHTML = '<option value="">— 切換到成員視角 —</option>' +
     STAFF.filter(s => s.active && s.id !== ME.id && s.role !== 'observer').map(s => `<option value="${s.name}" ${v36ViewAsName === s.name ? 'selected' : ''}>${s.name}</option>`).join('');
   sel.onchange = () => {
@@ -7712,7 +8323,7 @@ function v40InjectAvailabilityButton() {
   if (!topbar || topbar.querySelector('.v40-avail-btn')) return;
   const btn = document.createElement('button');
   btn.className = 'v40-avail-btn';
-  btn.style.cssText = 'margin-left:8px;padding:6px 12px;background:transparent;color:var(--topbar-fg,#FAFAFA);border:1px solid #595959;border-radius:6px;font-size:12px;cursor:pointer;';
+  btn.classList.add('tb-ctl');   // 保留 v40-avail-btn，讓重複注入檢查與快速動作入口繼續識別
   btn.textContent = '📅 休假/出差';
   btn.onclick = v40OpenAvailabilityModal;
   const themeBtn = topbar.querySelector('.v38-theme-toggle');
@@ -8150,7 +8761,7 @@ function v55InjectShootButton() {
   if (!topbar || topbar.querySelector('.v55-shoot-btn')) return;
   const btn = document.createElement('button');
   btn.className = 'v55-shoot-btn v40-avail-btn'; // 沿用樣式
-  btn.style.cssText = 'margin-left:8px;padding:6px 12px;background:transparent;color:var(--topbar-fg,#FAFAFA);border:1px solid #595959;border-radius:6px;font-size:12px;cursor:pointer;';
+  btn.classList.add('tb-ctl');   // v9.2: 原 inline 白字在淺色品牌列上看不見
   btn.textContent = '📷 拍攝';
   btn.onclick = v55OpenModal;
   const availBtn = topbar.querySelector('.v40-avail-btn:not(.v55-shoot-btn)');
@@ -8903,7 +9514,8 @@ function v64InjectHelpBtn() {
   b.id = 'v64-help-btn';
   b.textContent = '？';
   b.title = '使用指南';
-  b.style.cssText = 'margin-left:8px;width:28px;height:28px;border-radius:50%;border:1px solid #595959;background:transparent;color:var(--topbar-fg,#FAFAFA);cursor:pointer;font-size:14px;flex-shrink:0;';
+  b.className = 'tb-ctl tb-ctl-round';
+  b.setAttribute('aria-label', '開啟使用指南');   // v9.2: 只有符號的按鈕需要可存取名稱
   b.onclick = () => v64OpenHelp();
   const rs = document.getElementById('role-switch');
   if (rs) tb.insertBefore(b, rs); else tb.appendChild(b);
@@ -10217,16 +10829,20 @@ const _v71OrigOpenDrawer = window.openDrawer;
 window.openDrawer = function(c) {
   const r = _v71OrigOpenDrawer.apply(this, arguments);
   try { v71InjectDrawerBtn(c); } catch (e) { console.warn('v71 inject failed', e); }
-  // v8.0: 在「我的任務」且螢幕夠寬時，回報區停靠在右側而不是蓋住清單，
-  // 形成「清晰列表 + 右側回報」。窄螢幕維持原本的覆蓋式詳情。
   try {
-    const dock = currentView === 'personal' && window.matchMedia('(min-width: 1200px)').matches;
-    document.body.classList.toggle('dock-report', dock);
-  } catch (e) { console.warn('v80 dock failed', e); }
+    v90MarkSelected(c.id); v90MountPanel();
+    // 嵌入模式下把遮罩的 open 一併移除，避免殘留的 inset:0 層攔截點擊
+    if (document.body.classList.contains('has-panel')) {
+      const bg = document.getElementById('drawer-bg');
+      if (bg) bg.classList.remove('open');
+    }
+  } catch (e) { console.warn('v90 panel failed', e); } // v9.0
+  // v9.0: 停靠邏輯改由 v90MountPanel 負責（面板實際搬進工作區，與列表頂端對齊），
+  // v8.0 的 dock-report class 已移除。
   return r;
 };
 // 關閉抽屜／切換頁面／縮到窄螢幕時都要解除停靠，否則清單會留著右側空白
-function v80Undock() { document.body.classList.remove('dock-report'); }
+function v80Undock() { document.body.classList.remove('has-panel'); }   // v9.0
 document.addEventListener('click', (e) => {
   const t = e.target;
   if (t && (t.id === 'drawer-bg' || (t.classList && t.classList.contains('close')))) v80Undock();
