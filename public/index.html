@@ -3028,7 +3028,14 @@ function renderKanban() {
   const ds = document.getElementById('kb-filter-designer');
   ds.innerHTML = '<option value="all">全部設計師</option>' + activeDesigners().map(dn => `<option value="${dn}">${dn}</option>`).join('');
   const hs = document.getElementById('kb-filter-hotel');
-  if (hs.children.length === 1) { HOTELS.forEach(h => hs.innerHTML += `<option value="${h.name}">${h.name}</option>`); }
+  { // v9.9b: kbFilterHotel 是唯一狀態來源。選項＝啟用館別 ∪ 看板案件實際出現的館別
+    // （含停用／舊館名，否則該篩選值會失效），依管理順序；狀態不在選項中則歸 all。
+    const names = new Set(HOTELS.map(h => h.name));
+    CASES.forEach(c => { if (!c.archived && c.hotel) names.add(c.hotel); });
+    const opts = [...names].sort(hotelOrderCompare);
+    if (kbFilterHotel !== 'all' && !names.has(kbFilterHotel)) kbFilterHotel = 'all';
+    hs.innerHTML = '<option value="all">全部館別</option>' + opts.map(h => `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`).join('');
+  }
   ds.onchange = () => { kbFilterDes = ds.value; renderKanban(); };
   hs.onchange = () => { kbFilterHotel = hs.value; renderKanban(); };
   ds.value = kbFilterDes; hs.value = kbFilterHotel;
@@ -3244,7 +3251,9 @@ function renderGantt() {
     else if (t.weekend) bg = 'background:#F5F5F5;';
     return `<div style="${bg}">${t.label}</div>`;
   }).join('')}</div></div>`;
-  Object.keys(groups).sort().forEach(groupName => {
+  // v9.9: hotel 分組依管理者調整的順序；designer 分組維持原本排序
+  const _gkeys = Object.keys(groups);
+  (ganttScope === 'designer' ? _gkeys.sort() : _gkeys.sort(hotelOrderCompare)).forEach(groupName => {
     const projects = groups[groupName];
     html += `<div class="gantt-group-head"><div class="g-label"><span>${groupName}</span></div><div style="display:flex;align-items:center;"><span class="g-count">${projects.length} 個專案</span></div></div>`;
     projects.forEach(c => {
@@ -6412,6 +6421,7 @@ async function v59LoadHistory() {
   });
 }
 function renderHistory() {
+  try { v60FillHistoryHotels(document.getElementById('v60-history-hotel')); } catch (e) { console.warn('history hotel fill failed', e); } // v9.9b
   v36EnsureHistoryView();
   const dSel = document.getElementById('v36-history-designer');
   // cache 未載入 → 先撈後端再重繪
@@ -6497,6 +6507,17 @@ function v60FillHistoryDesigners(dSel) {
   }).join('');
   if (cur && names.includes(cur)) dSel.value = cur;
 }
+// v9.9b: 可重入的館別下拉填充——每次 render 重填（重排儲存後立即反映），
+// 選項＝啟用館別 ∪ 歷史案實際出現的館別（停用／舊館名仍可選），依管理順序，保留已選值。
+function v60FillHistoryHotels(sel) {
+  if (!sel) return;
+  const keep = sel.value || '';
+  const names = new Set((HOTELS || []).map(h => h.name));
+  (window.V59_HISTORY || []).forEach(c => { if (c.hotel) names.add(c.hotel); });
+  const opts = [...names].sort(hotelOrderCompare);
+  sel.innerHTML = '<option value="">所有館別</option>' + opts.map(h => `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`).join('');
+  sel.value = names.has(keep) ? keep : '';
+}
 function v60EnsureHistoryControls() {
   const headerCard = document.querySelector('div.view[data-view="history"] .card');
   if (!headerCard || document.getElementById('v60-history-hotel')) return;
@@ -6506,7 +6527,7 @@ function v60EnsureHistoryControls() {
   const hSel = document.createElement('select');
   hSel.id = 'v60-history-hotel';
   hSel.style.cssText = 'padding:7px 10px;border:1px solid #D4D4D4;border-radius:5px;font-size:12px;';
-  hSel.innerHTML = '<option value="">所有館別</option>' + (HOTELS||[]).map(h=>`<option value="${escapeHtml(h.name)}">${escapeHtml(h.name)}</option>`).join('');
+  v60FillHistoryHotels(hSel);
   hSel.onchange = renderHistory;
   // 製作物下拉（蒐集歷史案出現過的製作物）
   const delivSet = new Set();
@@ -6796,15 +6817,45 @@ api.units = {
 api.cases.clone = (id, b) => fetchJson('POST', `/api/cases/${encodeURIComponent(id)}/clone`, b);
 
 // (Hotels) Load from API and rebuild HOTELS in the canonical order.
+// v9.9b: 單一載入器。一次取 includeInactive 完整清單，同步派生：
+//   · HOTELS      ＝ 啟用館別（物件陣列、原地改寫，供各選單）
+//   · HOTEL_ORDER ＝ 全部館別（含停用）的管理順序字典
+// 成功回 [] 也要清空（不可殘留程式內建預設）；只有請求失敗才保留上一狀態，
+// 不會用過期的 HOTELS 去蓋新字典（兩者永遠來自同一次回應）。
 async function v37LoadHotels() {
   try {
-    const rows = await api.hotels.list();
-    if (Array.isArray(rows) && rows.length) {
-      HOTELS.length = 0;
-      rows.forEach(h => HOTELS.push(h));
-    }
-  } catch (e) { console.warn('hotel load failed', e); }
+    const d = await fetchJson('GET', '/api/hotels?includeInactive=1');
+    const rows = Array.isArray(d) ? d : d?.hotels;
+    if (!Array.isArray(rows)) throw new Error('bad hotels payload');
+    HOTELS.length = 0;
+    rows.filter(h => h.active !== false).forEach(h => HOTELS.push(h));
+    HOTEL_ORDER = v99BuildHotelOrder(rows);
+  } catch (e) {
+    console.warn('hotel load failed; keeping previous list', e);
+    if (!HOTEL_ORDER) HOTEL_ORDER = v99BuildHotelOrder(HOTELS); // 首次就失敗：以現有清單建字典
+  }
 }
+
+// ── v9.9 館別統一排序 ──
+// HOTELS 只含啟用館別（供選單用，必須維持物件陣列）；排序字典另讀 includeInactive，
+// 讓「已停用但仍有案件」的館別在分組中也依管理者順序排列、不會消失。
+// 規則：已知館別依 sortOrder → id 穩定排序；未知／未填一律置後，彼此以名稱排序。
+let HOTEL_ORDER = null; // Map<name, { rank, id }>
+function v99BuildHotelOrder(rows) {
+  const sorted = rows.slice().sort((a, b) => ((a.sortOrder ?? 999) - (b.sortOrder ?? 999)) || ((a.id ?? 0) - (b.id ?? 0)));
+  const m = new Map(); sorted.forEach((h, i) => m.set(h.name, { rank: i, id: h.id ?? 0 })); return m;
+}
+function hotelRank(name) {
+  if (!name) return Infinity;
+  const src = HOTEL_ORDER || v99BuildHotelOrder(HOTELS);
+  const r = src.get(name); return r ? r.rank : Infinity;
+}
+function hotelOrderCompare(a, b) {
+  const ra = hotelRank(a), rb = hotelRank(b);
+  if (ra !== rb) return ra - rb;                               // 已知依管理順序；未知(Infinity)在後
+  return String(a || '').localeCompare(String(b || ''), 'zh-TW'); // 同級（多為未知）以名稱穩定排序
+}
+window.hotelOrderCompare = hotelOrderCompare;
 
 // v4.7: REQUEST_UNITS 由 API 載入，並重新填案件建立表單下拉
 async function v47LoadUnits() {
@@ -11675,6 +11726,6 @@ window.switchView = function (v) {
 };
 
 </script>
-<script src="/workbench-features.js?v=29dc0786599a"></script>
+<script src="/workbench-features.js?v=c2bac581a127"></script>
 </body>
 </html>

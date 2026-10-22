@@ -10,7 +10,7 @@
   const ledgerState = {};
 
   function ledger(root, rows, state, prefix) {
-    const hotels = [...new Set(rows.map(c=>c.hotel).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-TW'));
+    const hotels = [...new Set(rows.map(c=>c.hotel).filter(Boolean))].sort(window.hotelOrderCompare || ((a,b)=>a.localeCompare(b,'zh-TW'))); // v9.9: 與全站共用管理者館別順序
     const people = new Map();
     rows.forEach(c => [c.designer,...(c.collaborators||[])].filter(Boolean).forEach(s=>people.set(String(s.id),s.name)));
     // Keep a zero-result selection visible, so users can clear it.
