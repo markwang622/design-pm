@@ -61,7 +61,13 @@ function startOfYearUTC(d) {
  * @param {number} offset
  * @param {Date}   reference - "today" (defaults to now)
  */
-export function resolvePeriod(period, offset = 0, reference = new Date()) {
+export function taipeiCalendarDay(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+  const part = type => Number(parts.find(p => p.type === type).value);
+  return new Date(Date.UTC(part('year'), part('month') - 1, part('day')));
+}
+
+export function resolvePeriod(period, offset = 0, reference = taipeiCalendarDay()) {
   const ref = new Date(reference); // copy
   let start, end, label;
 

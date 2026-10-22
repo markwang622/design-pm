@@ -9,7 +9,7 @@ process.env.APP_BASE_URL='https://example.test';
 const root=new URL('../',import.meta.url).href;
 const {prisma}=await import(root+'src/lib/db.js');
 const {signToken,requireAuth}=await import(root+'src/middleware/auth.js');
-const {resolvePeriod}=await import(root+'src/services/analytics.js');
+const {resolvePeriod,taipeiCalendarDay}=await import(root+'src/services/analytics.js');
 const {workIntervalWhere}=await import(root+'src/lib/workInterval.js');
 const {caseEditPermission}=await import(root+'src/lib/casePermissions.js');
 const {hashToken}=await import(root+'src/lib/activation.js');
@@ -46,6 +46,10 @@ try{
   staff.set(4,{id:4,name:'other',active:true,pendingActivation:false,role:'member',sessionVersion:0});
   staff.set(5,{id:5,name:'admin',email:'admin@example.test',active:true,pendingActivation:false,role:'admin',sessionVersion:0});
   caseRow={id:'TEST',designerId:1,collaborators:[{id:2}],status:'doing',title:'before',archivePath:null};
+  await test('natural period follows Taipei midnight rather than UTC day',()=>{
+    const day=taipeiCalendarDay(new Date('2026-11-01T16:30:00Z'));assert.equal(day.toISOString().slice(0,10),'2026-11-02');
+    assert.equal(resolvePeriod('week',0,day).start.toISOString().slice(0,10),'2026-11-02');
+  });
   await test('quarter natural boundaries and previous-year offset',()=>{const w=resolvePeriod('quarter',-1,new Date('2026-01-03'));assert.equal(w.start.toISOString().slice(0,10),'2025-10-01');assert.equal(w.end.toISOString().slice(0,10),'2026-01-01');});
   await test('cross-period work includes ongoing, terminal boundary, missing end; excludes older ended/future cases',()=>{
     const win=resolvePeriod('week',0,new Date('2026-10-22'));
