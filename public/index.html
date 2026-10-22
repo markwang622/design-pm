@@ -5350,6 +5350,7 @@ async function v33RenderChangeLog(c) {
   if (!box) return;
   try {
     const rows = await api.cases.changelog(c.id);
+    if (currentCase?.id !== c.id) return;
     if (!rows.length) {
       box.innerHTML = '<div style="color:#8C8C8C;">尚無變更記錄</div>';
       return;
@@ -7117,6 +7118,10 @@ window.openDrawer = async function(c) {
   if (!drawer || !isHistorical) {
     // Cleanup any previously-injected reopen UI
     drawer?.querySelector('#v37-reopen-wrap')?.remove();
+    drawer?.querySelectorAll('.v37-historical-readonly').forEach(el => {
+      el.classList.remove('v37-historical-readonly');
+      if (!el.classList.contains('v36-readonly')) el.disabled = false;
+    });
     return;
   }
   // Inject reopen button at the top of the drawer-body
@@ -7139,7 +7144,7 @@ window.openDrawer = async function(c) {
   }
   // Force read-only on every interactive element regardless of write-permission
   drawer.querySelectorAll('input, textarea, select, button').forEach(el => {
-    if (el.id === 'drawer-close' || el.id === 'v37-reopen-btn') return;
+    if (el.id === 'drawer-close' || el.id === 'd-back' || el.id === 'v37-reopen-btn') return;
     if (el.classList.contains('close')) return;
     el.disabled = true;
     el.classList.add('v37-historical-readonly');
@@ -11607,6 +11612,6 @@ window.switchView = function (v) {
 };
 
 </script>
-<script src="/workbench-features.js?v=721bee1f793f"></script>
+<script src="/workbench-features.js?v=09cfcaa2bda7"></script>
 </body>
 </html>

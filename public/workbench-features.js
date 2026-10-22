@@ -6,6 +6,7 @@
   const options = (values, selected) => values.map(([v,label]) => `<option value="${esc(String(v))}" ${String(v)===String(selected)?'selected':''}>${esc(label)}</option>`).join('');
   const blank = [['','全部']];
   const periodLabels = {week:'本週',month:'本月',quarter:'本季',half:'半年',year:'全年'};
+  let caseOpenSequence=0;
   let explorerState = {}, explorerRows = [], explorerSeq = 0, analyticsSeq = 0, analyticsStaff = '';
   const ledgerState = {};
 
@@ -55,8 +56,10 @@
         <div><span class="wb-mobile-label">結束 </span>${date(c.cancelledOn||c.closedOn)}${c.endDateMissing?'<div class="wb-help">結束日待補，暫保留於明細</div>':''}</div>
       </div>`).join('')}</div>` : '<div class="wb-empty">沒有符合條件的案件。可清除篩選或調整日期範圍。</div>';
       root.querySelectorAll('[data-case]').forEach(b=>b.onclick=async()=>{
+        const sequence=++caseOpenSequence,viewAtRequest=currentView;
         try {
           const raw=await fetchJson('GET','/api/cases/'+encodeURIComponent(b.dataset.case));
+          if(sequence!==caseOpenSequence||currentView!==viewAtRequest)return;
           const c=normalizeCase(raw);
           const keys=computeKeyDates(c.goLive);
           c.reviewDate=keys.review;c.proofStart=keys.proofStart;c.needed=c.goLive;
