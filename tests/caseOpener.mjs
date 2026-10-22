@@ -17,13 +17,14 @@ const opener=section('const _v38OrigOpenDrawerById', '// Fix 3: Dashboard');
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return{promise,resolve,reject};};
 const fixture=(id='ARCHIVED')=>({id,title:'Archived project',requester:'',status:'closed',archived:true,goLiveDate:'2026-09-25',openDate:'2026-08-01',designer:{id:1,name:'Designer'},collaborators:[{id:2,name:'Collaborator'}],logs:[]});
 function setup(getOne){
-  const shown=[],messages=[],closed=[];
-  const c={console,Date,Set,CASES:[{id:'ACTIVE',status:'doing',archived:false}],currentView:'unitAnalysis',currentCase:null,
+  const shown=[],messages=[],closed=[],documentListeners=new Map();
+  const c={console,Date,Set,document:{addEventListener(type,handler){documentListeners.set(type,handler);}},CASES:[{id:'ACTIVE',status:'doing',archived:false}],currentView:'unitAnalysis',currentCase:null,
     ENDED_STATUS_KEYS:new Set(['done','closed']),
     api:{cases:{getOne}},
     openDrawer(caseData){shown.push(caseData);c.currentCase=caseData;},
     openDrawerById(){},showToast(text){messages.push(text);},v92CloseDrawer(){closed.push(true);}};
   c.window=c;vm.createContext(c);vm.runInContext(dates+normalize+decorate+opener,c);
+  assert.equal(typeof documentListeners.get('click'),'function','browser document delegation registered');
   return{c,shown,messages,closed};
 }
 let passed=0;

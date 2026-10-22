@@ -2970,7 +2970,7 @@ function makeCaseCard(c) {
   const status = STATUSES.find(s => s.key === c.status);
   const wd = c.status !== 'done' && c.goLive > TODAY ? workdaysBetween(TODAY, c.goLive) : null;
   const collabHtml = (c.collaborators && c.collaborators.length)
-    ? `<span class="avatar-stack" title="協作者：${c.collaborators.join('、')}">${c.collaborators.map(n => `<span class="avatar">${n.slice(0,2)}</span>`).join('')}</span>`
+    ? `<span class="avatar-stack" title="協作者：${escapeHtml(c.collaborators.join('、'))}">${c.collaborators.map(n => `<span class="avatar">${escapeHtml(String(n).slice(0,2))}</span>`).join('')}</span>`
     : '';
   // v9.0: 列首的製作物小 symbol —— 取既有分類/製作物的前兩字，純視覺輔助
   const thumbTxt = String((c.deliverables && c.deliverables[0]) || c.cat || c.name || '案').replace(/^[0-9\s]+/, '').slice(0, 2);
@@ -2987,7 +2987,7 @@ function makeCaseCard(c) {
     <div class="case-thumb" aria-hidden="true">${escapeHtml(thumbTxt)}</div>
     <div class="row1">
       <div>
-        <div class="title">${c.name}</div>
+        <div class="title">${escapeHtml(c.name)}</div>
         <div class="sub">${escapeHtml(c.hotel || '')}${c.unit ? ' · ' + escapeHtml(c.unit) : ''}</div>
         <div class="row-meta">
           <span class="chip level-${c.level}">${c.level}</span>
@@ -2997,7 +2997,7 @@ function makeCaseCard(c) {
           ${c.needsOutsourcing ? '<span class="m-flag">需發包</span>' : ''}
           ${(c.items && c.items.length > 1) ? `<span class="m-flag">${c.items.length} 子案</span>` : ''}
           ${(c.collaborators && c.collaborators.length) ? `<span class="m-flag">協作 ${c.collaborators.length}</span>` : ''}
-          <span class="case-id">${c.id}</span>
+          <span class="case-id">${escapeHtml(c.id)}</span>
         </div>
       </div>
 
@@ -3010,8 +3010,11 @@ function makeCaseCard(c) {
       <span class="d-rel">${escapeHtml(relDay)}</span>
     </div>
     <div class="row-next">${v80Icon('arrow-right')}<span>${escapeHtml(v80NextStep(c.status, currentRole))}</span></div>
-    <button class="mini-btn" title="轉派單" onclick="event.stopPropagation();openReassign('${c.id}')">↻ 轉派</button>
+    <button class="mini-btn" title="轉派單" data-reassign>↻ 轉派</button>
   `;
+  // id 不再塞進 inline JS 字串（escapeHtml 擋不住單引號跳脫）；在元素層綁定並保留 stopPropagation
+  const rb = el.querySelector('[data-reassign]');
+  if (rb) rb.addEventListener('click', (e) => { e.stopPropagation(); openReassign(c.id); });
   return el;
 }
 document.getElementById('personal-filter').addEventListener('click', e => {
@@ -3026,7 +3029,7 @@ document.getElementById('personal-filter').addEventListener('click', e => {
 // ============== Kanban ==============
 function renderKanban() {
   const ds = document.getElementById('kb-filter-designer');
-  ds.innerHTML = '<option value="all">全部設計師</option>' + activeDesigners().map(dn => `<option value="${dn}">${dn}</option>`).join('');
+  ds.innerHTML = '<option value="all">全部設計師</option>' + activeDesigners().map(dn => `<option value="${escapeHtml(dn)}">${escapeHtml(dn)}</option>`).join('');
   const hs = document.getElementById('kb-filter-hotel');
   { // v9.9b: kbFilterHotel 是唯一狀態來源。選項＝啟用館別 ∪ 看板案件實際出現的館別
     // （含停用／舊館名，否則該篩選值會失效），依管理順序；狀態不在選項中則歸 all。
@@ -3053,7 +3056,7 @@ function renderKanban() {
     col.className = 'kb-col';
     col.dataset.status = s.key;
     const cards = list.filter(c => c.status === s.key);
-    col.innerHTML = `<div class="kb-col-head"><span>${s.name}</span><span class="count">${cards.length}</span></div><div class="kb-col-body"></div>`;
+    col.innerHTML = `<div class="kb-col-head"><span>${escapeHtml(s.name)}</span><span class="count">${cards.length}</span></div><div class="kb-col-body"></div>`;
     const body = col.querySelector('.kb-col-body');
     // H5: 拖放區 — 卡片放下即改狀態
     col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('kb-col-dragover'); });
@@ -3068,20 +3071,20 @@ function renderKanban() {
       card.addEventListener('dragend', () => { card.style.opacity = ''; });
       card.onclick = () => openDrawer(c);
       const collabHtml = (c.collaborators && c.collaborators.length)
-        ? `<span class="avatar-stack" style="margin-left:4px;">${c.collaborators.map(n => `<span class="avatar" style="width:18px;height:18px;font-size:8px;">${n.slice(0,2)}</span>`).join('')}</span>`
+        ? `<span class="avatar-stack" style="margin-left:4px;">${c.collaborators.map(n => `<span class="avatar" style="width:18px;height:18px;font-size:8px;" title="${escapeHtml(n)}">${escapeHtml(String(n).slice(0,2))}</span>`).join('')}</span>`
         : '';
       card.innerHTML = `
-        <div class="t">${c.name} <span style="font-weight: 400; color: #8C8C8C;">· ${c.sub}</span></div>
-        <div style="font-size: 10px; color: #8C8C8C; font-family: monospace;">${c.id}</div>
+        <div class="t">${escapeHtml(c.name)} <span style="font-weight: 400; color: #8C8C8C;">· ${escapeHtml(c.sub)}</span></div>
+        <div style="font-size: 10px; color: #8C8C8C; font-family: monospace;">${escapeHtml(c.id)}</div>
         <div style="margin-top: 6px; display:flex; gap:4px; flex-wrap:wrap;">
           <span class="chip level-${c.level}" style="font-size: 10px;">${c.level}</span>
-          <span class="chip" style="font-size: 10px;">${c.hotel}</span>
+          <span class="chip" style="font-size: 10px;">${escapeHtml(c.hotel)}</span>
           ${c.gateActive ? '<span class="chip gate" style="font-size: 10px;">⏰</span>' : ''}
           ${(c.collaborators && c.collaborators.length) ? `<span class="chip collab" style="font-size:10px;">🤝${c.collaborators.length}</span>` : ''}
         </div>
         <div class="meta">
           <div style="display:flex;align-items:center;">
-            <span class="avatar" style="width: 20px; height: 20px; font-size: 9px;">${c.designer.slice(0,2)}</span>
+            <span class="avatar" style="width: 20px; height: 20px; font-size: 9px;">${escapeHtml(String(c.designer || '').slice(0,2))}</span>
             ${collabHtml}
           </div>
           <span>${c.overdue ? '⚠ 逾期 '+(-c.daysLeft)+'d' : '上線 '+md(c.goLive)}</span>
@@ -3192,7 +3195,7 @@ function renderGantt() {
   const ticks = ganttTicks(windowStart, windowEnd, ganttScale);
   // v3.6 (#16): designer sees all on gantt; editing limited via drawer.
   const pool = CASES.filter(c => !c.archived);
-  const groups = {};
+  const groups = Object.create(null); // v10.3: 以使用者文字當鍵，避免撞 Object.prototype
   // v4.3 A3: build a set of admin names so we can exclude them from designer
   // grouping (admin should never appear as a designer column on the gantt).
   const adminNames = new Set(STAFF.filter(s => s.role === 'admin').map(s => s.name));
@@ -3255,7 +3258,7 @@ function renderGantt() {
   const _gkeys = Object.keys(groups);
   (ganttScope === 'designer' ? _gkeys.sort() : _gkeys.sort(hotelOrderCompare)).forEach(groupName => {
     const projects = groups[groupName];
-    html += `<div class="gantt-group-head"><div class="g-label"><span>${groupName}</span></div><div style="display:flex;align-items:center;"><span class="g-count">${projects.length} 個專案</span></div></div>`;
+    html += `<div class="gantt-group-head"><div class="g-label"><span>${escapeHtml(groupName)}</span></div><div style="display:flex;align-items:center;"><span class="g-count">${projects.length} 個專案</span></div></div>`;
     projects.forEach(c => {
       const hasItems = c.items && c.items.length > 0;
       const isExpanded = expandedProjects.has(c.id);
@@ -3265,21 +3268,21 @@ function renderGantt() {
       const cs = Math.max(0, startPct);
       const ce = Math.min(100, endPct);
       const width = Math.max(2, ce - cs);
-      const barLabel = width > 6 ? c.name : '';
+      const barLabel = width > 6 ? escapeHtml(c.name) : '';
       const expander = hasItems
-        ? `<button class="expander" onclick="toggleProject('${c.id}')" title="${isExpanded ? '收合' : '展開'} ${c.items.length} 個子案件">${isExpanded ? '▼' : '▶'}</button>`
+        ? `<button class="expander" data-toggle-id="${escapeHtml(c.id)}" title="${isExpanded ? '收合' : '展開'} ${c.items.length} 個子案件">${isExpanded ? '▼' : '▶'}</button>`
         : `<span class="expander disabled"></span>`;
       const collabSuffix = (c.collaborators && c.collaborators.length) ? ` <span class="chip collab" style="font-size:9px;padding:0 4px;">🤝${c.collaborators.length}</span>` : '';
       html += `
         <div class="gantt-row">
           <div class="label">
             ${expander}
-            <span class="p-avatar" title="${c.designer}">${c.designer.slice(0,2)}</span>
-            <span class="p-name" title="${c.name} (${c.id})">${c.name}${hasItems ? ` <span style="color:#8C8C8C;font-size:11px;">(${c.items.length})</span>` : ''}${collabSuffix}</span>
+            <span class="p-avatar" title="${escapeHtml(c.designer)}">${escapeHtml(String(c.designer || '').slice(0,2))}</span>
+            <span class="p-name" title="${escapeHtml(c.name)} (${escapeHtml(c.id)})">${escapeHtml(c.name)}${hasItems ? ` <span style="color:#8C8C8C;font-size:11px;">(${c.items.length})</span>` : ''}${collabSuffix}</span>
           </div>
           <div class="gantt-track">
             ${renderBackground(40)}
-            ${inRange ? `<div class="gantt-bar s-${c.status}${c.urgent?' urgent':''}" style="left:${cs}%;width:${width}%;" title="${c.id} · ${c.name} · 開單 ${ymd(c.open)} → 確稿 ${ymd(c.reviewDate)} → 上線 ${ymd(c.goLive)}" onclick="openDrawerById('${c.id}')">${barLabel}</div>` : ''}
+            ${inRange ? `<div class="gantt-bar s-${c.status}${c.urgent?' urgent':''}" style="left:${cs}%;width:${width}%;" title="${escapeHtml(c.id)} · ${escapeHtml(c.name)} · 開單 ${ymd(c.open)} → 確稿 ${ymd(c.reviewDate)} → 上線 ${ymd(c.goLive)}" data-open-id="${escapeHtml(c.id)}">${barLabel}</div>` : ''}
           </div>
         </div>
       `;
@@ -3302,13 +3305,13 @@ function renderGantt() {
               <div class="label">
                 <span class="si-bullet"></span>
                 <span class="p-name" title="${escapeHtml(it.n || '')}">${si+1}. ${escapeHtml(it.n || '')}</span>
-                ${it.type ? `<span class="chip" style="font-size:9px;padding:0 5px;">${(it.type||'').replace(/^\d+\s/, '')}</span>` : ''}
-                <span class="chip" style="font-size:9px;padding:0 5px;background:${itStInfo.color}22;color:${itStInfo.color};border-color:${itStInfo.color}55;">${itStInfo.name}</span>
-                <span class="chip" style="font-size:9px;padding:0 5px;" title="負責 ${itOwner}">${itOwner.slice(0,3)}</span>
+                ${it.type ? `<span class="chip" style="font-size:9px;padding:0 5px;">${escapeHtml((it.type||'').replace(/^\d+\s/, ''))}</span>` : ''}
+                <span class="chip" style="font-size:9px;padding:0 5px;background:${itStInfo.color}22;color:${itStInfo.color};border-color:${itStInfo.color}55;">${escapeHtml(itStInfo.name)}</span>
+                <span class="chip" style="font-size:9px;padding:0 5px;" title="負責 ${escapeHtml(itOwner)}">${escapeHtml(String(itOwner || '').slice(0,3))}</span>
               </div>
               <div class="gantt-track">
                 ${renderBackground(28)}
-                ${itInRange ? `<div class="gantt-bar sub s-${itStatus}" style="left:${itCs}%;width:${itW}%;background:${itStInfo.color}AA;border-color:${itStInfo.color};" title="${escapeHtml(it.n || '')} · ${escapeHtml(itOwner)} · ${escapeHtml(itStInfo.name)} · ${ymd(itStart)} → ${ymd(itEnd)}" onclick="openDrawerById('${escapeHtml(c.id)}')">${itW > 10 ? escapeHtml(it.n || '') : ''}</div>` : ''}
+                ${itInRange ? `<div class="gantt-bar sub s-${escapeHtml(itStatus)}" style="left:${itCs}%;width:${itW}%;background:${itStInfo.color}AA;border-color:${itStInfo.color};" title="${escapeHtml(it.n || '')} · ${escapeHtml(itOwner)} · ${escapeHtml(itStInfo.name)} · ${ymd(itStart)} → ${ymd(itEnd)}" data-open-id="${escapeHtml(c.id)}">${itW > 10 ? escapeHtml(it.n || '') : ''}</div>` : ''}
               </div>
             </div>
           `;
@@ -3389,7 +3392,7 @@ function renderDashboard() {
   wlData.sort((a,b) => b.score - a.score);
   wlData.forEach(x => {
     const pct = x.score/maxWl*100;
-    wl.innerHTML += `<div class="bar-row"><span class="name">${x.name}</span><div class="track"><div class="fill${x.score >= 10 ? ' overloaded' : ''}" style="width:${pct}%"></div></div><span class="count">${x.score.toFixed(1)} · ${x.count}件</span></div>`;
+    wl.innerHTML += `<div class="bar-row"><span class="name">${escapeHtml(x.name)}</span><div class="track"><div class="fill${x.score >= 10 ? ' overloaded' : ''}" style="width:${pct}%"></div></div><span class="count">${x.score.toFixed(1)} · ${x.count}件</span></div>`;
   });
   const canv = document.getElementById('donut');
   const ctx = canv.getContext('2d');
@@ -3415,11 +3418,11 @@ function renderDashboard() {
   document.getElementById('donut-legend').innerHTML = statusCounts.map((sc,i) =>
     `<div><span class="legend-dot" style="background:${colors[i]}"></span>${sc.s.name} <span style="color:#8C8C8C">${sc.n}</span></div>`
   ).join('');
-  const byH = {};
+  const byH = Object.create(null); // v10.3: 以使用者文字當鍵，避免撞 Object.prototype
   live.forEach(c => byH[c.hotel] = (byH[c.hotel]||0)+1);
   const topH = Object.entries(byH).sort((a,b) => b[1]-a[1]).slice(0,5);
   const maxH = topH[0][1];
-  document.getElementById('by-hotel').innerHTML = topH.map(([h,n]) => `<div class="bar-row"><span class="name" style="font-size: 11px;">${h}</span><div class="track"><div class="fill" style="width:${n/maxH*100}%"></div></div><span class="count">${n}</span></div>`).join('');
+  document.getElementById('by-hotel').innerHTML = topH.map(([h,n]) => `<div class="bar-row"><span class="name" style="font-size: 11px;">${escapeHtml(h)}</span><div class="track"><div class="fill" style="width:${n/maxH*100}%"></div></div><span class="count">${n}</span></div>`).join('');
   const acts = [
     {t:'1h 前', a:'Amanda', n:'「餐廳菜單改版」狀態更新為 進行中'},
     {t:'3h 前', a:'系統',    n:'SS-2026-04-003「集團年報」距確稿日剩 3 工作天，待簽核已觸發並通知 Mark'},
@@ -3434,10 +3437,10 @@ function renderDashboard() {
   const att = [...live.filter(c => c.overdue).map(c => ({...c, why:'已逾期'})), ...reviewing, ...gated, ...live.filter(c => c.urgent && c.status !== 'done').map(c => ({...c, why:'急件'}))]
     .filter((c,i,arr) => arr.findIndex(x => x.id === c.id) === i).slice(0,10);
   document.getElementById('attention').innerHTML = att.map(c => `
-    <div style="padding: 8px 0; border-bottom: 1px solid #F2F2F2; font-size: 12px; cursor:pointer;" onclick="openDrawerById('${c.id}')">
-      <div style="color: #1F1F1F; font-weight: 500;">${c.name}</div>
+    <div style="padding: 8px 0; border-bottom: 1px solid #F2F2F2; font-size: 12px; cursor:pointer;" data-open-id="${escapeHtml(c.id)}">
+      <div style="color: #1F1F1F; font-weight: 500;">${escapeHtml(c.name)}</div>
       <div style="color: #8C8C8C; font-size: 11px; margin-top: 2px;">
-        ${c.designer} · ${c.hotel}
+        ${escapeHtml(c.designer)} · ${escapeHtml(c.hotel)}
         ${c.why === '待你審核' ? '<span class="chip status-review" style="font-size: 10px; margin-left: 6px;">待審核</span>' : ''}
         ${c.why === '待簽核中'  ? '<span class="chip gate"        style="font-size: 10px; margin-left: 6px;">⏰ 待簽核</span>' : ''}
         ${c.why === '已逾期'  ? '<span class="chip overdue"     style="font-size: 10px; margin-left: 6px;">逾期</span>' : ''}
@@ -3503,7 +3506,7 @@ function v62ShowCaseList(kind) {
   bg.classList.add('open'); modal.style.display = 'block';
   const close = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
   bg.onclick = close;
-  const byDes = {};
+  const byDes = Object.create(null); // v10.3: 以使用者文字當鍵，避免撞 Object.prototype
   items.forEach(c => { byDes[c.designer] = (byDes[c.designer] || 0) + 1; });
   const desSummary = Object.entries(byDes).sort((a, b) => b[1] - a[1]).map(([d, n]) => `${escapeHtml(d)} ${n}`).join('、');
   modal.innerHTML = `
@@ -3547,7 +3550,7 @@ function v62ShowClosed(items) {
   bg.classList.add('open'); modal.style.display = 'block';
   const close = () => { bg.classList.remove('open'); modal.style.display = 'none'; };
   bg.onclick = close;
-  const byDes = {};
+  const byDes = Object.create(null); // v10.3: 以使用者文字當鍵，避免撞 Object.prototype
   list.forEach(c => { byDes[c.designer] = (byDes[c.designer] || 0) + 1; });
   const desSummary = Object.entries(byDes).sort((a, b) => b[1] - a[1]).map(([d, n]) => `${escapeHtml(d)} ${n}`).join('、');
   modal.innerHTML = `
@@ -3596,13 +3599,13 @@ function renderStaff() {
     html += `
       <div class="staff-row ${active?'':'inactive'}">
         <div class="s-name">
-          <span class="avatar">${s.name.slice(0,2)}</span>
+          <span class="avatar">${escapeHtml(String(s.name || '').slice(0,2))}</span>
           <div class="n-text">
-            <span class="n-primary">${s.name}</span>
+            <span class="n-primary">${escapeHtml(s.name)}</span>
             <span class="n-join">到職 ${ymd(s.joined)}</span>
           </div>
         </div>
-        <div class="s-email">${s.email}</div>
+        <div class="s-email">${escapeHtml(s.email)}</div>
         <div class="seniority-${s.seniority}">${SENIORITY_LABEL[s.seniority]}</div>
         <div>${active ? cases + ' 件' : '—'}</div>
         <div>${active ? collabCases + ' 件' : '—'}</div>
@@ -3614,10 +3617,10 @@ function renderStaff() {
           : '<span class="staff-chip-active">現職</span>'}</div>
         <div class="s-actions">
           ${active && s.pendingActivation && currentRole === 'admin'
-            ? `<button onclick="v73Reinvite(${s.id}, '${escapeHtml(s.name)}')" aria-label="重寄啟用邀請給 ${escapeHtml(s.name)}">重寄邀請</button>` : ''}
+            ? `<button data-reinvite-id="${s.id}" data-staff-name="${escapeHtml(s.name)}" aria-label="重寄啟用邀請給 ${escapeHtml(s.name)}">重寄邀請</button>` : ''}
           ${active
-            ? (currentRole === 'admin' ? `<button onclick="openDeparture('${s.name}')" class="danger" aria-label="為 ${escapeHtml(s.name)} 辦理離職">離職</button>` : '')
-            : `<button onclick="showToast('已離職：${s.name} · 歷史歸檔仍保留')" aria-label="查看 ${escapeHtml(s.name)} 的歷史歸檔">查看歸檔</button>`}
+            ? (currentRole === 'admin' ? `<button data-depart-name="${escapeHtml(s.name)}" class="danger" aria-label="為 ${escapeHtml(s.name)} 辦理離職">離職</button>` : '')
+            : `<button data-archive-toast-name="${escapeHtml(s.name)}" aria-label="查看 ${escapeHtml(s.name)} 的歷史歸檔">查看歸檔</button>`}
         </div>
       </div>
     `;
@@ -3858,7 +3861,7 @@ if (_v92Back) _v92Back.onclick = v92CloseDrawer;
 // ============== Create modal ==============
 function openCreateModal() {
   const hSel = document.getElementById('f-hotel');
-  hSel.innerHTML = '<option value="">請選擇…</option>' + HOTELS.map(h => `<option value="${h.name}">${h.region} · ${h.name}</option>`).join('');
+  hSel.innerHTML = '<option value="">請選擇…</option>' + HOTELS.map(h => `<option value="${escapeHtml(h.name)}">${escapeHtml(h.region)} · ${escapeHtml(h.name)}</option>`).join('');
   hSel.value = ''; // B4: 預設不選，避免漏填送出
   const uSel = document.getElementById('f-unit');
   uSel.innerHTML = '<option value="">請選擇…</option>' + REQUEST_UNITS.map(u => `<option value="${u}">${u}</option>`).join('');
@@ -3876,7 +3879,7 @@ function openCreateModal() {
   lSel.innerHTML = LEVELS.map(l => `<option value="${l}" ${l==='B'?'selected':''}>${l}</option>`).join('');
   const dSel = document.getElementById('f-designer');
   const defDes = currentRole === 'designer' ? ME_NAME() : '';
-  dSel.innerHTML = '<option value="">-- 選負責人 --</option>' + activeDesigners().map(dn => `<option value="${dn}" ${dn===defDes?'selected':''}>${dn}</option>`).join('');
+  dSel.innerHTML = '<option value="">-- 選負責人 --</option>' + activeDesigners().map(dn => `<option value="${escapeHtml(dn)}" ${dn===defDes?'selected':''}>${escapeHtml(dn)}</option>`).join('');
   const self = document.getElementById('f-self');
   self.checked = (currentRole === 'designer');
   toggleSelfCreated();
@@ -3933,7 +3936,7 @@ function renderCollabPicker() {
     const selected = draftCollabs.includes(dn);
     const cls = isPrimary ? 'collab-chip disabled' : 'collab-chip' + (selected ? ' selected' : '');
     const tag = isPrimary ? '<span class="role-tag">主負責</span>' : '';
-    return `<span class="${cls}" data-dn="${dn}">${dn}${tag ? ' ' + tag : ''}</span>`;
+    return `<span class="${cls}" data-dn="${escapeHtml(dn)}">${escapeHtml(dn)}${tag ? ' ' + tag : ''}</span>`;
   }).join('');
   wrap.querySelectorAll('.collab-chip').forEach(el => {
     el.onclick = () => {
@@ -3953,7 +3956,7 @@ function renderItemsEditor() {
       <select data-i="${i}" data-k="type">${DELIVERABLES.map(c => `<option value="${c}" ${c===it.type?'selected':''}>${c}</option>`).join('')}</select>
       <select data-i="${i}" data-k="owner">
         <option value="">（同主負責）</option>
-        ${activeDesigners().map(dn => `<option value="${dn}" ${dn===it.owner?'selected':''}>${dn}</option>`).join('')}
+        ${activeDesigners().map(dn => `<option value="${escapeHtml(dn)}" ${dn===it.owner?'selected':''}>${escapeHtml(dn)}</option>`).join('')}
       </select>
       <button class="rm" data-rm="${i}" type="button">×</button>
     </div>
@@ -4060,7 +4063,7 @@ function openReassign(caseId) {
   document.getElementById('r-from-preview').textContent = c.designer;
   const rt = document.getElementById('r-to');
   rt.innerHTML = '<option value="">-- 選新負責人 --</option>' +
-    activeDesigners().filter(dn => dn !== c.designer).map(dn => `<option value="${dn}">${dn}（工作量 ${workloadScore(dn).toFixed(1)}）</option>`).join('');
+    activeDesigners().filter(dn => dn !== c.designer).map(dn => `<option value="${escapeHtml(dn)}">${escapeHtml(dn)}（工作量 ${workloadScore(dn).toFixed(1)}）</option>`).join('');
   rt.onchange = () => document.getElementById('r-to-preview').textContent = rt.value || '（選新負責人）';
   document.getElementById('r-to-preview').textContent = '（選新負責人）';
   document.getElementById('r-reason').value = '';
@@ -4137,7 +4140,7 @@ function openDeparture(name) {
   const done = doneCasesOf(name);
   const collab = CASES.filter(c => (c.collaborators||[]).includes(name) && c.status !== 'done' && !c.archived);
   document.getElementById('dep-summary').innerHTML = `
-    <b>${name}</b>（${SENIORITY_LABEL[s.seniority]} · 到職 ${ymd(s.joined)}）即將離職。
+    <b>${escapeHtml(name)}</b>（${SENIORITY_LABEL[s.seniority]} · 到職 ${ymd(s.joined)}）即將離職。
     系統偵測到：進行中／等待中／確稿中專案 <b>${active.length}</b> 件，需指派新繼承者；
     已完成專案 <b>${done.length}</b> 件，將一併封存；
     協作中專案 <b>${collab.length}</b> 件，將自動移除協作身分並通知主負責人。
@@ -4164,20 +4167,20 @@ function openDeparture(name) {
       const opts = STAFF.filter(st => st.active && st.name !== name).map(st => {
         const sc = workloadScore(st.name);
         const sel = (sug && sug.name === st.name) ? 'selected' : '';
-        return `<option value="${st.name}" ${sel}>${st.name}（工作量 ${sc.toFixed(1)}${sug && sug.name === st.name ? ' ✨建議' : ''}）</option>`;
+        return `<option value="${escapeHtml(st.name)}" ${sel}>${escapeHtml(st.name)}（工作量 ${sc.toFixed(1)}${sug && sug.name === st.name ? ' ✨建議' : ''}）</option>`;
       }).join('');
       rows += `
         <div class="transfer-row">
           <div>
             <div class="t-name">
-              ${c.name}
+              ${escapeHtml(c.name)}
               <span class="chip level-${c.level}">${c.level}</span>
               <span class="chip status-${escapeHtml(c.status)}">${escapeHtml((STATUSES.find(s=>s.key===c.status)||{}).name || c.status)}</span>
               ${c.urgent ? '<span class="chip urgent">🔥</span>' : ''}
             </div>
-            <div class="t-meta">${c.id} · ${c.hotel} · 上線 ${ymd(c.goLive)}${sug ? ` · <span class="suggest-tag">✨ 建議繼承者：${sug.name}</span>` : ''}</div>
+            <div class="t-meta">${escapeHtml(c.id)} · ${escapeHtml(c.hotel)} · 上線 ${ymd(c.goLive)}${sug ? ` · <span class="suggest-tag">✨ 建議繼承者：${escapeHtml(sug.name)}</span>` : ''}</div>
           </div>
-          <select data-cid="${c.id}">${opts}</select>
+          <select data-cid="${escapeHtml(c.id)}">${opts}</select>
         </div>
       `;
     });
@@ -5412,7 +5415,7 @@ async function v33InjectDrawerExtras(c) {
         ${['SS','S','A','B','C','D'].map(l=>`<option value="${l}" ${c.level===l?'selected':''}>${l}</option>`).join('')}
       </select></label>
       <label class="v33-wide">主負責人<select id="v33-designer" ${!isAdmin && c.designer !== ME_NAME() && c._designerId !== ME.id ? 'disabled title="主負責人由原主責或管理員調整"' : ''} style="width:100%;padding:4px 6px;border:1px solid #D4D4D4;border-radius:4px;">
-        ${STAFF.filter(s=>s.active).map(s=>`<option value="${s.id}" ${s.name===c.designer?'selected':''}>${s.name}</option>`).join('')}
+        ${STAFF.filter(s=>s.active).map(s=>`<option value="${s.id}" ${s.name===c.designer?'selected':''}>${escapeHtml(s.name)}</option>`).join('')}
       </select></label>
     </div>
     <button id="v33-save-edit" style="margin-top:10px;padding:6px 14px;background:#1F1F1F;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;">💾 儲存變更（需填原因）</button>
@@ -6539,7 +6542,7 @@ function renderHistory() {
   }
   const hl = (text) => { const t = escapeHtml(text || ''); if (!q) return t; try { return t.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi'), '<mark>$1</mark>'); } catch { return t; } };
   wrap.innerHTML = list.map(c => `
-    <div class="case-card archived-case" onclick='openDrawer(window.V59_HISTORY.find(x=>x.id===${JSON.stringify(c.id)}))'>
+    <div class="case-card archived-case" data-open-id="${escapeHtml(c.id)}">
       <div class="row1">
         <div>
           <div class="case-id">${hl(c.id)}</div>
@@ -6676,10 +6679,10 @@ async function renderApproval() {
           <div style="display:flex;flex-direction:column;gap:6px;">
             <textarea id="v36-cmt-${r.id}" placeholder="評語（可選）" rows="2" style="width:200px;padding:5px 8px;border:1px solid #D4D4D4;border-radius:4px;font-size:11px;resize:vertical;"></textarea>
             <div style="display:flex;gap:6px;">
-              <button onclick="v36ApprovalDecision('${r.id}', 'reject')" style="flex:1;padding:6px 10px;background:#fff;color:#9A2E2E;border:1px solid #9A2E2E;border-radius:4px;cursor:pointer;font-size:12px;">↩ 退回</button>
-              <button onclick="v36ApprovalDecision('${r.id}', 'approve')" style="flex:1;padding:6px 10px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">✓ 通過</button>
+              <button data-approve-id="${escapeHtml(r.id)}" data-decision="reject" style="flex:1;padding:6px 10px;background:#fff;color:#9A2E2E;border:1px solid #9A2E2E;border-radius:4px;cursor:pointer;font-size:12px;">↩ 退回</button>
+              <button data-approve-id="${escapeHtml(r.id)}" data-decision="approve" style="flex:1;padding:6px 10px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">✓ 通過</button>
             </div>
-            <button onclick='openDrawer(CASES.find(x=>x.id===${JSON.stringify(r.id)}))' style="padding:5px;background:transparent;border:none;color:#1F6FEB;font-size:11px;cursor:pointer;">查看詳情 →</button>
+            <button data-open-id="${escapeHtml(r.id)}" style="padding:5px;background:transparent;border:none;color:#1F6FEB;font-size:11px;cursor:pointer;">查看詳情 →</button>
           </div>
         </div>
       </div>
@@ -6791,7 +6794,7 @@ function v36BuildUserMenu() {
   const sel = document.createElement('select');
   sel.className = 'tb-ctl tb-select';   // v9.1: 原本 inline 深底白字，在淺色品牌列上變成看不見的空框
   sel.innerHTML = '<option value="">— 切換到成員視角 —</option>' +
-    STAFF.filter(s => s.active && s.id !== ME.id && s.role !== 'observer').map(s => `<option value="${s.name}" ${v36ViewAsName === s.name ? 'selected' : ''}>${s.name}</option>`).join('');
+    STAFF.filter(s => s.active && s.id !== ME.id && s.role !== 'observer').map(s => `<option value="${escapeHtml(s.name)}" ${v36ViewAsName === s.name ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
   sel.onchange = () => {
     if (!sel.value) { v36ViewAsName = null; currentRole = 'admin'; }
     else { v36ViewAsName = sel.value; currentRole = 'designer'; currentView = 'personal'; }
@@ -6980,9 +6983,9 @@ window.renderDashboard = function() {
   const byHotelEl = document.getElementById('by-hotel');
   if (byHotelEl) {
     const live = CASES.filter(c => !c.archived);
-    const counts = {};
+    const counts = Object.create(null); // v10.3: 以使用者文字當鍵，避免撞 Object.prototype
     HOTELS.forEach(h => counts[h.name] = 0);
-    live.forEach(c => { if (counts.hasOwnProperty(c.hotel)) counts[c.hotel]++; });
+    live.forEach(c => { if (Object.prototype.hasOwnProperty.call(counts, c.hotel)) counts[c.hotel]++; });
     const ordered = HOTELS.slice().sort((a,b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
     const max = Math.max(1, ...Object.values(counts));
     byHotelEl.innerHTML = ordered.map(h => {
@@ -7010,7 +7013,7 @@ window.renderDashboard = function() {
     const pool = [...reviewing, ...overdueOnes, ...urgent]
       .filter((c,i,arr) => arr.findIndex(x => x.id === c.id) === i).slice(0,8);
     att.innerHTML = pool.length ? pool.map(c => `
-      <div style="padding:8px 0;border-bottom:1px solid #F2F2F2;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px;" onclick="openDrawerById('${c.id}')">
+      <div style="padding:8px 0;border-bottom:1px solid #F2F2F2;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px;" data-open-id="${escapeHtml(c.id)}">
         <span class="chip status-${c.status}" style="font-size:10px;">${(STATUSES.find(s=>s.key===c.status)||{name:c.status}).name}</span>
         <div style="flex:1;">
           <div style="font-weight:500;">${escapeHtml(c.name)}</div>
@@ -7060,7 +7063,7 @@ function v37RenderUpcomingDue() {
     ${upcoming.length === 0 ? '<div style="font-size:12px;color:#8C8C8C;">明天沒有確稿到期的案件 ✓</div>' :
       `<div style="display:flex;flex-direction:column;gap:6px;">
         ${upcoming.map(c => `
-          <div style="display:flex;gap:10px;align-items:center;padding:6px;background:#fff;border-radius:5px;cursor:pointer;font-size:12px;" onclick="openDrawerById('${c.id}')">
+          <div style="display:flex;gap:10px;align-items:center;padding:6px;background:#fff;border-radius:5px;cursor:pointer;font-size:12px;" data-open-id="${escapeHtml(c.id)}">
             <span class="chip level-${c.level}" style="font-size:10px;">${c.level}</span>
             <span style="font-weight:500;">${escapeHtml(c.name)}</span>
             <span style="color:#595959;">${escapeHtml(c.designer)}</span>
@@ -7348,7 +7351,7 @@ window.renderStaff = function() {
     const actions = row.querySelector('.s-actions');
     if (!actions) return;
     // Replace existing button content
-    actions.innerHTML = `<button onclick="v37ShowDepartureArchive('${name.replace(/'/g, "\\'")}')" style="padding:5px 12px;background:#F0F0F0;border:1px solid #D4D4D4;border-radius:4px;cursor:pointer;font-size:11px;">查看歸檔</button>`;
+    actions.innerHTML = `<button data-departure-archive-name="${escapeHtml(name)}" style="padding:5px 12px;background:#F0F0F0;border:1px solid #D4D4D4;border-radius:4px;cursor:pointer;font-size:11px;">查看歸檔</button>`;
   });
 };
 
@@ -7378,7 +7381,7 @@ function v37ShowDepartureArchive(name) {
     <div class="case-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;">
       ${cases.length === 0 ? '<div style="grid-column:1/-1;padding:30px;text-align:center;color:#8C8C8C;">無案件紀錄</div>' :
         cases.map(c => `
-          <div class="case-card archived-case" onclick='openDrawer(CASES.find(x=>x.id===${JSON.stringify(c.id)}))'>
+          <div class="case-card archived-case" data-open-id="${escapeHtml(c.id)}">
             <div class="row1">
               <div>
                 <div class="case-id">${escapeHtml(c.id)}</div>
@@ -7428,7 +7431,7 @@ function v37AddAnalyticsStaffSelector() {
   sel.style.cssText = 'margin-left:8px;padding:6px 10px;border:1px solid #D4D4D4;border-radius:5px;font-size:12px;background:#fff;';
   sel.innerHTML = '<option value="">全部設計師</option>' +
     STAFF.filter(s => s.active && s.role !== 'admin')
-      .map(s => `<option value="${s.id}">${s.name} 個人視圖</option>`).join('');
+      .map(s => `<option value="${s.id}">${escapeHtml(s.name)} 個人視圖</option>`).join('');
   sel.onchange = async () => {
     const id = sel.value ? Number(sel.value) : null;
     const data = await api.analytics.get({ period: v33Period, offset: v33Offset, ...(id ? { staffId: id } : {}) });
@@ -7664,7 +7667,7 @@ async function v37RenderHotelManager(modal) {
       if (hSel) {
         const keep = hSel.value;
         hSel.innerHTML = '<option value="">請選擇…</option>' +
-          HOTELS.map(h => `<option value="${h.name}">${h.region} · ${h.name}</option>`).join('');
+          HOTELS.map(h => `<option value="${escapeHtml(h.name)}">${escapeHtml(h.region)} · ${escapeHtml(h.name)}</option>`).join('');
         hSel.value = HOTELS.some(h => h.name === keep) ? keep : '';
       }
       showToast('已儲存館別順序');
@@ -8248,6 +8251,28 @@ window.v95DrawerSeq = (() => { let n = 0; return { bump: () => ++n, now: () => n
 const _v95OrigOpenDrawer = window.openDrawer;
 window.openDrawer = function (c) { window.v95DrawerSeq.bump(); return _v95OrigOpenDrawer.apply(this, arguments); };
 
+// v10.3: 以 data-* + 事件委派取代 inline onclick 的字串拼接。
+// escapeHtml 只能保護 HTML 屬性，擋不住 JS 字串裡的單引號；data 屬性讀回來就是原值，不經 JS 解析。
+if (!window.__v10Delegated) {
+  window.__v10Delegated = true;
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    const tog = t.closest && t.closest('[data-toggle-id]');
+    if (tog) { e.stopPropagation(); if (typeof toggleProject === 'function') toggleProject(tog.dataset.toggleId); return; }
+    const rv = t.closest && t.closest('[data-reinvite-id]');
+    if (rv) { if (typeof v73Reinvite === 'function') v73Reinvite(Number(rv.dataset.reinviteId), rv.dataset.staffName || ''); return; }
+    const dp = t.closest && t.closest('[data-depart-name]');
+    if (dp) { if (typeof openDeparture === 'function') openDeparture(dp.dataset.departName); return; }
+    const at = t.closest && t.closest('[data-archive-toast-name]');
+    if (at) { showToast('已離職：' + at.dataset.archiveToastName + ' · 歷史歸檔仍保留'); return; }
+    const da = t.closest && t.closest('[data-departure-archive-name]');
+    if (da) { if (typeof v37ShowDepartureArchive === 'function') v37ShowDepartureArchive(da.dataset.departureArchiveName); return; }
+    const ap = t.closest && t.closest('[data-approve-id]');
+    if (ap) { if (typeof v36ApprovalDecision === 'function') v36ApprovalDecision(ap.dataset.approveId, ap.dataset.decision); return; }
+    const op = t.closest && t.closest('[data-open-id]');
+    if (op) { openDrawerById(op.dataset.openId); }
+  });
+}
 window.openDrawerById = async function(id) {
   // 先遞增：就算這次命中快取、同步開啟，也要讓仍在飛的慢封存請求失效
   const seq = window.v95DrawerSeq.bump(), viewAt = currentView;
@@ -8751,7 +8776,7 @@ function v41InjectVacationTripRows() {
   };
 
   // Build a map of { staffName: [{vacRow / tripRow}] }
-  const byStaff = {};
+  const byStaff = Object.create(null); // v10.3: 以使用者文字當鍵，避免撞 Object.prototype
   VACATIONS.forEach(v => {
     const name = v.staff?.name || '?';
     (byStaff[name] = byStaff[name] || []).push({ kind: 'vac', data: v });
@@ -9344,7 +9369,7 @@ function v61SuggestSlots() {
     if (!busy.some(([bs, be]) => st < be && bs < en)) slots.push(st);
     if (slots.length >= 8) break;
   }
-  if (awayAll.length) { box.innerHTML = `<span style="color:#9A2E2E;font-size:11px;">${awayAll.join('、')} 當天請假/出差，建議改日</span>`; return; }
+  if (awayAll.length) { box.innerHTML = `<span style="color:#9A2E2E;font-size:11px;">${escapeHtml(awayAll.join('、'))} 當天請假/出差，建議改日</span>`; return; }
   box.innerHTML = slots.length
     ? '<div style="font-size:11px;color:#8C8C8C;margin-bottom:3px;">可開會時段（點選自動填入，時長 ' + dur + ' 分）：</div>' + slots.map(st =>
         `<button type="button" class="v61-slot" data-s="${toHHMM(st)}" data-e="${toHHMM(st + dur)}" style="margin:2px;padding:3px 9px;font-size:11px;border:1px solid #1F8A4C;background:transparent;color:#1F8A4C;border-radius:12px;cursor:pointer;">${toHHMM(st)}–${toHHMM(st + dur)}</button>`).join('')
@@ -10383,11 +10408,11 @@ function v43InjectSubItemsPanel(c, body) {
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
               <div>
                 <label style="${labelStyle}">開始日</label>
-                <input type="date" data-i="${i}" data-k="start" value="${it.start||''}" ${canWrite?'':'disabled'} style="${inputStyle}">
+                <input type="date" data-i="${i}" data-k="start" value="${escapeHtml(it.start||'')}" ${canWrite?'':'disabled'} style="${inputStyle}">
               </div>
               <div>
                 <label style="${labelStyle}">結束日</label>
-                <input type="date" data-i="${i}" data-k="end" value="${it.end||''}" ${canWrite?'':'disabled'} style="${inputStyle}">
+                <input type="date" data-i="${i}" data-k="end" value="${escapeHtml(it.end||'')}" ${canWrite?'':'disabled'} style="${inputStyle}">
               </div>
               <div>
                 <label style="${labelStyle}">狀態（可同時 2 個）</label>
@@ -10663,18 +10688,18 @@ function v44MakeSubItemCard(c, it, idx) {
       <div>
         <div class="case-id" style="display:flex;align-items:center;gap:6px;">
           <span style="font-size:10px;padding:1px 6px;background:${stInfo.color}22;color:${stInfo.color};border:1px solid ${stInfo.color}55;border-radius:8px;font-weight:600;">子案件</span>
-          ${c.id} · 第 ${idx+1} 件
+          ${escapeHtml(c.id)} · 第 ${idx+1} 件
         </div>
         <div class="title">${escapeHtml(it.n || '(未命名子案件)')}</div>
         <div class="sub">來自主案 · ${escapeHtml(c.name)} · ${escapeHtml(c.hotel || '')}</div>
       </div>
       <div style="display:flex;align-items:center;gap:4px;">
-        <span class="avatar" title="主負責：${c.designer}">${c.designer.slice(0,2)}</span>
+        <span class="avatar" title="主負責：${escapeHtml(c.designer)}">${escapeHtml(String(c.designer || '').slice(0,2))}</span>
       </div>
     </div>
     <div class="row2">
       ${subTypeChip}
-      <span class="chip" style="font-size:10px;background:${stInfo.color}22;color:${stInfo.color};border-color:${stInfo.color}55;">${stInfo.name}</span>
+      <span class="chip" style="font-size:10px;background:${stInfo.color}22;color:${stInfo.color};border-color:${stInfo.color}55;">${escapeHtml(stInfo.name)}</span>
       ${overdue ? '<span class="chip overdue">⚠ 逾期</span>' : ''}
     </div>
     <div class="row3">
@@ -10943,7 +10968,7 @@ function v77LeadStats(cases) {
   const chains = rows.map((r) => r.chain);
   const designs = rows.filter((r) => r.design !== null).map((r) => r.design);
   const med = (a) => { if (!a.length) return null; const b = a.slice().sort((x, y) => x - y); const m = Math.floor(b.length / 2); return b.length % 2 ? b[m] : Math.round((b[m - 1] + b[m]) / 2); };
-  const byUnit = {};
+  const byUnit = Object.create(null); // v10.3: 以使用者文字當鍵，避免撞 Object.prototype
   rows.forEach((r) => { const u = r.c.unit || '（未填）'; (byUnit[u] = byUnit[u] || []).push(r.chain); });
   return {
     n: rows.length,
@@ -11224,7 +11249,7 @@ function v69Median(arr) {
 }
 // 依需求單位彙整
 function v69Aggregate(cases) {
-  const by = {};
+  const by = Object.create(null); // v10.3: 以使用者文字當鍵，避免撞 Object.prototype
   cases.forEach(c => {
     const u = c.unit || '（未填）';
     if (!by[u]) by[u] = { unit: u, n: 0, open: 0, overdue: 0, urgent: 0, cycles: [], revise: 0, blocked: 0, scope: 0, odDesign: 0, odExternal: 0, odManager: 0 };
@@ -11630,7 +11655,7 @@ function v81Cases() {
 }
 function v81HotelRows() {
   const rows = v81Cases();
-  const byHotel = {};
+  const byHotel = Object.create(null); // v10.3: 以使用者文字當鍵，避免撞 Object.prototype
   // 使用完整字典（含停用館別）；尚未載入時才退回 HOTELS，並在 UI 標示範圍
   const dict = (v81HotelDict && v81HotelDict.length) ? v81HotelDict : HOTELS;
   dict.slice().sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999))

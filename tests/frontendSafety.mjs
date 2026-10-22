@@ -61,7 +61,7 @@ function dom(){
     n.querySelector=selector=>n.querySelectorAll(selector)[0]||null;
     n.closest=selector=>{let current=n;while(current){if(matches(current,selector))return current;current=current.parentNode;}return null;};
     n.addEventListener=(type,fn)=>{(n.events[type]||=[]).push(fn);};
-    n.click=()=>{if(n.disabled)return;const event={target:n,preventDefault(){},stopPropagation(){}};const returned=n.onclick?.(event);for(const fn of n.events.click||[])fn(event);return returned;};
+    n.click=()=>{if(n.disabled)return;let stopped=false;const event={type:'click',target:n,preventDefault(){},stopPropagation(){stopped=true;}};const returned=n.onclick?.(event);for(const fn of n.events.click||[])fn(event);let parent=n.parentNode;while(parent&&!stopped){parent.onclick?.(event);for(const fn of parent.events.click||[])fn(event);parent=parent.parentNode;}if(!stopped)document.dispatchEvent(event);return returned;};
     n.focus=()=>{};n.select=()=>{};n.scrollIntoView=()=>{};n.insertAdjacentElement=(_pos,child)=>n.parentNode?.appendChild(child);
     all.push(n);return n;
   }
@@ -75,6 +75,7 @@ function dom(){
     return true;
   }
   const document={createElement:tag=>element(tag),getElementById:id=>all.find(n=>n.id===id&&n.isConnected)||null,execCommand(){throw Error('No real clipboard fallback permitted');}};
+  document.events={};document.addEventListener=(type,fn)=>{(document.events[type]||=[]).push(fn);};document.dispatchEvent=event=>{for(const fn of document.events[event.type]||[])fn(event);};
   document.body=element('body');document.head=element('head');
   document.querySelectorAll=s=>[...document.body.querySelectorAll(s),...document.head.querySelectorAll(s)];document.querySelector=s=>document.querySelectorAll(s)[0]||null;
   const seed=(id,tag='div',parent=document.body)=>parent.appendChild(element(tag,id));
@@ -105,6 +106,93 @@ await test('drawer renders user-controlled text and attribute values inertly wit
   assert(d.get('d-grid').textContent.includes(text),'note remains readable');
   assert.equal(d.get('d-archive-input').value,attr,'attribute value survives as literal input text');
   assert(d.get('d-subitems').textContent.includes(text),'subitem text remains readable');
+});
+
+// Render real source functions into the inert parsed DOM. Attack fixtures are
+// never executed. Separate benign quoted names exercise actual button callbacks.
+const rendererPayload='<img data-audit-marker="renderer" src=x onerror="neverExecute()"> " data-audit-attr="literal" & \' ';
+function assertRenderedInert(d){
+  assert.equal(d.document.querySelectorAll('[data-audit-marker]').length,0,'input must not create elements');
+  assert.equal(d.document.querySelectorAll('[data-audit-attr]').length,0,'input must not create attributes');
+}
+function rendererContext(raw=fixture('A')){
+  const d=dom();for(const id of ['gantt','gantt-range','gantt-scope','kb-filter-designer','kb-filter-hotel','kanban','staff-kpi','staff-table'])d.seed(id);
+  const c=baseContext(d,{CASES:[],STAFF:[{id:1,name:'Designer',role:'member',active:true}],HOTELS:[],VACATIONS:[],TRIPS:[],ganttScale:'week',ganttScope:'hotel',ganttStart:new Date('2026-10-20T00:00:00'),expandedProjects:new Set(),hotelOrderCompare:(a,b)=>a.localeCompare(b),kbFilterDes:'all',kbFilterHotel:'all',v80Icon:()=>'',activeDesigners:()=>c.STAFF.filter(s=>s.active).map(s=>s.name),workloadScore:()=>1,SENIORITY_LABEL:{senior:'Senior'},openDrawer(){},openReassign(){},openDrawerById(){},v54KanbanDrop(){}});
+  vm.runInContext(section('const V43_ITEM_STATUS =','function v43InjectSubItemsPanel'),c);
+  vm.runInContext(section('const SCALE_CFG =','function openDrawerById(id)'),c);
+  vm.runInContext(section('function makeCaseCard(c)',"document.getElementById('personal-filter')"),c);
+  vm.runInContext(section('function renderKanban()','// H5: 看板拖放改狀態'),c);
+  vm.runInContext(section('function v44MakeSubItemCard(c, it, idx)','const _v44OrigRenderPersonal'),c);
+  vm.runInContext(section('function renderStaff()','// ============== Drawer'),c);
+  if(source.includes('if (!window.__v10Delegated)'))vm.runInContext(section('if (!window.__v10Delegated)','window.openDrawerById = async function'),c);
+  const row=c.decorateCase(c.normalizeCase(raw));c.CASES.push(row);c.expandedProjects.add(row.id);return {c,d,row};
+}
+await test('Gantt preserves a literal project title containing angle brackets in labels, bars, and titles',()=>{
+  const title='花太<sale skit>三館';const {c,d}=rendererContext(fixture('A',{title}));c.renderGantt();
+  assert.equal(d.get('gantt').querySelectorAll('sale').length,0);assert.equal(d.get('gantt').querySelector('.p-name').textContent,title);
+  assert.equal(d.get('gantt').querySelector('.gantt-bar').textContent,title);assert(d.get('gantt').querySelector('.p-name').getAttribute('title').includes(title));
+});
+for(const field of ['title','id','hotel','designer','subitem','type','owner','stage'])await test('Gantt treats '+field+' as literal text and attribute values',()=>{
+  const raw=fixture(field==='id'?rendererPayload:'A',{items:[{n:'Subitem',type:'PDF',owner:'Owner',status:'doing'}]});
+  if(['title','hotel'].includes(field))raw[field]=rendererPayload;
+  if(field==='designer')raw.designer.name=rendererPayload;
+  if(['subitem','type','owner','stage'].includes(field))raw.items[0][{subitem:'n',type:'type',owner:'owner',stage:'status'}[field]]=rendererPayload;
+  const {c,d}=rendererContext(raw);c.renderGantt();assertRenderedInert(d);const gantt=d.get('gantt');
+  if(field==='title'){assert(gantt.querySelector('.p-name').textContent.includes(rendererPayload));assert.equal(gantt.querySelector('.gantt-bar').textContent,rendererPayload);}
+  if(field==='id')assert(gantt.querySelector('.gantt-bar').getAttribute('title').includes(rendererPayload));
+  if(field==='hotel')assert.equal(gantt.querySelector('.g-label').textContent,rendererPayload);
+  if(field==='designer'){assert.equal(gantt.querySelector('.p-avatar').getAttribute('title'),rendererPayload);assert.equal(gantt.querySelector('.p-avatar').textContent,rendererPayload.slice(0,2));c.ganttScope='designer';c.renderGantt();assertRenderedInert(d);assert.equal(gantt.querySelector('.g-label').textContent,rendererPayload);}
+  if(field==='subitem'){assert(gantt.querySelector('.sub-row .p-name').textContent.includes(rendererPayload));assert.equal(gantt.querySelector('.gantt-bar.sub').textContent,rendererPayload);}
+  if(['type','stage'].includes(field))assert(gantt.querySelector('.sub-row').textContent.includes(rendererPayload));
+  if(field==='owner')assert(gantt.querySelectorAll('.sub-row [title]').some(n=>n.getAttribute('title')==='負責 '+rendererPayload));
+});
+await test('expanded Gantt subitem keeps a custom stage inside its class attribute',()=>{
+  const stage='doing\" data-audit-attr=\"stage\" onpointerenter=\"neverExecute()';
+  const {c,d}=rendererContext(fixture('A',{items:[{n:'Subitem',type:'PDF',owner:'Owner',status:stage}]}));c.renderGantt();assertRenderedInert(d);
+  const bar=d.get('gantt').querySelector('.gantt-bar.sub');assert(bar);assert.equal(bar.getAttribute('class'),'gantt-bar sub s-'+stage);assert.equal(bar.getAttribute('onpointerenter'),null);assert(d.get('gantt').querySelector('.sub-row').textContent.includes(stage));
+});
+for(const scope of ['hotel','designer'])for(const name of ['__proto__','constructor'])await test('Gantt accepts '+scope+' group name '+name+' without prototype collisions',()=>{
+  const {c,d}=rendererContext(fixture('A',{hotel:name,designer:{id:1,name}}));c.ganttScope=scope;c.renderGantt();assert.equal(d.get('gantt').querySelector('.g-label').textContent,name);
+});
+await test('Gantt toggle and drawer callbacks receive a benign quoted case ID unchanged',()=>{
+  const id='CASE-\'\"<&';const {c,d}=rendererContext(fixture(id,{items:[{n:'Subitem',status:'doing'}]}));const calls=[];c.toggleProject=(value)=>calls.push(['toggle',value]);c.openDrawerById=(value)=>calls.push(['open',value]);c.renderGantt();
+  clickBenignHandler(d.get('gantt').querySelector('button.expander'),c);clickBenignHandler(d.get('gantt').querySelector('.gantt-bar'),c);
+  assert.deepEqual(calls,[['toggle',id],['open',id]]);
+});
+await test('case card keeps a literal project title and ID without parsing injected elements',()=>{
+  const {c,d,row}=rendererContext(fixture(rendererPayload,{title:rendererPayload,hotel:rendererPayload,requester:rendererPayload}));
+  const card=c.makeCaseCard(row);d.document.body.appendChild(card);assertRenderedInert(d);assert.equal(card.querySelector('.title').textContent,rendererPayload);assert.equal(card.querySelector('.case-id').textContent,rendererPayload);
+});
+for(const field of ['title','subtitle','hotel','designer','collaborator'])await test('Kanban preserves literal '+field+' text and filter attributes',()=>{
+  const raw=fixture('A');if(field==='title')raw.title=rendererPayload;if(field==='subtitle')raw.subTitle=rendererPayload;if(field==='hotel')raw.hotel=rendererPayload;
+  if(field==='designer')raw.designer.name=rendererPayload;if(field==='collaborator')raw.collaborators=[{id:2,name:rendererPayload}];
+  const {c,d}=rendererContext(raw);if(field==='designer')c.STAFF[0].name=rendererPayload;c.renderKanban();assertRenderedInert(d);const card=d.get('kanban').querySelector('.kb-card');assert(card);
+  if(['title','subtitle','hotel'].includes(field))assert(card.textContent.includes(rendererPayload));
+  if(field==='designer'){assert.equal(card.querySelector('.avatar').textContent,rendererPayload.slice(0,2));const opts=d.get('kb-filter-designer').querySelectorAll('option');assert(opts.some(n=>n.value===rendererPayload&&n.textContent===rendererPayload));}
+  if(field==='collaborator')assert.equal(card.querySelector('.avatar-stack .avatar').textContent,rendererPayload.slice(0,2));
+});
+await test('subitem card preserves user-controlled project, designer, type, and stage fields',()=>{
+  const {c,d,row}=rendererContext(fixture(rendererPayload,{title:rendererPayload,hotel:rendererPayload,designer:{id:1,name:rendererPayload}}));
+  const card=c.v44MakeSubItemCard(row,{n:rendererPayload,type:rendererPayload,status:rendererPayload},0);d.document.body.appendChild(card);assertRenderedInert(d);
+  assert.equal(card.querySelector('.title').textContent,rendererPayload);assert.equal(card.querySelector('.avatar').getAttribute('title'),'主負責：'+rendererPayload);assert(card.querySelector('.case-id').textContent.includes(rendererPayload));assert(card.querySelector('.row2').textContent.includes(rendererPayload));
+});
+for(const active of [true,false])await test('staff '+(active?'active':'inactive')+' row keeps names and email inert',()=>{
+  const {c,d}=rendererContext();c.currentRole='admin';c.STAFF=[{id:7,name:rendererPayload,email:rendererPayload,active,pendingActivation:true,seniority:'senior',joined:new Date('2020-01-01')}];c.renderStaff();assertRenderedInert(d);
+  assert.equal(d.get('staff-table').querySelector('.n-primary').textContent,rendererPayload);assert.equal(d.get('staff-table').querySelector('.s-email').textContent,rendererPayload);assert.equal(d.get('staff-table').querySelector('.avatar').textContent,rendererPayload.slice(0,2));
+});
+function clickBenignHandler(node,c){
+  assert(node);if(typeof node.onclick==='function')return node.onclick({target:node,stopPropagation(){},preventDefault(){}});
+  const handler=node.getAttribute('onclick');if(!handler){assert(c.document.events.click?.length,'button has delegated click handler');return node.click();}
+  // This executes source-generated handler code only with a benign quoted name,
+  // never rendererPayload or an injected executable fragment.
+  return vm.runInContext('(function(){'+handler+'}).call(null)',c);
+}
+await test('staff buttons preserve a benign quoted name and numeric ID in their callback arguments',()=>{
+  const name='O\'Neil "設計" <文字> &';const {c,d}=rendererContext();const calls=[];c.currentRole='admin';c.v73Reinvite=(...args)=>calls.push(['invite',...args]);c.openDeparture=(...args)=>calls.push(['departure',...args]);c.showToast=(...args)=>calls.push(['toast',...args]);
+  c.STAFF=[{id:7,name,email:'synthetic@example.invalid',active:true,pendingActivation:true,seniority:'senior',joined:new Date('2020-01-01')}];c.renderStaff();
+  const buttons=d.get('staff-table').querySelectorAll('button');clickBenignHandler(buttons.find(n=>n.textContent.includes('重寄邀請')),c);clickBenignHandler(buttons.find(n=>n.textContent==='離職'),c);
+  assert.deepEqual(calls[0],['invite',7,name]);assert.deepEqual(calls[1],['departure',name]);
+  c.STAFF[0].active=false;c.renderStaff();clickBenignHandler(d.get('staff-table').querySelector('button'),c);assert.equal(calls[2][0],'toast');assert(calls[2][1].includes(name));
 });
 
 await test('activation identity is rendered as inert text',async()=>{
@@ -245,6 +333,14 @@ for(const fail of [false,true])await test('subitem save sends the displayed revi
   assert.equal(row._updatedAt,fail?oldStamp:newStamp);assert.equal(row._contentVersion,fail?oldVersion:newVersion);assert.equal(row.items[0].n,fail?'Original subitem':'Changed subitem');
 });
 
+await test('subitem editor keeps date attributes inert even for malformed stored values',()=>{
+  const {c,d,open}=logContext(()=>{});c.STAFF=[{id:1,name:'Designer',active:true,role:'member'}];c.DELIVERABLES=['PDF'];c.reloadCase=async()=>{};c.v33RenderChangeLog=()=>{};
+  vm.runInContext(section('api.cases.patchItems =','// ─── v4.4: 子案件納入'),c);
+  const row=open(fixture('A',{items:[{n:'Date fixture',type:'PDF',owner:'Designer',status:'doing',start:rendererPayload,end:rendererPayload,logs:[]}]}));
+  const body=d.seed('items-date-safety');c.v43InjectSubItemsPanel(row,body);assertRenderedInert(d);
+  assert.equal(body.querySelector('input[data-k="start"]').getAttribute('value'),rendererPayload);assert.equal(body.querySelector('input[data-k="end"]').getAttribute('value'),rendererPayload);
+});
+
 await test('subitem editor keeps the revision captured when opened even if another mutation advances the case',async()=>{
   const {c,d,requests,open}=logContext(async()=>{const e=Error('stale editor');e.status=409;throw e;});
   c.STAFF=[{id:1,name:'Designer',active:true,role:'member'}];c.DELIVERABLES=['PDF'];c.reloadCase=async()=>{};c.v33RenderChangeLog=()=>{};
@@ -326,5 +422,5 @@ for(const reopen of [false,true])await test('calendar '+(reopen?'reopen':'scope 
   requests[2].resolve({url:'https://example.invalid/calendar#FRESH',expires:'2026-11-22T00:00:00Z',scope});await flush();await d.get('v57-sub-copy').click();assert.deepEqual(copied,['https://example.invalid/calendar#FRESH']);
 });
 
-console.log(JSON.stringify({passed,failed,liveNetwork:false,productionWrites:0,syntheticHtmlExecuted:false}));
+console.log(JSON.stringify({passed,failed,liveNetwork:false,productionWrites:0,syntheticPayloadExecuted:false,benignHandlerCallbacksExercised:true}));
 if(failed)process.exitCode=1;
