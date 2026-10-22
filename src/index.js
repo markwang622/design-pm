@@ -24,6 +24,7 @@ import shootsRouter from './routes/shoots.js'; // G2
 import meetingsRouter from './routes/meetings.js'; // v6.0
 import icalRouter from './routes/ical.js'; // J2
 import adminRouter from './routes/admin.js';
+import demoDataRouter from './routes/demoData.js'; // v9.4 暫用：正式→Demo 資料複製（僅 demo 站啟用）
 import { startMeetingReminderLoop } from './services/meetingReminders.js'; // M3
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -147,6 +148,7 @@ app.use('/api/shoots', shootsRouter); // G2
 app.use('/api/meetings', meetingsRouter); // v6.0
 app.use('/api/ical', icalRouter); // J2（免登入，?key= 驗證）
 app.use('/api/admin', adminRouter);
+app.use('/api/admin/demo-data', demoDataRouter); // APP_BASE_URL !== demo 站時整組 404
 
 // 404 for unknown API paths
 app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
