@@ -1053,6 +1053,42 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
   .v80-addform { grid-template-columns: 1fr; }
 }
 
+/* ────────── v8.2 手機版面修正（320px 不得水平溢出）──────────
+   原則：用 min-width:0 與單欄重排讓內容縮得下，不用 overflow:hidden 裁切，
+   否則重要的時程與負責人欄位會看不見。桌面版不受影響。 */
+
+/* 抽屜內「調整時程 / 任務」：原本固定三欄，320px 會把上線日與主負責人推出畫面 */
+.v33-edit-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 12px; min-width: 0;
+}
+.v33-edit-grid > label { min-width: 0; display: block; }
+.v33-edit-grid > label.v33-wide { grid-column: span 2; }
+.v33-edit-grid input, .v33-edit-grid select { min-width: 0; max-width: 100%; box-sizing: border-box; }
+@media (max-width: 560px) {
+  .v33-edit-grid { grid-template-columns: 1fr; }
+  /* media query 不提升特異性：.v33-edit-grid > label.v33-wide (0,2,1) 仍會勝過
+     .v33-edit-grid > label (0,1,1)，導致手機上 wide 欄位照樣 span 2 而產生
+     隱含第二欄。這裡明確以同等特異性覆蓋，不需要 !important。 */
+  .v33-edit-grid > label,
+  .v33-edit-grid > label.v33-wide { grid-column: 1 / -1; }
+  .v33-edit-grid input, .v33-edit-grid select { min-height: 34px; }
+}
+/* 抽屜整體：避免任何子元素撐破容器寬度 */
+@media (max-width: 560px) {
+  .drawer, .drawer-body { min-width: 0; }
+  .drawer-body > *, .v33-extra { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  .detail-grid { grid-template-columns: 1fr; }
+}
+
+/* 個人頁 KPI：320px 時七張各佔一整列會把清單推到很下面，改兩欄 */
+@media (max-width: 560px) {
+  #personal-kpi { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #personal-kpi .kpi { padding: 8px 10px; min-width: 0; }
+  #personal-kpi .kpi .label { font-size: 10.5px; line-height: 1.45; overflow-wrap: anywhere; }
+  #personal-kpi .kpi .value { font-size: 19px; line-height: 1.25; }
+  #personal-kpi .kpi .sub   { font-size: 9.5px; line-height: 1.5; overflow-wrap: anywhere; }
+}
+
 /* ────────── v8.1 館別總覽：館別 → 專案 → 子案件 ────────── */
 .v81-head, .v81-row {
   display: grid; grid-template-columns: minmax(0,2.2fr) 56px 90px 72px 60px minmax(0,1.4fr);
@@ -1359,22 +1395,22 @@ input:focus, select:focus, textarea:focus { outline-color: var(--accent) !import
         <p id="hello-sub"></p>
       </div>
       <div class="kpi-row" id="personal-kpi"></div>
-      <div class="legend-row">
-        <span><span class="sw" style="background:#fff;border-color:#E5E5E5"></span>尚未開始</span>
-        <span><span class="sw" style="background:#F6F3EE;border-color:#D9CEBF"></span>等待中</span>
-        <span><span class="sw" style="background:#F4F9FF;border-color:#C9DCF0"></span>進行中</span>
-        <span><span class="sw" style="background:#FFF8E6;border-color:#EDD79A"></span>確稿中</span>
-        <span><span class="sw" style="background:#EEF6EE;border-color:#BFD9BF"></span>已完成</span>
-      </div>
+      <!-- v8.2: legend 由 STATUSES 產生（見 v82RenderLegend），避免與卡片用詞不一致 -->
+      <div class="legend-row" id="personal-legend"></div>
       <div class="filter-bar" id="personal-filter">
         <button class="pill active" data-filter="all">全部</button>
         <button class="pill" data-filter="week">本週到期</button>
-        <button class="pill" data-filter="month">本月</button>
+        <!-- v8.2: 「本月」在 renderPersonal 與子案件檢視都沒有對應分支，等同「全部」，
+             是一顆無作用的按鈕，故移除，而不是給它一個名不副實的名稱。 -->
         <button class="pill" data-filter="overdue">逾期</button>
         <button class="pill" data-filter="urgent">急件</button>
-        <button class="pill" data-filter="gate">確稿中</button>
+        <!-- gate 的條件是 c.gateActive（確稿日前 3 工作天），不是 review 狀態 -->
+        <button class="pill" data-filter="gate">確稿日將至</button>
+        <!-- waiting = review + review_done，兩者都不在我手上 -->
+        <button class="pill" data-filter="waiting">等待他人回覆</button>
         <button class="pill" data-filter="collab">協作中</button>
-        <button class="pill" data-filter="done">已完成</button>
+        <!-- done 走 v53RenderPersonalDone，條件是 FINAL_STATUS_KEYS（done + closed） -->
+        <button class="pill" data-filter="done">已結案</button>
       </div>
       <div class="case-list clear-list" id="case-list"></div>
     </div>
@@ -1865,6 +1901,29 @@ const SELECTABLE_STATUSES = STATUSES.filter(s => s.key !== 'done');
 // v7.1: 兩種語意必須分開，否則「取消」會被算成「已結案」而灌水達成率
 //   FINAL_STATUS_KEYS  = 已成功交付（計入結案數/達成率/交付天數）
 //   ENDED_STATUS_KEYS  = 已終結不再活躍（排除逾期/看板/急件/在辦統計）
+// v8.2: 個人頁狀態圖例改由 STATUSES 產生，與卡片、抽屜共用同一套主案狀態詞。
+// 色票沿用既有 .case-card.s-<key> 的底色，不新增配色，也不動狀態資料。
+const V82_LEGEND_SW = {
+  todo:        { bg: '#fff',     bd: '#E5E5E5' },
+  wait:        { bg: '#F6F3EE', bd: '#D9CEBF' },
+  doing:       { bg: '#F4F9FF', bd: '#C9DCF0' },
+  review:      { bg: '#FFF8E6', bd: '#EDD79A' },
+  review_done: { bg: '#FFEFE0', bd: '#F0C49B' },
+  print:       { bg: '#F3EDFA', bd: '#D4C2EC' },
+  closed:      { bg: '#E8F5E9', bd: '#A5D6A7' },
+};
+function v82RenderLegend() {
+  const el = document.getElementById('personal-legend');
+  if (!el) return;
+  // done 與 closed 在畫面上是同一件事（已結案），只列一次避免重複詞
+  const keys = ['todo', 'wait', 'doing', 'review', 'review_done', 'print', 'closed'];
+  el.innerHTML = keys.map(k => {
+    const sw = V82_LEGEND_SW[k];
+    const name = (STATUSES.find(x => x.key === k) || {}).name || k;
+    return `<span><span class="sw" style="background:${sw.bg};border-color:${sw.bd}"></span>${escapeHtml(name)}</span>`;
+  }).join('');
+}
+
 // v8.0: 單一線性 symbol 系統。全部走同一組 stroke 參數（1.6 / round），
 // 不引入任何 icon 相依。預設 aria-hidden：圖示一律是裝飾，語意由旁邊的
 // 文字標籤承擔；只有圖示的按鈕另外用 aria-label 給中文名稱。
@@ -2094,6 +2153,7 @@ function myCases() {
 }
 function renderPersonal() {
   const me = myCases();
+  try { v82RenderLegend(); } catch (e) { console.warn('v82 legend failed', e); } // v8.2
   const kpi = document.getElementById('personal-kpi');
   const open = me.filter(c => c.status !== 'done');
   const weekDue = me.filter(c => !ENDED_STATUS_KEYS.has(c.status) && c.daysLeft >= 0 && c.daysLeft <= 7);
@@ -4547,14 +4607,14 @@ async function v33InjectDrawerExtras(c) {
   editPanel.style.cssText = 'margin:14px 0;padding:12px;background:#F8F8F8;border:1px solid #E5E5E5;border-radius:6px;';
   editPanel.innerHTML = `
     <div style="font-size:13px;font-weight:500;color:#404040;margin-bottom:8px;">調整時程 / 任務（將記錄變更原因）</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;">
+    <div class="v33-edit-grid">
       <label>派發日<input type="date" id="v33-dispatch" value="${ymdIso(c.dispatch) || ''}" style="width:100%;padding:4px 6px;border:1px solid #D4D4D4;border-radius:4px;"></label>
       <label>提供文案<input type="date" id="v33-copy" value="${c.copy ? ymdIso(c.copy) : ''}" style="width:100%;padding:4px 6px;border:1px solid #D4D4D4;border-radius:4px;"></label>
       <label>上線日<input type="date" id="v33-golive" value="${ymdIso(c.goLive) || ''}" style="width:100%;padding:4px 6px;border:1px solid #D4D4D4;border-radius:4px;"></label>
       <label>分級<select id="v33-level" style="width:100%;padding:4px 6px;border:1px solid #D4D4D4;border-radius:4px;">
         ${['SS','S','A','B','C','D'].map(l=>`<option value="${l}" ${c.level===l?'selected':''}>${l}</option>`).join('')}
       </select></label>
-      <label style="grid-column: span 2;">主負責人<select id="v33-designer" style="width:100%;padding:4px 6px;border:1px solid #D4D4D4;border-radius:4px;">
+      <label class="v33-wide">主負責人<select id="v33-designer" style="width:100%;padding:4px 6px;border:1px solid #D4D4D4;border-radius:4px;">
         ${STAFF.filter(s=>s.active).map(s=>`<option value="${s.id}" ${s.name===c.designer?'selected':''}>${s.name}</option>`).join('')}
       </select></label>
     </div>
@@ -6828,7 +6888,7 @@ window.renderStaff = function() {
     const btn = document.createElement('button');
     btn.className = 'v37-hotel-mgr-btn';
     btn.style.cssText = 'margin-left:8px;padding:8px 14px;background:#fff;color:#1F1F1F;border:1px solid #D4D4D4;border-radius:6px;cursor:pointer;font-size:13px;';
-    btn.textContent = '🏢 館別管理';
+    btn.textContent = '🏢 館別與排序';   // v8.2: 與館別總覽的指引文字、modal 標題統一
     btn.onclick = v37OpenHotelManager;
     header.appendChild(btn);
   }
@@ -6984,18 +7044,27 @@ function v38ApplyTheme(mode) {
   v38UpdateThemeButton(mode);
   if (typeof v50ApplySeason === 'function') v50ApplySeason();
 }
+// v8.2: 季節鈕沿用了 .v38-theme-toggle 這個 class（見 v50InjectSeasonToggle），
+// 所以 querySelector('.v38-theme-toggle') 會先命中季節鈕 —— 日夜標籤被寫到季節鈕上，
+// 隨後 v50ApplySeason() 又覆寫回主題名，結果真正的日夜按鈕永遠是空的、也沒有 title。
+// 這裡改用排除季節鈕的 selector，注入判斷也一併修正（原本的判斷同樣會被季節鈕誤觸發，
+// 導致日夜按鈕在季節鈕先注入時根本不會被建立）。
+const V82_THEME_SEL = '.v38-theme-toggle:not(.v50-season-toggle)';
 function v38UpdateThemeButton(mode) {
-  const btn = document.querySelector('.v38-theme-toggle');
+  const btn = document.querySelector(V82_THEME_SEL);
   if (!btn) return;
   const labels = { light: '🌞 日間', dark: '🌙 夜間', auto: '🌗 自動' };
-  btn.textContent = labels[mode] || '🌗 自動';
-  btn.title = '點擊切換 日間 → 夜間 → 自動';
+  const names = { light: '日間', dark: '夜間', auto: '自動' };
+  btn.textContent = labels[mode] || labels.auto;
+  btn.title = `目前：${names[mode] || '自動'}。點擊切換 日間 → 夜間 → 自動`;
+  btn.setAttribute('aria-label', `切換明暗模式，目前為${names[mode] || '自動'}`);
 }
 function v38InjectThemeToggle() {
   const topbar = document.querySelector('.topbar');
-  if (!topbar || topbar.querySelector('.v38-theme-toggle')) return;
+  if (!topbar || topbar.querySelector(V82_THEME_SEL)) return;
   const btn = document.createElement('button');
   btn.className = 'v38-theme-toggle';
+  btn.type = 'button';
   btn.onclick = () => {
     const cur = v38GetSavedTheme();
     const next = cur === 'light' ? 'dark' : cur === 'dark' ? 'auto' : 'light';
@@ -7053,6 +7122,7 @@ function v50UpdateSeasonButton() {
   const key = (pref === 'auto') ? V50_DEFAULT : pref;
   btn.textContent = `${V50_SEASON_EMOJI[key] || ''} ${V50_SEASON_CH[key] || key}`;
   btn.title = '切換主題：Mist 霧藍（預設）→ Bloom → Tide → Amber → Frost → 依月份';
+  btn.setAttribute('aria-label', `切換配色主題，目前為 ${V50_SEASON_CH[key] || key}`);
 }
 function v50InjectSeasonToggle() {
   const topbar = document.querySelector('.topbar');
@@ -7067,7 +7137,7 @@ function v50InjectSeasonToggle() {
     v50ApplySeason();
     showToast(`主題：${V50_SEASON_EMOJI[next] || ''} ${V50_SEASON_CH[next] || next}`);
   };
-  const themeBtn = topbar.querySelector('.v38-theme-toggle');
+  const themeBtn = topbar.querySelector('.v38-theme-toggle:not(.v50-season-toggle)');
   if (themeBtn) topbar.insertBefore(btn, themeBtn);
   else { const rs = document.getElementById('role-switch'); rs ? topbar.insertBefore(btn, rs) : topbar.appendChild(btn); }
   v50UpdateSeasonButton();
