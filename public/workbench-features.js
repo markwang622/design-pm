@@ -57,7 +57,13 @@
       root.querySelectorAll('[data-case]').forEach(b=>b.onclick=async()=>{
         try {
           const raw=await fetchJson('GET','/api/cases/'+encodeURIComponent(b.dataset.case));
-          await openDrawer(normalizeCase(raw));
+          const c=normalizeCase(raw);
+          const keys=computeKeyDates(c.goLive);
+          c.reviewDate=keys.review;c.proofStart=keys.proofStart;c.needed=c.goLive;
+          c.daysLeft=daysUntil(c.goLive);c.overdue=c.goLive<TODAY&&!ENDED_STATUS_KEYS.has(c.status);
+          const reviewDays=['review','review_done','print'].includes(c.status)||ENDED_STATUS_KEYS.has(c.status)?999:workdaysBetween(TODAY,c.reviewDate)-1;
+          c.gateActive=reviewDays>=0&&reviewDays<=3;
+          await openDrawer(c);
         } catch(e) { showToast('無法開啟案件：'+(e.data?.message||e.message),'err'); }
       });
     };
