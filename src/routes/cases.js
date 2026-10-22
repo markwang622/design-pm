@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { nextCaseId } from '../lib/ids.js';
+import { caseEditPermission } from '../lib/casePermissions.js';
 import { notify, tplCaseAssigned, tplCollabInvite } from '../services/notify.js';
 import { detectChanges, writeChangeLog, TRACKED_FIELDS } from '../services/changelog.js';
 
@@ -348,19 +349,13 @@ router.patch('/:id', async (req, res) => {
   }
   const body = parsed.data;
 
-  const existing = await prisma.case.findUnique({ where: { id: req.params.id } });
+  const existing = await prisma.case.findUnique({ where: { id: req.params.id }, include: { collaborators: { select: { id: true } } } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
 
-  // ── Permission: non-admin can only PATCH cases they own (v3.6 #16) ──
-  // Note: bulk-import / approval / transfer have their own permission gates.
-  if (req.user.role !== 'admin' && existing.designerId !== req.user.id) {
-    // Allow self-collaborated cases? For simplicity, NO — only the primary
-    // designer may edit. Collaborators read but don't write.
-    return res.status(403).json({
-      error: 'forbidden',
-      message: '此案件不屬於你，僅主負責人可修改',
-    });
-  }
+  const denied = caseEditPermission(req.user, existing, body);
+  if (denied) return res.status(403).json({ error: denied, message: denied === 'assignment_primary_only'
+    ? '主責與協作者調整、取消專案請交由主負責人或管理員處理'
+    : '僅管理員、主負責人與共同協作者可編輯；結案仍須管理員核可' });
 
   // ── Archive-path guard ───────────────────────────────────
   // Required when going into review_done / done / closed (any "終態")

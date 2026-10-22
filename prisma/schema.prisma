@@ -29,6 +29,9 @@ model Staff {
   pendingActivation   Boolean   @default(false) // true 時禁止登入，必須先啟用
   activationTokenHash String?                   // 只存 SHA-256，明碼僅在建立當下顯示一次
   activationExpires   DateTime?                 // 啟用連結到期時間
+  resetTokenHash      String?
+  resetExpires        DateTime?
+  sessionVersion      Int       @default(0)
   activatedAt         DateTime?                 // 完成啟用的時間
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt

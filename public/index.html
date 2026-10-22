@@ -1782,7 +1782,69 @@ body.has-panel #d-timeline { max-height: 190px; overflow-y: auto; }
   .drawer-head h3#d-title { font-size: 17px; }
 }
 
+
+/* ────────── v9.3 人員管理：工具列分組 + 動作欄不被擠成直排 ────────── */
+.staff-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.staff-headline { min-width: 0; flex: 1 1 320px; }
+.staff-headline h2 { font-size: 22px; font-weight: 600; color: var(--hf-ink); }
+.staff-sub { color: var(--hf-muted); font-size: 12px; margin-top: 4px; line-height: 1.7; }
+/* 日常操作聚合成一組，整組可換行，不散落全寬 */
+.staff-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.staff-tool-btn {
+  padding: 8px 14px; font-size: 13px; border-radius: 8px; cursor: pointer;
+  background: var(--hf-paper); color: var(--hf-ink); border: 1px solid var(--hf-line);
+  white-space: nowrap; margin-left: 0;
+}
+.staff-tool-btn:hover { background: var(--hf-tint); }
+.staff-tool-danger { color: #C0392B; border-color: #E0AFAF; }
+.staff-tool-danger:hover { background: #FCEBEB; }
+/* 破壞性操作收進進階維護 */
+.staff-advanced {
+  border: 1px solid var(--hf-line); border-radius: var(--hf-radius);
+  background: var(--hf-surface); margin-bottom: 14px; padding: 0 14px;
+}
+.staff-advanced > summary {
+  cursor: pointer; padding: 10px 0; font-size: 12.5px; font-weight: 500;
+  color: var(--hf-muted); list-style: none;
+}
+.staff-advanced > summary::-webkit-details-marker { display: none; }
+.staff-advanced > summary::before { content: '▸ '; }
+.staff-advanced[open] > summary::before { content: '▾ '; }
+.staff-advanced-body { display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 12px; }
+
+/* 動作欄給足寬度；按鈕一律不換行，避免文字直排 */
+.staff-row { grid-template-columns: 160px minmax(0,1.3fr) 72px 80px 80px minmax(0,1fr) 82px minmax(240px, 0.9fr); }
+.staff-row .s-actions { display: flex; gap: 5px; justify-content: flex-end; flex-wrap: wrap; min-width: 0; }
+.staff-row .s-actions button {
+  white-space: nowrap; padding: 4px 10px; font-size: 11px; border-radius: 5px;
+  background: var(--hf-paper); color: var(--hf-ink); border: 1px solid var(--hf-line); cursor: pointer;
+}
+.staff-row .s-actions button:hover { background: var(--hf-tint); }
+.staff-row .s-actions button.danger { border-color: #E0AFAF; color: #A32D2D; background: var(--hf-paper); }
+.staff-row .s-actions button.danger:hover { background: #FCEBEB; }
+.staff-row .s-actions button.s-act-del { background: #9A2E2E; color: #fff; border-color: #9A2E2E; }
+.staff-row .s-actions button.s-act-del:hover { background: #7E2525; }
+
+/* 手機：每位人員的欄位與動作自然換行，不裁切 */
+@media (max-width: 900px) {
+  .staff-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr); row-gap: 8px; }
+  .staff-row.head { display: none; }
+  .staff-row .s-name { grid-column: 1 / -1; }
+  .staff-row .s-email { grid-column: 1 / -1; }
+  .staff-row .s-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (max-width: 620px) {
+  .staff-header { flex-direction: column; }
+  .staff-tools { width: 100%; }
+  .staff-row { grid-template-columns: minmax(0,1fr); }
+  .staff-row .s-actions button { flex: 0 1 auto; min-height: 32px; }
+}
+
 </style>
+<link rel="stylesheet" href="/workbench-features.css?v=48964cae5fe2">
 </head>
 <body>
 <div class="app">
@@ -1901,13 +1963,22 @@ body.has-panel #d-timeline { max-height: 190px; overflow-y: auto; }
       </div>
     </div>
     <div class="view" data-view="staff">
+      <!-- v9.3: 標題一組、工具列另一組且可換行。日常操作（新增成員／館別／需求單位）
+           聚合在 .staff-tools；破壞性的「清空所有資料」收進預設收合的「進階維護」，
+           刪除行為本身完全不變。注入點 .staff-header 保留，既有注入邏輯照常運作。 -->
       <div class="staff-header">
-        <div>
+        <div class="staff-headline">
           <h2>人員管理</h2>
-          <p style="color:#8C8C8C;font-size:12px;margin-top:4px;">新增成員、處理離職（自動封存已完成案、依工作量建議專案繼承者、通知雙方）</p>
+          <p class="staff-sub">新增成員、處理離職（自動封存已完成案、依工作量建議專案繼承者、通知雙方）</p>
         </div>
-        <button class="btn-primary" id="staff-add-btn">＋ 新增成員</button>
+        <div class="staff-tools" id="staff-tools">
+          <button class="btn-primary" id="staff-add-btn">＋ 新增成員</button>
+        </div>
       </div>
+      <details class="staff-advanced" id="staff-advanced">
+        <summary>進階維護</summary>
+        <div class="staff-advanced-body" id="staff-advanced-body"></div>
+      </details>
       <div class="kpi-row" id="staff-kpi"></div>
       <div class="staff-table" id="staff-table"></div>
       <p style="font-size:11px;color:#8C8C8C;margin-top:12px;line-height:1.6;">
@@ -3528,10 +3599,10 @@ function renderStaff() {
           : '<span class="staff-chip-active">現職</span>'}</div>
         <div class="s-actions">
           ${active && s.pendingActivation && currentRole === 'admin'
-            ? `<button onclick="v73Reinvite(${s.id}, '${escapeHtml(s.name)}')">重寄邀請</button>` : ''}
+            ? `<button onclick="v73Reinvite(${s.id}, '${escapeHtml(s.name)}')" aria-label="重寄啟用邀請給 ${escapeHtml(s.name)}">重寄邀請</button>` : ''}
           ${active
-            ? (currentRole === 'admin' ? `<button onclick="openDeparture('${s.name}')" class="danger">離職申請</button>` : '')
-            : `<button onclick="showToast('已離職：${s.name} · 歷史歸檔仍保留')">查看歸檔</button>`}
+            ? (currentRole === 'admin' ? `<button onclick="openDeparture('${s.name}')" class="danger" aria-label="為 ${escapeHtml(s.name)} 辦理離職">離職</button>` : '')
+            : `<button onclick="showToast('已離職：${s.name} · 歷史歸檔仍保留')" aria-label="查看 ${escapeHtml(s.name)} 的歷史歸檔">查看歸檔</button>`}
         </div>
       </div>
     `;
@@ -4775,7 +4846,7 @@ function v51WireLogs(c) {
 
 // ── B2/B3/B4: 抽屜內編輯基本資料（專案名稱 / 館別 / 需求單位 / 案件聯絡人）──
 function v52CanEditBasic(c) {
-  return currentRole === 'admin' || c.designer === ME_NAME();
+  return !IS_OBSERVER() && (ME.role === 'admin' || c.designer === ME_NAME() || (c._collaboratorIds||[]).includes(ME.id));
 }
 function v52WireBasicEdit(c) {
   const grid = document.getElementById('d-grid');
@@ -5750,7 +5821,9 @@ async function v34SaveProfile() {
     }
     if (pwChange) {
       await api.auth.changePassword(pwChange);
-      showToast('✓ 密碼已更新，下次登入請用新密碼');
+      showToast('密碼已更新，請重新登入');
+      window.location.href = '/login';
+      return;
     } else {
       showToast('✓ 個人檔案已更新');
     }
@@ -5784,8 +5857,8 @@ window.renderStaff = function() {
     if (!actions || actions.querySelector('.v34-edit-btn')) return;
     const btn = document.createElement('button');
     btn.className = 'v34-edit-btn';
-    btn.style.cssText = 'margin-right:6px;padding:4px 10px;background:#F0F0F0;border:1px solid #D4D4D4;border-radius:4px;cursor:pointer;font-size:11px;';
-    btn.textContent = isSelf ? '編輯個人檔案' : '編輯';
+    btn.textContent = '編輯';   // v9.3: 短標籤，完整語意交給 aria-label
+    btn.setAttribute('aria-label', isSelf ? '編輯我的個人檔案' : ('編輯 ' + staff.name + ' 的個人檔案'));
     btn.onclick = () => openProfileEdit(staff);
     actions.insertBefore(btn, actions.firstChild);
   });
@@ -6163,8 +6236,9 @@ window.renderStaff = function() {
     if (!actions || actions.querySelector('.v35-delete-btn')) return;
     const btn = document.createElement('button');
     btn.className = 'v35-delete-btn danger';
-    btn.style.cssText = 'margin-left:6px;background:#9A2E2E;color:#fff;';
-    btn.textContent = '刪除該人員';
+    btn.classList.add('s-act-del');
+    btn.textContent = '刪除';   // v9.3
+    btn.setAttribute('aria-label', '刪除人員 ' + staff.name);
     btn.onclick = () => {
       // Reuse the existing departure flow: warns about open cases and
       // archives done ones in a single transaction.
@@ -6213,7 +6287,7 @@ function v36CanWriteCase(c) {
   if (!ME) return false;
   if (ME.role === 'admin') return true;
   // primary designer can edit own case
-  return c.designer === ME_NAME() || c._designerId === ME.id;
+  return ME.role !== 'observer' && (c.designer === ME_NAME() || c._designerId === ME.id || (c._collaboratorIds||[]).includes(ME.id));
 }
 
 // (#16) Read-only drawer: when a member opens someone else's case, disable
@@ -6228,7 +6302,7 @@ window.openDrawer = async function(c) {
     if (drawer) {
       drawer.querySelectorAll('input, textarea, select, button').forEach(el => {
         // Allow close + reassign read-button + drawer-close + scroll
-        if (el.id === 'drawer-close') return;
+        if (el.id === 'drawer-close' || el.id === 'd-back') return;
         if (el.classList.contains('close')) return;
         // keep delete / reassign / urgent disabled too
         el.disabled = true;
@@ -6239,7 +6313,7 @@ window.openDrawer = async function(c) {
         const banner = document.createElement('div');
         banner.id = 'v36-readonly-banner';
         banner.style.cssText = 'margin:0 0 12px;padding:8px 12px;background:#FFF8E6;border:1px solid #EDD79A;border-radius:5px;font-size:12px;color:#8C6A12;';
-        banner.textContent = '👁 你不是此案件的負責人，僅可瀏覽不可修改';
+        banner.textContent = '👁 你未被指派為此案件的主責或協作者，目前僅可瀏覽';
         const body = drawer.querySelector('.drawer-body');
         if (body) body.insertBefore(banner, body.firstChild);
       }
@@ -7499,11 +7573,11 @@ const _v37OrigRenderStaffForHotelBtn = window.renderStaff;
 window.renderStaff = function() {
   _v37OrigRenderStaffForHotelBtn();
   if (ME.role !== 'admin') return;
-  const header = document.querySelector('div.view[data-view="staff"] .staff-header');
+  const header = document.querySelector('div.view[data-view="staff"] .staff-tools') || document.querySelector('div.view[data-view="staff"] .staff-header');
   if (header && !header.querySelector('.v37-hotel-mgr-btn')) {
     const btn = document.createElement('button');
     btn.className = 'v37-hotel-mgr-btn';
-    btn.style.cssText = 'margin-left:8px;padding:8px 14px;background:#fff;color:#1F1F1F;border:1px solid #D4D4D4;border-radius:6px;cursor:pointer;font-size:13px;';
+    btn.classList.add('staff-tool-btn');   // v9.3: 顏色/間距交給工具列 class
     btn.textContent = '🏢 館別與排序';   // v8.2: 與館別總覽的指引文字、modal 標題統一
     btn.onclick = v37OpenHotelManager;
     header.appendChild(btn);
@@ -7512,7 +7586,7 @@ window.renderStaff = function() {
   if (header && !header.querySelector('.v47-unit-mgr-btn')) {
     const btn = document.createElement('button');
     btn.className = 'v47-unit-mgr-btn';
-    btn.style.cssText = 'margin-left:8px;padding:8px 14px;background:#fff;color:#1F1F1F;border:1px solid #D4D4D4;border-radius:6px;cursor:pointer;font-size:13px;';
+    btn.classList.add('staff-tool-btn');   // v9.3
     btn.textContent = '📋 需求單位管理';
     btn.onclick = v47OpenUnitManager;
     header.appendChild(btn);
@@ -8673,15 +8747,18 @@ const _v41OrigRenderStaffForReset = window.renderStaff;
 window.renderStaff = function() {
   _v41OrigRenderStaffForReset();
   if (!ME || ME.role !== 'admin') return;
-  const header = document.querySelector('div.view[data-view="staff"] .staff-header');
-  if (header && !header.querySelector('.v41-reset-btn')) {
+  // v9.3: 破壞性操作收進預設收合的「進階維護」，不與日常按鈕並排。
+  // onclick / class / 行為完全不變，只改掛載位置與外觀。
+  const host = document.querySelector('div.view[data-view="staff"] #staff-advanced-body')
+            || document.querySelector('div.view[data-view="staff"] .staff-header');
+  if (host && !host.querySelector('.v41-reset-btn')) {
     const btn = document.createElement('button');
-    btn.className = 'v41-reset-btn';
-    btn.style.cssText = 'margin-left:8px;padding:8px 14px;background:#fff;color:#C0392B;border:1px solid #C0392B;border-radius:6px;cursor:pointer;font-size:13px;';
+    btn.className = 'v41-reset-btn staff-tool-btn staff-tool-danger';
     btn.textContent = '🗑️ 清空所有資料';
     btn.title = '危險操作：清空整個資料庫，僅保留 admin 帳號';
+    btn.setAttribute('aria-label', '清空所有資料（危險操作，僅保留管理員帳號）');
     btn.onclick = v41OpenFactoryResetModal;
-    header.appendChild(btn);
+    host.appendChild(btn);
   }
 };
 
@@ -11530,5 +11607,6 @@ window.switchView = function (v) {
 };
 
 </script>
+<script src="/workbench-features.js?v=334ab90ac5fd"></script>
 </body>
 </html>

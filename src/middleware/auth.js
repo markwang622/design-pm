@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { prisma } from '../lib/db.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-prod';
 const COOKIE_NAME = 'designpm_token';
@@ -29,6 +30,7 @@ export function setAuthCookie(res, token) {
 // v3.6 (#22): minimum strength check used by /change-password and admin reset.
 export function validatePasswordStrength(pw) {
   if (typeof pw !== 'string') return '密碼格式錯誤';
+  if (Buffer.byteLength(pw, 'utf8') > 72) return '密碼最多 72 位元組，請縮短後再試';
   if (pw.length < 10) return '密碼至少 10 字元';
   if (!/[a-z]/.test(pw)) return '密碼必須含小寫英文字母';
   if (!/[A-Z]/.test(pw)) return '密碼必須含大寫英文字母';
@@ -45,13 +47,24 @@ export function clearAuthCookie(res) {
   res.clearCookie(COOKIE_NAME, { path: '/' });
 }
 
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const token = req.cookies?.[COOKIE_NAME];
   if (!token) return res.status(401).json({ error: 'unauthenticated' });
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
+    const claims = jwt.verify(token, JWT_SECRET);
+    const staff = await prisma.staff.findUnique({ where: { id: claims.id }, select: {
+      id: true, name: true, email: true, role: true, active: true, pendingActivation: true, sessionVersion: true,
+    } });
+    if (!staff?.active || staff.pendingActivation || (claims.sessionVersion ?? 0) !== staff.sessionVersion) {
+      return res.status(401).json({ error: 'session_expired' });
+    }
+    req.user = { id: staff.id, name: staff.name, email: staff.email, role: staff.role };
+    if (staff.role === 'observer' && !['GET','HEAD','OPTIONS'].includes(req.method) && !req.originalUrl.startsWith('/api/auth/')) {
+      return res.status(403).json({ error: 'read_only', message: '觀察者帳號為唯讀' });
+    }
     next();
-  } catch {
+  } catch (error) {
+    if (!['JsonWebTokenError','TokenExpiredError','NotBeforeError'].includes(error.name)) return next(error);
     return res.status(401).json({ error: 'invalid_token' });
   }
 }

@@ -43,7 +43,7 @@ async function getTransporter() {
   }
 }
 
-async function deliver(recipientEmail, subject, body) {
+export async function deliver(recipientEmail, subject, body) {
   const t = await getTransporter();
   if (!t || !recipientEmail) return false;
   try {

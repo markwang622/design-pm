@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { prisma } from '../lib/db.js';
 import { signToken, setAuthCookie, clearAuthCookie, requireAuth, validatePasswordStrength } from '../middleware/auth.js';
 import { hashToken } from '../lib/activation.js';
+import { passwordChangedNotice } from '../services/passwordRecovery.js';
+import recoveryRouter from './passwordRecovery.js';
 
 const router = Router();
 
@@ -36,6 +38,7 @@ router.post('/login', async (req, res) => {
     name: staff.name,
     email: staff.email,
     role: staff.role,
+    sessionVersion: staff.sessionVersion,
   });
   setAuthCookie(res, token);
   res.json({
@@ -93,7 +96,7 @@ router.post('/activate', async (req, res) => {
       activatedAt: new Date(),
     },
   });
-  const jwtToken = signToken({ id: updated.id, name: updated.name, email: updated.email, role: updated.role });
+  const jwtToken = signToken({ id: updated.id, name: updated.name, email: updated.email, role: updated.role, sessionVersion: updated.sessionVersion });
   setAuthCookie(res, jwtToken);
   res.json({ id: updated.id, name: updated.name, email: updated.email, role: updated.role, seniority: updated.seniority });
 });
@@ -113,8 +116,8 @@ router.get('/me', requireAuth, async (req, res) => {
 });
 
 const changePwSchema = z.object({
-  currentPassword: z.string().min(1),
-  newPassword: z.string().min(8),
+  currentPassword: z.string().min(1).max(200),
+  newPassword: z.string().min(8).max(200),
 });
 
 router.post('/change-password', requireAuth, async (req, res) => {
@@ -138,8 +141,14 @@ router.post('/change-password', requireAuth, async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'wrong_current_password' });
 
   const hash = await bcrypt.hash(newPassword, 12); // v3.6: 10 → 12 rounds
-  await prisma.staff.update({ where: { id: staff.id }, data: { password: hash } });
-  res.json({ ok: true });
+  const changed = await prisma.staff.updateMany({ where: { id: staff.id, password: staff.password }, data: {
+    password: hash, resetTokenHash: null, resetExpires: null, sessionVersion: { increment: 1 },
+  } });
+  if (!changed.count) return res.status(409).json({ error: 'password_changed', message: '密碼已變更，請重新登入' });
+  clearAuthCookie(res);
+  passwordChangedNotice(staff).catch(() => {});
+  res.json({ ok: true, loginRequired: true });
 });
 
+router.use(recoveryRouter);
 export default router;

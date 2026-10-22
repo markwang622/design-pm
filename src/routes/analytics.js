@@ -11,7 +11,7 @@ const router = Router();
 router.use(requireAuth, requireAdmin);
 
 const querySchema = z.object({
-  period: z.enum(['week', 'month', 'half', 'year']).default('month'),
+  period: z.enum(['week', 'month', 'quarter', 'half', 'year']).default('month'),
   offset: z.coerce.number().int().min(-52).max(0).default(0),
   staffId: z.coerce.number().int().optional(),
 });

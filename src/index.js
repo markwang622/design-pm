@@ -95,7 +95,7 @@ const loginThrottle = rateLimit({
     // GET /activation/:token 僅做連結有效性檢查，token 有 256 bits 熵，暴力猜測
     // 不可行；把它放進這個 15 分鐘 10 次的桶子只會讓共用對外 IP 的辦公室互相
     // 卡住（它與 /login 共用配額），因此改由較寬鬆的 authLimiter 承接。
-    return !(/\/login$|\/change-password$|\/activate$/.test(req.path));
+    return !(/\/login$|\/change-password$|\/activate$|\/reset-password$/.test(req.path));
   },
 });
 // General auth limiter (covers /me, /logout): looser

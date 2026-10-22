@@ -125,7 +125,7 @@ router.post('/', requireAdmin, async (req, res) => {
 
     res.status(201).json({
       ...created,
-      password: undefined, activationTokenHash: undefined,
+      password: undefined, activationTokenHash: undefined, resetTokenHash: undefined, resetExpires: undefined, sessionVersion: undefined,
       inviteUrl,
       inviteExpires: invite ? invite.expires : undefined,
     });
@@ -172,7 +172,7 @@ const updateSchema = z.object({
   roleTitle: z.string().optional(),
   role: z.enum(['admin', 'member', 'observer']).optional(),
   // v3.4: admin-only password reset for OTHER users
-  resetPassword: z.string().min(8).optional(),
+  resetPassword: z.string().min(8).max(200).optional(),
   // v4.8: 個人色 palette key（或 null 清空）
   color: z.union([colorSchema, z.null()]).optional(),
 });
@@ -208,12 +208,15 @@ router.patch('/:id', async (req, res) => {
       return res.status(422).json({ error: 'weak_password', message: strengthErr });
     }
     data.password = await bcrypt.hash(data.resetPassword, 12);
+    data.sessionVersion = { increment: 1 };
+    data.resetTokenHash = null;
+    data.resetExpires = null;
     delete data.resetPassword;
   }
 
   try {
     const updated = await prisma.staff.update({ where: { id }, data });
-    res.json({ ...updated, password: undefined });
+    res.json({ ...updated, password: undefined, activationTokenHash: undefined, resetTokenHash: undefined, resetExpires: undefined, sessionVersion: undefined });
   } catch (e) {
     if (e.code === 'P2002') {
       return res.status(409).json({ error: 'duplicate', field: e.meta?.target });

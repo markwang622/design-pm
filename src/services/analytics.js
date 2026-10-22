@@ -12,6 +12,7 @@
 // inside the requested natural calendar period. (v3.6 added 'closed'.)
 // ─────────────────────────────────────────────────────────────
 import { prisma } from '../lib/db.js';
+import { workIntervalWhere } from '../lib/workInterval.js';
 
 export const LEVEL_WEIGHT = { SS: 5, S: 4, A: 3, B: 2, C: 1, D: 1 };
 export const ROLE_COEF = { primary: 1.0, collaborator: 0.4 };
@@ -76,6 +77,11 @@ export function resolvePeriod(period, offset = 0, reference = new Date()) {
     start = addMonthsUTC(cur, offset);
     end = addMonthsUTC(start, 1);
     label = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
+  } else if (period === 'quarter') {
+    const cur = new Date(Date.UTC(ref.getUTCFullYear(), Math.floor(ref.getUTCMonth() / 3) * 3, 1));
+    start = addMonthsUTC(cur, 3 * offset);
+    end = addMonthsUTC(start, 3);
+    label = `${start.getUTCFullYear()} Q${Math.floor(start.getUTCMonth() / 3) + 1}`;
   } else if (period === 'half') {
     const cur = startOfHalfUTC(ref);
     start = addMonthsUTC(cur, 6 * offset);
@@ -169,7 +175,7 @@ export async function rollup({ period, offset, staffId }) {
     closedOn: { gte: win.start, lt: win.end },
   };
 
-  const [staff, cases] = await Promise.all([
+  const [staff, cases, work] = await Promise.all([
     prisma.staff.findMany({ orderBy: { id: 'asc' } }),
     prisma.case.findMany({
       where,
@@ -178,6 +184,11 @@ export async function rollup({ period, offset, staffId }) {
         collaborators: { select: { id: true, name: true } },
       },
       orderBy: { closedOn: 'asc' },
+    }),
+    prisma.case.findMany({
+      where: workIntervalWhere(win, staffId),
+      include: { designer: { select: { id: true, name: true } }, collaborators: { select: { id: true, name: true } } },
+      orderBy: [{ dispatchDate: 'asc' }, { id: 'asc' }],
     }),
   ]);
 
@@ -292,6 +303,12 @@ export async function rollup({ period, offset, staffId }) {
       byLevel: depByLevel,
     },
     cases: caseList,
+    workCases: work.map(c => ({ id: c.id, title: c.title, hotel: c.hotel, requester: c.requester,
+      status: c.status, level: c.level, designer: c.designer, collaborators: c.collaborators,
+      dispatchDate: c.dispatchDate, openDate: c.openDate, goLiveDate: c.goLiveDate,
+      closedOn: c.closedOn, cancelledOn: c.cancelledOn, archived: c.archived,
+      endDateMissing: ['done','closed','cancelled'].includes(c.status) && !(c.status === 'cancelled' ? c.cancelledOn : c.closedOn),
+    })),
   };
 }
 

@@ -9,12 +9,11 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache openssl  # required by Prisma
-COPY package.json ./
+COPY package.json package-lock.json ./
 COPY prisma ./prisma
 # Install all deps (incl. dev) so prisma CLI is available.
-# Use `npm install` (not `npm ci`) because we don't ship a
-# package-lock.json; npm will resolve & cache versions itself.
-RUN npm install --include=dev --no-audit --no-fund
+# Install the exact dependency versions verified by the feature tests.
+RUN npm ci --include=dev --no-audit --no-fund
 RUN npx prisma generate
 
 FROM node:20-alpine AS runner
