@@ -81,8 +81,13 @@ function dom(){
   const seed=(id,tag='div',parent=document.body)=>parent.appendChild(element(tag,id));
   return{document,element,seed,get:id=>document.getElementById(id)};
 }
+// Keep calendar-sensitive draft tests deterministic across Taipei midnight.
+class FixtureDate extends Date {
+  constructor(...args){ super(...(args.length ? args : ['2026-10-22T02:00:00.000Z'])); }
+  static now(){ return Date.parse('2026-10-22T02:00:00.000Z'); }
+}
 function context(extra={}){
-  const c={Date,console,Set,Map,Promise,URLSearchParams,crypto:webcrypto,setTimeout,clearTimeout,...extra};c.window=c;return vm.createContext(c);
+  const c={Date:FixtureDate,console,Set,Map,Promise,URLSearchParams,crypto:webcrypto,setTimeout,clearTimeout,...extra};c.window=c;return vm.createContext(c);
 }
 const dates=section('function d(y, m, dd)', '// J1:');
 const keys=section('function computeKeyDates(goLive)', '// ============== Staff');

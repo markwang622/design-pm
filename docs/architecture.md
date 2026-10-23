@@ -1,6 +1,6 @@
 # 藝術設計部專案管理系統 · 技術架構文件
 
-> 對應 commit `190fd03`。業務規格見 [system-spec.md](./system-spec.md)，API 細節見 [api.md](./api.md)。
+> 執行環境與部署段落更新於2026-10-23；其他段落保留原架構參考。業務規格見 [system-spec.md](./system-spec.md)，API 細節見 [api.md](./api.md)。
 
 ---
 
@@ -8,10 +8,10 @@
 
 | 層 | 技術 |
 |----|------|
-| Runtime | Node.js ≥ 20（ESM） |
+| Runtime | Node.js24.22.1 LTS（ESM，固定映像） |
 | Web 框架 | Express 4 |
 | 資料庫 | PostgreSQL（Zeabur 託管） |
-| ORM | Prisma 5 |
+| ORM | Prisma6.19.3（CLI／Client一致）|
 | 驗證 | JWT（cookie）+ bcryptjs |
 | 安全 | helmet（CSP）、express-rate-limit、cors |
 | 驗證/Schema | zod |
@@ -38,7 +38,7 @@ Express (src/index.js)
 PostgreSQL (Prisma)
 ```
 
-啟動序列（Dockerfile CMD）：`prisma db push`（同步 schema，自動建表/欄位）→ `prisma/seed.js`（空庫才灌範例）→ `node src/index.js`。
+啟動序列（Dockerfile CMD）：驗證production設定 → `node scripts/database-maintenance.mjs deploy`（已提交migrations）→ `node src/index.js`。已有非空資料庫必須先完成備份／還原演練與baseline；一般啟動不執行db push或seed。
 
 ## 3. 資料模型（Prisma，10 models）
 
@@ -90,8 +90,8 @@ PostgreSQL (Prisma)
 
 ## 7. 部署（Zeabur）
 
-- 以 **Dockerfile**（多階段：deps → runner）建置為 Node app。**不使用 zbpack.json**（曾因被誤判為靜態站導致 502，已移除）。
-- 推送 main → Zeabur 自動建置部署；`prisma db push` 於啟動時同步 schema（新增欄位/表免手動 migration）。
+- 以 **Dockerfile**（多階段：deps／test／runner）建置為 Node app。**不使用 zbpack.json**（曾因被誤判為靜態站導致 502，已移除）。
+- 推送main前先完成Demo驗收、備份與遷移前置檢查。部署使用migrate deploy，未知結構或缺少baseline時停止；不自動重設資料。
 - 若建置時出現「git 認證失敗」→ 於 Zeabur 後台「重新部署」重抓即可；持續失敗則需重新授權 GitHub。
 - 詳見 [zeabur-deploy.md](./zeabur-deploy.md)、[local-dev.md](./local-dev.md)。
 

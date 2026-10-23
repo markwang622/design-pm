@@ -1,150 +1,50 @@
-# 藝術設計部 · 專案管理系統 (Design-PM) — Zeabur 全端封包 v3.4
+# 藝術設計部 · 專案管理系統
 
-> 前端（SPA） + 後端（Express + Prisma） + Postgres，單一服務部署於 [Zeabur](https://zeabur.com)。
->
-> 線上：https://artdesign.zeabur.app/
+Express、Prisma 與 PostgreSQL 的專案管理工作台，前端採霧藍微透的清晰列表。正式站為 https://artdesign.zeabur.app/，Demo 為 https://artdesign-for-demo.zeabur.app/。
 
-## 📚 完整文件
+## 開發與驗證
+
+- 執行環境：固定 Node24.22.1 LTS 映像；Prisma CLI／Client 同為6.19.3，Nodemailer10.2.1。精確套件以 package-lock.json 為準。
+- `npm ci`：依鎖檔安裝並產生 Prisma Client。
+- `npm test`：合成資料、隔離 DOM／API 的回歸測試，不使用正式資料庫或實寄郵件。
+- `npm run test:node24`：在正式 Node24 Linux 映像執行相同測試。
+- `npm run test:postgres`：需明確啟用且驗證目標的本機 PostgreSQL 遷移／備份還原演練，詳見測試檔開頭與資料庫操作文件。
+
+## 部署與資料保護
+
+Dockerfile 是部署依據。一般啟動只會驗證設定、執行已提交的 migrations，再啟動網站；不執行 db push、重設或 seed。
+
+**由舊版升級的現有資料庫必須先完成備份、隔離還原驗證與 baseline。** 沒有遷移歷史的非空資料庫會停止啟動並提示前置作業，不會自行重建。
 
 | 文件 | 內容 |
 | --- | --- |
-| [docs/system-spec.md](docs/system-spec.md) | **系統規格書**：角色權限、案件狀態機、日期/工作量/分析規則、通知規則 |
-| [docs/architecture.md](docs/architecture.md) | **技術架構**：技術棧、資料模型、API 總覽、前端架構、安全、部署 |
-| [docs/features.md](docs/features.md) | **完整功能說明**：各分頁與操作手冊 |
-| [docs/api.md](docs/api.md) | API 端點細節 |
-| [docs/local-dev.md](docs/local-dev.md) · [docs/zeabur-deploy.md](docs/zeabur-deploy.md) | 本機開發 / Zeabur 部署 |
+| [部署指南](docs/zeabur-deploy.md) | 正式／Demo 的設定、升級順序與檢查 |
+| [資料庫維護與回復](docs/database-operations.md) | 完整備份、還原演練、既有庫 baseline 與應用回滾 |
+| [本機開發](docs/local-dev.md) | 新資料庫 migrations 與明確建立初始管理員 |
+| [系統規格](docs/system-spec.md) | 案件、角色與分析規則 |
+| [功能手冊](docs/features.md) | 工作台各頁操作 |
+| [API](docs/api.md) | 介面參考 |
 
-> 註：下方「功能概覽／技術棧」為早期 v3.4 摘要；最新且完整的內容以上述 `docs/` 三份文件為準（含 v3.5–v5.6 的製作物多選、子項目日誌、拍攝模組、四季主題、看板拖曳、送印中狀態等）。部署現以 **Dockerfile** 為準（已移除 zbpack.json）。
+## 主要設定
 
-## 功能概覽
-
-| 模組 | 內容 |
+| 變數 | 說明 |
 | --- | --- |
-| **個人 Dashboard** | 本週 / 逾期 / 急件 / 確稿卡控 KPI；卡牌列表 |
-| **看板 (Kanban)** | 5 個狀態欄（尚未開始 → 已完成），拖拉式設計預留 |
-| **甘特圖** | 週 / 月兩種尺度，專案 + 子案展開，4 條關鍵日期標示 |
-| **Admin Dashboard** | 部門工作量熱度、確稿卡控名單、逾期警報、急件 |
-| **人員管理** | 新增同仁、離職流程（自動算繼承人 + 單筆 transaction 完成移轉 / 封存 / 解除協作）|
-| **通知（DB）** | 新案派發、協作邀請、結案、離職公告……寫入 `notifications` 表，介接 SMTP 後可直寄 Email |
-| **權限** | Admin 可建案、轉派、管理人員；Member 僅能更新自己的案 |
-| **案件刪除（v3.3）** | admin 可刪任何案、建立者可刪自己 todo 狀態的案 |
-| **變更追蹤（v3.3）** | 時程／分級／負責人／狀態／急件變更必填原因，全部寫入 ChangeLog 時間軸 |
-| **貢獻分析（v3.3）** | 週／月／半年／年切片，全加權公式（級別×角色×準時×急件）算每位設計師貢獻指標 |
-| **批次匯入（v3.4）** | admin 上傳 CSV → 預覽 → 一鍵建立大量案件 |
-| **個人檔案編輯（v3.4）** | 全員可改自己（姓名/Email/職稱/密碼）；admin 可改任何人 + 重設他人密碼 |
+| `DATABASE_URL` | PostgreSQL URL；不加入 Git 或部署記錄 |
+| `JWT_SECRET` | 正式環境至少32位元組、無前後空白的隨機密鑰；升級保留原安全值 |
+| `APP_BASE_URL` | 對應站台的 HTTPS origin，不含路徑、查詢或帳密 |
+| `NODE_ENV` | production／development／test |
+| `PORT` | 1–65535，預設3000 |
+| `SMTP_HOST/PORT/USER/PASS/FROM/SECURE` | 選用；缺少設定時不寄信，站內通知仍保留 |
 
-## 技術棧
+初始管理員僅能對**完全空的業務資料庫**以明確指令建立；沒有共用預設密碼、假成員或範例案件。已有資料時 bootstrap 不重建館別／需求單位，也不改動帳號。
 
-- **前端**：單一 HTML（2000+ 行 vanilla JS），原型 v3.2
-- **後端**：Node 20 · Express 4 · Prisma 5 · Zod · JWT (httpOnly cookie) · bcrypt
-- **DB**：PostgreSQL 16
-- **部署**：Zeabur（zbpack.json 自動辨識）或 Docker Compose（本機）
+Demo 重設具有獨立資料庫身分標記與明確確認檢查，仍屬會清除資料的手動維護操作；禁止把它當部署步驟。正式站回復不使用 Demo 重設或專案資料複製工具。
 
-## 快速上手（本機）
+## 維護版本依據
 
-```bash
-# 1. 啟動 DB + app
-docker compose up --build
+- [Node24.22.1 安全版本](https://nodejs.org/en/blog/release/v24.22.1)
+- [Prisma6 升級說明](https://www.prisma.io/docs/guides/upgrade-prisma-orm/v6)：多對多關聯的唯一索引轉為主鍵，已獨立寫入 migration。
+- [Nodemailer 維護版本](https://github.com/nodemailer/nodemailer/releases/tag/v10.2.1)
+- `deepmerge-ts` 固定8.0.2，修補 Prisma6 工具鏈的[遞迴合併漏洞](https://github.com/advisories/GHSA-ggr8-5vv4-36mx)；須與 Prisma CLI 操作及完整回歸一併驗證。
 
-# 2. 登入
-open http://localhost:3000/login
-# Email:    mark@company.com
-# Password: design2026!
-```
-
-## 部署至 Zeabur
-
-詳見 [`docs/zeabur-deploy.md`](docs/zeabur-deploy.md) — 10 步驟含截圖指引。摘要：
-
-1. 在 Zeabur 專案中 **Add Service → PostgreSQL**。
-2. **Add Service → Git / ZIP**，指向本專案。
-3. 設定環境變數：
-   - `DATABASE_URL` = `${POSTGRES.POSTGRES_CONNECTION_STRING}`
-   - `JWT_SECRET` = 用 `openssl rand -base64 48` 產生的隨機字串
-4. Deploy。啟動指令由 `zbpack.json` 自動執行 `prisma db push → seed → node src/index.js`（首次啟動會自動建立 Postgres 表）。
-
-## 目錄結構
-
-```
-design-pm-zeabur/
-├── prisma/
-│   ├── schema.prisma         # Staff / Case / TransferLog / Notification 四個 model
-│   └── seed.js               # 9 筆人員 + 16 筆示範案件（idempotent）
-├── src/
-│   ├── index.js              # Express 入口：helmet + cors + cookie + 靜態 + SPA fallback
-│   ├── lib/
-│   │   ├── db.js             # 共用 PrismaClient instance
-│   │   └── ids.js            # nextCaseId(level, date) → e.g. SS-2026-04-001
-│   ├── middleware/
-│   │   └── auth.js           # signToken / setAuthCookie / requireAuth / requireAdmin
-│   ├── services/
-│   │   ├── workload.js       # workloadScore / workloadForAll / suggestSuccessor
-│   │   └── notify.js         # DB-only 通知（要改寄 Email 時把 deliver() swap 為 SMTP 即可）
-│   └── routes/
-│       ├── auth.js           # POST /login · /logout · GET /me · POST /change-password
-│       ├── cases.js          # GET/POST/PATCH /api/cases + /archive + /transfer
-│       ├── staff.js          # GET/POST/PATCH /api/staff + /departure-preview + /departure
-│       └── notifications.js  # GET / · POST /:id/read · POST /read-all
-├── public/
-│   ├── index.html            # 單頁 SPA（前端）
-│   ├── login.html
-│   └── favicon.svg
-├── docs/
-│   ├── zeabur-deploy.md
-│   ├── local-dev.md
-│   └── api.md
-├── Dockerfile
-├── docker-compose.yml
-├── zbpack.json               # Zeabur 建置與啟動腳本
-├── package.json
-└── .env.example
-```
-
-## 環境變數
-
-| 變數 | 必要 | 說明 |
-| --- | --- | --- |
-| `DATABASE_URL` | ✅ | Postgres 連線字串 |
-| `JWT_SECRET` | ✅ | JWT 簽章密鑰（>= 32 bytes） |
-| `SEED_DEFAULT_PASSWORD` | | 首次啟動時賦予所有 seed 帳號的預設密碼，預設 `design2026!` |
-| `SEED_ADMIN_EMAIL` | | 哪一位 seed 同仁標記為 admin，預設 `mark@company.com` |
-| `NODE_ENV` | | `production` / `development` |
-| `PORT` | | 預設 `3000` |
-
-## 初始帳號
-
-seed.js 會建立以下 9 人（密碼皆為 `SEED_DEFAULT_PASSWORD`）：
-
-| 名字 | Email | 角色 | 年資 |
-| --- | --- | --- | --- |
-| Mark | wasimark0622@gmail.com | admin | senior |
-| Sunny | sunny@company.com | member | senior |
-| Milo | milo@company.com | member | senior |
-| Michelle | michelle@company.com | member | senior |
-| Amanda | amanda@company.com | member | mid |
-| Jhen | jhen@company.com | member | mid |
-| Ruby | ruby@company.com | member | mid |
-| Agnes | agnes@company.com | member | junior |
-| Mandy | mandy@company.com | member | junior |
-
-**首次登入後請每位同仁至 `/change-password` 自行變更密碼。**
-
-## 開發 / 除錯
-
-```bash
-npm run dev          # 本機開發模式（需要 DATABASE_URL）
-npm run migrate:dev  # 套用 Prisma 結構變更
-npm run seed         # 重跑 seed（idempotent，不會覆蓋現有資料）
-```
-
-## 版本
-
-- **v3.4** (2026-04-25) — 批次匯入 CSV、個人檔案編輯（自己 / admin 編輯任何人）
-- **v3.3** (2026-04-25) — 案件刪除、變更追蹤（ChangeLog）、貢獻指標分析（週／月／半年／年）
-- v3.2 (2026-04-24) — Zeabur 全端封包，Email + 密碼登入，JWT cookie，Postgres 持久化
-- v3.1 — 靜態部署 + Docker / IIS 選項
-- v3.0 — 原型 (artifact-only)
-
-## 授權
-
-內部使用。Apache-2.0 for the framework code; bundled content proprietary.
+內部使用；框架程式依原專案授權，團隊內容為專有資料。

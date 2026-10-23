@@ -2,4 +2,8 @@ node_modules
 .git
 .env
 .env.*
+!.env.example
+.local-data
+coverage
 .DS_Store
+*.dump

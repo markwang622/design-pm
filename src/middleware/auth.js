@@ -1,15 +1,11 @@
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/db.js';
+import { getJwtSecret } from '../lib/runtimeConfig.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-prod';
+export const JWT_SECRET = getJwtSecret();
 const COOKIE_NAME = 'designpm_token';
 // v3.6 (#22): shorter TTL — fewer days a stolen cookie is valid.
 const TOKEN_TTL = '2d';
-
-if (process.env.NODE_ENV === 'production' && JWT_SECRET === 'change-me-in-prod') {
-  // Loud warning so an unset secret fails noisily on first deploy.
-  console.error('[security] JWT_SECRET is the default value — set it in env vars NOW.');
-}
 
 export function signToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: TOKEN_TTL });
@@ -56,6 +52,7 @@ export async function requireAuth(req, res, next) {
       id: true, name: true, email: true, role: true, active: true, pendingActivation: true, sessionVersion: true,
     } });
     if (!staff?.active || staff.pendingActivation || (claims.sessionVersion ?? 0) !== staff.sessionVersion) {
+      clearAuthCookie(res);
       return res.status(401).json({ error: 'session_expired' });
     }
     req.user = { id: staff.id, name: staff.name, email: staff.email, role: staff.role };
@@ -65,6 +62,7 @@ export async function requireAuth(req, res, next) {
     next();
   } catch (error) {
     if (!['JsonWebTokenError','TokenExpiredError','NotBeforeError'].includes(error.name)) return next(error);
+    clearAuthCookie(res);
     return res.status(401).json({ error: 'invalid_token' });
   }
 }

@@ -276,7 +276,11 @@ export async function rollup({ period, offset, staffId }) {
       closedOn: c.closedOn,
       designerId: c.designerId,
       designerName: c.designer?.name,
+      hotel: c.hotel,
+      collaboratorIds: collaborators.map((x) => x.id),
       collaboratorNames: collaborators.map((x) => x.name),
+      requestCount: c.requestCount,
+      outputCount: c.outputCount,
       onTime,
       early,
       timely: timelyLabel, // 'early' | 'onTime' | 'overdue'

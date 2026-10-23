@@ -1,134 +1,29 @@
-# 本機開發指南
+# 本機開發
 
-兩種方式：Docker Compose（推薦，0 配置）、或 Node + 外部 Postgres。
-
----
-
-## A. Docker Compose（推薦）
-
-需要 Docker Desktop 或 Podman。
+使用 Node24.22.1 或 Dockerfile 的 Node24 映像。先複製 `.env.example` 成 `.env`，設定自己的本機 PostgreSQL URL；不使用正式連線與 SMTP。
 
 ```bash
-cd design-pm-zeabur
-docker compose up --build
-# 第一次啟動約 90 秒（拉 Node / Postgres image + prisma generate + seed）
+npm ci
+npm run db:deploy
 ```
 
-打開：
+新資料庫由 migrations 建表。需要初始帳號時，僅對全新的空庫設定下列環境變數後執行 `npm run seed`：
 
-- 前端：http://localhost:3000
-- 登入：mark@company.com / design2026!
-- 資料庫：localhost:5432 / postgres / postgres
+- `BOOTSTRAP_EMPTY_DATABASE=yes`
+- `SEED_ADMIN_EMAIL`：明確的管理員 Email
+- `SEED_ADMIN_NAME`：選填顯示名稱
+- `SEED_ADMIN_PASSWORD`：自己設定的強密碼，至少12字元，含大小寫與數字，不超過72個UTF-8位元組；不輸出或提交此值。
 
-停止：`docker compose down`。資料保存在 `db-data` volume，下次啟動仍在。
-
-完整重置：
-
-```bash
-docker compose down -v   # -v 同時刪 volume
-docker compose up --build
-```
-
----
-
-## B. 本機 Node（不用 Docker）
-
-**前置**：Node 20+、Postgres 14+。
+Bootstrap 只建立一個管理員及館別／需求單位字典，不建立其他假帳號或範例案件。已有業務資料則不改動，也不要求初始密碼。
 
 ```bash
-# 1. 安裝
-npm install
-
-# 2. 複製環境變數
-cp .env.example .env
-# 編輯 .env，把 DATABASE_URL 改成你本機 Postgres 的連線字串
-
-# 3. 建 schema + seed
-npm run migrate:dev -- --name init
-npm run seed
-
-# 4. 啟動（--watch 會自動重啟）
 npm run dev
+npm test
+npm run test:node24
 ```
 
----
+開啟 http://localhost:3000/login，以剛才自行設定的帳號登入，再從人員管理邀請成員。網站不會提供可讀回的原文密碼。
 
-## 常用指令
+新 schema 變更透過 `npm run migrate:dev -- --name change_name` 產生 migration，檢查 SQL 並在隔離資料庫驗證後提交。`migrate:dev` 只對拋棄式開發資料庫執行，不能連正式／Demo。
 
-| 指令 | 作用 |
-| --- | --- |
-| `npm run dev` | 啟動開發伺服器（會 watch 檔案變更） |
-| `npm run start` | 啟動正式伺服器（不 watch） |
-| `npm run migrate:dev` | 建立並套用新 migration（會互動提示名稱） |
-| `npm run migrate:deploy` | 套用 production migration（不建新檔） |
-| `npm run generate` | 重生 Prisma client（改 schema 後需執行） |
-| `npm run seed` | 跑 seed，idempotent |
-
----
-
-## 開發小技巧
-
-### 查 DB 現況
-
-用 Prisma Studio（推薦）：
-
-```bash
-npx prisma studio
-# 打開 http://localhost:5555
-```
-
-或用 psql：
-
-```bash
-psql postgresql://postgres:postgres@localhost:5432/design_pm
-```
-
-### 模擬不同使用者
-
-新增一位 admin：
-
-```bash
-node -e "
-import('./src/lib/db.js').then(async ({prisma}) => {
-  const bcrypt = (await import('bcryptjs')).default;
-  await prisma.staff.create({ data: {
-    name: 'Tester', email: 'tester@company.com',
-    password: await bcrypt.hash('test1234', 10),
-    joined: new Date('2026-01-01'),
-    seniority: 'mid', role: 'member',
-  }});
-  console.log('created');
-});
-"
-```
-
-### 清空 DB（開發環境）
-
-```bash
-npx prisma migrate reset
-# 會完整 drop、重建、重跑 seed
-```
-
-### 看後端錯誤
-
-後端 log 走 morgan + console.error。預設 `NODE_ENV=development` 時 morgan 用 `tiny` 模式。
-
-### 除錯 API 請求
-
-前端的 API 客戶端在 `public/index.html` 最底部的 `window.api`。在 DevTools Console 可直接呼叫：
-
-```js
-await api.cases.list()
-await api.staff.workload()
-```
-
----
-
-## 改 schema 的流程
-
-1. 編輯 `prisma/schema.prisma`
-2. `npm run migrate:dev -- --name your_name` — 建 migration 檔
-3. commit `prisma/migrations/xxx_your_name/` 與更新後的 schema
-4. Push → CI / Zeabur 上會自動 `prisma migrate deploy`
-
-**千萬不要** 手動改 DB schema——一律走 migration。
+由舊版資料庫繼續開發時，先照[資料庫維護](database-operations.md)做備份、還原與 baseline，不用 db push 或 reset。

@@ -36,7 +36,7 @@ async function writeWorkflowAudit(tx, caseId, changes, reason, operator) {
 // Claim the snapshot before changing relations. The row lock, ownership change,
 // transfer record and audit all belong to one transaction; callers notify after it.
 // Serializable also protects assignment eligibility against concurrent departures.
-async function applyWorkflow(existing, data, changes, reason, operator, toDesignerId) {
+async function applyWorkflow(existing, data, changes, reason, operator, toDesignerId, actor) {
   return prisma.$transaction(async tx => {
     let target;
     if (toDesignerId !== undefined) {
@@ -47,7 +47,10 @@ async function applyWorkflow(existing, data, changes, reason, operator, toDesign
     }
     const { collaborators, ...scalarData } = data;
     const claimed = await tx.case.updateMany({
-      where: { id: existing.id, designerId: existing.designerId, status: existing.status, updatedAt: existing.updatedAt },
+      where: {
+        id: existing.id, designerId: existing.designerId, status: existing.status, updatedAt: existing.updatedAt,
+        ...(actor && actor.role !== 'admin' && { OR: [{ designerId: actor.id }, { collaborators: { some: { id: actor.id } } }] }),
+      },
       data: { ...scalarData, ...(target && { designerId: target.id }) },
     });
     if (claimed.count !== 1) throw workflowError(409, 'case_conflict', '案件已被其他操作更新，請重新載入案件後再試');
@@ -98,6 +101,11 @@ const createSchema = z.object({
   logs: z.array(z.any()).max(500).optional(),
 });
 
+// Per-case quantities are explicit counts, never inferred from elapsed days.
+// Omission preserves unknown/historical values; zero is a valid stored count.
+const closureCountSchema = z.number({ invalid_type_error: '請填入 0 到 1,000,000 的整數' })
+  .int('請填入整數').min(0, '數量不可小於 0').max(1_000_000, '數量不可超過 1,000,000');
+
 const updateSchema = z.object({
   title: z.string().optional(),
   subTitle: z.string().optional(),
@@ -124,6 +132,8 @@ const updateSchema = z.object({
   source: z.string().optional().nullable(),     // H3: 專案來源/需求單號
   printDate: dateStr.optional().nullable(),     // H4: 印刷送印日
   archivePath: z.string().optional().nullable(),
+  requestCount: closureCountSchema.optional(),
+  outputCount: closureCountSchema.optional(),
   reason: z.string().optional(), // required only when tracked fields change
 });
 
@@ -153,8 +163,8 @@ const bulkRowSchema = z.object({
   goLiveDate: z.string().optional(),
   closedOn: z.string().optional(),
   archivePath: z.string().optional(),
-  requestCount: z.number().int().optional(),
-  outputCount: z.number().int().optional(),
+  requestCount: closureCountSchema.optional(),
+  outputCount: closureCountSchema.optional(),
   cancelReason: z.enum(CANCEL_REASONS).optional(),
   cancelStage: z.enum(ACTIVE_STATUSES).optional(),
   cancelledOn: z.string().refine(s => {
@@ -475,6 +485,8 @@ router.patch('/:id', async (req, res) => {
     ...(body.deliverables !== undefined && { deliverables: body.deliverables }),
     ...(body.needsOutsourcing !== undefined && { needsOutsourcing: body.needsOutsourcing }),
     ...(body.archivePath !== undefined && { archivePath: body.archivePath }),
+    ...(body.requestCount !== undefined && { requestCount: body.requestCount }),
+    ...(body.outputCount !== undefined && { outputCount: body.outputCount }),
   };
 
   const transferring = body.designerId !== undefined && body.designerId !== existing.designerId;
@@ -497,8 +509,11 @@ router.patch('/:id', async (req, res) => {
   }
 
   let updated;
-  if (transferring || body.status !== undefined) {
-    try { updated = await applyWorkflow(existing, data, changes, reasonStr, req.user.name, transferring ? body.designerId : undefined); }
+  const hasClosureCounts = body.requestCount !== undefined || body.outputCount !== undefined;
+  if (transferring || body.status !== undefined || hasClosureCounts) {
+    // Count edits share the workflow snapshot claim, including current ownership
+    // or collaboration, so a revoked editor cannot persist a stale submission.
+    try { updated = await applyWorkflow(existing, data, changes, reasonStr, req.user.name, transferring ? body.designerId : undefined, hasClosureCounts ? req.user : undefined); }
     catch (e) { if (sendWorkflowError(res, e)) return; throw e; }
   } else {
     updated = await prisma.case.update({ where: { id: req.params.id }, data, include: caseInclude });

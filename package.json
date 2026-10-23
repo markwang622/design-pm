@@ -1,7 +1,7 @@
 {
   "name": "design-pm-zeabur",
   "version": "4.8.0",
-  "description": "Art/Design Department PM system — full-stack Zeabur deployment",
+  "description": "Art/Design Department PM system \u2014 full-stack Zeabur deployment",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
@@ -15,13 +15,20 @@
     "postinstall": "prisma generate",
     "prebuild": "prisma generate",
     "build": "echo \"no-op build (Prisma client generated via postinstall)\"",
-    "test": "node tests/features.mjs && node tests/demoCopy.mjs && node tests/caseOpener.mjs && node tests/stability.mjs && node tests/frontendStability.mjs && node tests/hotelOrder.mjs && node tests/collaborationSafety.mjs && node tests/calendarSecurity.mjs && node tests/frontendSafety.mjs && node tests/requestPrivacy.mjs && node tests/caseWorkflowSafety.mjs && node tests/staffScheduleSafety.mjs && node tests/frontendWorkflowSafety.mjs && node tests/analyticsWorkflowSafety.mjs"
+    "test": "node tests/features.mjs && node tests/demoCopy.mjs && node tests/caseOpener.mjs && node tests/stability.mjs && node tests/frontendStability.mjs && node tests/hotelOrder.mjs && node tests/collaborationSafety.mjs && node tests/calendarSecurity.mjs && node tests/frontendSafety.mjs && node tests/requestPrivacy.mjs && node tests/caseWorkflowSafety.mjs && node tests/staffScheduleSafety.mjs && node tests/frontendWorkflowSafety.mjs && node tests/analyticsWorkflowSafety.mjs && node tests/workloadScaleSafety.mjs && node tests/operationalSafety.mjs && node tests/notifyCompatibility.mjs && node tests/frontendScaleSafety.mjs && node tests/sessionRecoverySafety.mjs && node tests/caseClosureCountsSafety.mjs && node tests/analyticsUiSafety.mjs",
+    "db:deploy": "node scripts/database-maintenance.mjs deploy",
+    "db:baseline": "node scripts/database-maintenance.mjs baseline",
+    "db:backup": "node scripts/database-maintenance.mjs backup",
+    "db:restore-check": "node scripts/database-maintenance.mjs restore-check",
+    "db:identify": "node scripts/database-maintenance.mjs identify",
+    "test:postgres": "node tests/postgresMaintenance.mjs",
+    "test:node24": "docker build --target test -t design-pm-phase3-test ."
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": "^24.22.1 || ^26.0.0"
   },
   "dependencies": {
-    "@prisma/client": "^5.22.0",
+    "@prisma/client": "6.19.3",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -31,10 +38,13 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
-    "nodemailer": "^6.9.16",
+    "nodemailer": "10.2.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "prisma": "^5.22.0"
+    "prisma": "6.19.3"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2"
   }
 }

@@ -1,40 +1,34 @@
 # syntax=docker/dockerfile:1
-# ── Design-PM · Zeabur-ready Docker image (v3.3) ──────────────
-# Build:   docker build -t design-pm:v3.3 .
-# Run:     docker run -p 3000:3000 --env-file .env design-pm:v3.3
-# Zeabur:  works out-of-the-box. If zbpack.json is also present,
-#          Zeabur prefers Dockerfile, so this image must stay
-#          functionally equivalent.
-# ────────────────────────────────────────────────────────────
-FROM node:20-alpine AS deps
-WORKDIR /app
-RUN apk add --no-cache openssl  # required by Prisma
-COPY package.json package-lock.json ./
-COPY prisma ./prisma
-# Install all deps (incl. dev) so prisma CLI is available.
-# Install the exact dependency versions verified by the feature tests.
-RUN npm ci --include=dev --no-audit --no-fund
-RUN npx prisma generate
-
-FROM node:20-alpine AS runner
+# Node24 LTS security release; deps and runtime use the same tested image.
+ARG NODE_IMAGE=node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 RUN apk add --no-cache openssl
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+RUN npm ci --include=dev --no-audit --no-fund
+
+# Build explicitly with --target test to run offline regression suites on Node24.
+FROM deps AS test
+COPY src ./src
+COPY public ./public
+COPY scripts ./scripts
+COPY tests ./tests
+ENV NODE_ENV=test
+RUN npm test
+
+FROM ${NODE_IMAGE} AS runner
+WORKDIR /app
+RUN apk add --no-cache openssl postgresql18-client
 ENV NODE_ENV=production
 ENV PORT=3000
-
-# Copy deps + generated Prisma client
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/prisma ./prisma
-
-# Copy app
 COPY package.json ./
 COPY src ./src
 COPY public ./public
-
+COPY scripts ./scripts
 EXPOSE 3000
-
-# Startup sequence:
-# 1. Sync DB schema (creates tables on first run, idempotent)
-# 2. Seed (idempotent — no-op if DB already populated)
-# 3. Start server
-CMD ["sh", "-c", "npx prisma db push --skip-generate && node prisma/seed.js && node src/index.js"]
+# Existing databases must be explicitly baselined after verified backup/restore.
+# No db push, data-loss acceptance, automatic bootstrap or sample seed on restart.
+CMD ["sh", "-c", "node scripts/database-maintenance.mjs deploy && exec node src/index.js"]

@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../lib/db.js';
 import { requireAuth, requireAdmin, validatePasswordStrength } from '../middleware/auth.js';
-import { workloadScore, workloadForAll, suggestSuccessor } from '../services/workload.js';
+import { workloadScores, workloadForAll, pickSuccessorFromRanking } from '../services/workload.js';
 import { notify, tplStaffAdd, tplDeparture } from '../services/notify.js';
 import { generateActivationToken, unusablePassword, activationUrl, ACTIVATION_TTL_DAYS } from '../lib/activation.js';
 
@@ -19,6 +19,26 @@ const STAFF_COLOR_KEYS = new Set([
   'forest', 'indigo', 'brick', 'olive', 'slate', 'plum',
 ]);
 const DEPARTURE_TERMINAL = ['done', 'closed', 'cancelled'];
+
+// Every operation that can remove an eligible administrator uses a Serializable
+// transaction, so two simultaneous removals cannot both pass this invariant.
+async function requireAnotherLoginAdmin(tx, target) {
+  if (!target?.active || target.pendingActivation || target.role !== 'admin') return;
+  const others = await tx.staff.findMany({
+    where: { id: { not: target.id }, active: true, pendingActivation: false, role: 'admin' },
+    select: { id: true },
+  });
+  if (!others.length) throw Object.assign(new Error('last_admin'), {
+    lastAdmin: true,
+    message: '至少須保留一位已啟用且可登入的管理員；請先指定另一位管理員，再進行離職、刪除或降權',
+  });
+}
+function sendLastAdminError(res, error) {
+  if (!error.lastAdmin) return false;
+  res.status(409).json({ error: 'last_admin', message: error.message });
+  return true;
+}
+
 const colorSchema = z.string().refine((v) => STAFF_COLOR_KEYS.has(v), {
   message: 'invalid_color (must be one of palette keys)',
 });
@@ -35,9 +55,8 @@ router.get('/', async (req, res) => {
     },
     orderBy: [{ active: 'desc' }, { id: 'asc' }],
   });
-  const enriched = await Promise.all(
-    staff.map(async (s) => ({ ...s, workload: await workloadScore(s.id) }))
-  );
+  const scores = await workloadScores(staff.map(s => s.id));
+  const enriched = staff.map(s => ({ ...s, workload: scores.get(s.id) ?? 0 }));
   res.json(enriched);
 });
 
@@ -218,13 +237,14 @@ router.patch('/:id', async (req, res) => {
   }
 
   try {
-    const updated = data.name === undefined
+    const updated = data.name === undefined && data.role === undefined
       ? await prisma.staff.update({ where: { id }, data })
       : await prisma.$transaction(async (tx) => {
         const current = await tx.staff.findUnique({ where: { id } });
         if (!current) throw Object.assign(new Error('not_found'), { code: 'P2025' });
+        if (data.role !== undefined && data.role !== 'admin') await requireAnotherLoginAdmin(tx, current);
         const staff = await tx.staff.update({ where: { id }, data });
-        if (current.name === staff.name) return staff;
+        if (data.name === undefined || current.name === staff.name) return staff;
 
         // Old subitems identified people by display name. Preserve that identity
         // durably before the old name disappears; labels on ID assignments also
@@ -259,6 +279,10 @@ router.patch('/:id', async (req, res) => {
       }, { isolationLevel: 'Serializable' });
     res.json({ ...updated, password: undefined, activationTokenHash: undefined, resetTokenHash: undefined, resetExpires: undefined, sessionVersion: undefined });
   } catch (e) {
+    if (sendLastAdminError(res, e)) return;
+    if (e.code === 'P2034' && data.name === undefined) {
+      return res.status(409).json({ error: 'staff_conflict', message: '人員狀態已被其他操作更新，本次操作未完成，請重新整理後再試' });
+    }
     if (e.code === 'STAFF_RENAME_CONFLICT' || e.code === 'P2034') {
       return res.status(409).json({ error: 'staff_rename_conflict', message: '人員或子案件已被其他操作更新，姓名尚未變更，請重新整理後再試' });
     }
@@ -290,12 +314,11 @@ router.get('/:id/departure-preview', requireAdmin, async (req, res) => {
     }),
   ]);
 
-  const suggestions = await Promise.all(
-    ownedOpen.map(async (c) => ({
-      caseId: c.id,
-      suggestion: await suggestSuccessor({ excludeId: id, level: c.level }),
-    }))
-  );
+  // The same current workload ranking applies to every open case. Reuse its
+  // two tie-break outcomes; suggestions do not reserve or project new work.
+  const ranked = ownedOpen.length ? await workloadForAll({ excludeId: id, assignableOnly: true }) : [];
+  const standardSuggestion = pickSuccessorFromRanking(ranked, 'A') ?? null;
+  const seniorSuggestion = pickSuccessorFromRanking(ranked, 'SS') ?? null;
 
   res.json({
     leaver: { id: leaver.id, name: leaver.name, joined: leaver.joined, seniority: leaver.seniority },
@@ -307,7 +330,7 @@ router.get('/:id/departure-preview', requireAdmin, async (req, res) => {
       status: c.status,
       goLiveDate: c.goLiveDate,
       collaborators: c.collaborators,
-      suggestion: suggestions.find((s) => s.caseId === c.id)?.suggestion ?? null,
+      suggestion: ['SS', 'S'].includes(c.level) ? seniorSuggestion : standardSuggestion,
     })),
     toRemoveCollab: collabOn,
   });
@@ -332,6 +355,7 @@ router.post('/:id/departure', requireAdmin, async (req, res) => {
       const leaver = await tx.staff.findUnique({ where: { id } });
       if (!leaver) reject(404, 'not_found');
       if (!leaver.active) reject(400, 'already_departed');
+      await requireAnotherLoginAdmin(tx, leaver);
       const [ownedDone, ownedOpen, collabOn] = await Promise.all([
         tx.case.findMany({ where: { designerId: id, status: { in: DEPARTURE_TERMINAL }, archived: false } }),
         tx.case.findMany({ where: { designerId: id, status: { notIn: DEPARTURE_TERMINAL }, archived: false } }),
@@ -386,6 +410,7 @@ router.post('/:id/departure', requireAdmin, async (req, res) => {
       return { leaver, transferred, archived, removedCollab };
     }, { isolationLevel: 'Serializable' });
   } catch (e) {
+    if (sendLastAdminError(res, e)) return;
     if (e.departureStatus) return res.status(e.departureStatus).json(e.detail);
     if (e.code === 'P2034') return res.status(409).json({ error: 'write_conflict', message: '人員或案件已變更，請重新整理後再試' });
     throw e;
@@ -418,11 +443,21 @@ router.post('/:id/departure', requireAdmin, async (req, res) => {
 // ─── DELETE /api/staff/:id — hard delete (admin, rare) ──
 router.delete('/:id', requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
-  // safety: must be inactive
-  const s = await prisma.staff.findUnique({ where: { id } });
-  if (!s) return res.status(404).json({ error: 'not_found' });
-  if (s.active) return res.status(400).json({ error: 'active_staff_cannot_delete' });
-  await prisma.staff.delete({ where: { id } });
+  try {
+    const result = await prisma.$transaction(async tx => {
+      const target = await tx.staff.findUnique({ where: { id } });
+      if (!target) return { status: 404, error: 'not_found' };
+      await requireAnotherLoginAdmin(tx, target);
+      if (target.active) return { status: 400, error: 'active_staff_cannot_delete' };
+      await tx.staff.delete({ where: { id } });
+      return null;
+    }, { isolationLevel: 'Serializable' });
+    if (result) return res.status(result.status).json({ error: result.error });
+  } catch (e) {
+    if (sendLastAdminError(res, e)) return;
+    if (e.code === 'P2034') return res.status(409).json({ error: 'staff_conflict', message: '人員狀態已被其他操作更新，請重新整理後再試' });
+    throw e;
+  }
   res.json({ ok: true });
 });
 

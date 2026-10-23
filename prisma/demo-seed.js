@@ -1,67 +1,33 @@
-// ─────────────────────────────────────────────────────────────
-// DEMO 重置腳本 — 專用於「artdesign-for-demo」測試站。
-//
-// ⚠️ 會清空所有業務資料後灌入 test_ 測試帳號與範例資料。
-// 安全防呆：必須設環境變數 DEMO_SEED=yes 才會執行，避免誤清正式站。
-//
-// 用法（在 demo 服務的 Zeabur 主控台或本機指向 demo DATABASE_URL）：
-//   DEMO_SEED=yes npm run demo-seed
-//
-// 帳號密碼統一為 DEMO_PASSWORD（預設 Demo2026test），登入用。
-// ─────────────────────────────────────────────────────────────
-import { PrismaClient } from '@prisma/client';
+// Guarded, explicit Demo reset. No identity provisioning, credentials in logs,
+// email delivery, or partial wipe: all business data changes share one transaction.
+import 'dotenv/config';
 import bcrypt from 'bcryptjs';
+import { pathToFileURL } from 'node:url';
+import { prisma } from '../src/lib/db.js';
+import { ConfigurationError, validateRuntimeConfig } from '../src/lib/runtimeConfig.js';
+import { DatabaseIdentityError, validateDemoResetConfig, assertDemoDatabase } from '../src/lib/databaseIdentity.js';
+import { taipeiCalendarDay } from '../src/services/analytics.js';
 
-const prisma = new PrismaClient();
-
-if (process.env.DEMO_SEED !== 'yes') {
-  console.error('\n✋ 拒絕執行：這支腳本會清空所有資料。');
-  console.error('   確定是在 DEMO 資料庫，請加環境變數：DEMO_SEED=yes npm run demo-seed\n');
-  process.exit(1);
+async function wipe(tx) {
+  for (const model of ['meetingAttendee', 'meeting', 'businessTrip', 'vacation', 'shoot', 'changeLog', 'transferLog', 'notification', 'case', 'staff', 'hotel', 'requestUnit']) {
+    await tx[model].deleteMany({});
+  }
+  // deploymentIdentity is intentionally excluded and is never modified.
 }
-
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'Demo2026test';
-
-// 相對今天的 UTC 日期（demo 不管哪天打開都看得到當前的逾期/本週/未來項）
-const base = new Date();
-const addDays = (n) => new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate() + n));
-const ymd = (dt) => dt.toISOString().slice(0, 10);
-
-async function wipe() {
-  // FK 安全順序：先子表、再主表
-  await prisma.meetingAttendee.deleteMany();
-  await prisma.meeting.deleteMany();
-  await prisma.businessTrip.deleteMany();
-  await prisma.vacation.deleteMany();
-  await prisma.shoot.deleteMany();
-  await prisma.changeLog.deleteMany();
-  await prisma.transferLog.deleteMany();
-  await prisma.notification.deleteMany();
-  await prisma.case.deleteMany();       // 多對多 collaborators 會一併解除
-  await prisma.staff.deleteMany();
-  console.log('[demo] 已清空所有業務資料');
-}
-
-async function seedDicts() {
-  const hotels = [
+async function seedDicts(tx) {
+  await tx.hotel.createMany({ data: [
     { region: '集團', name: '集團本部', sortOrder: 10 },
     { region: '新竹', name: '新竹湖濱館', sortOrder: 20 },
     { region: '台南', name: '台南館', sortOrder: 30 },
     { region: '宜蘭', name: '宜蘭館', sortOrder: 40 },
     { region: '花蓮', name: '花蓮館', sortOrder: 50 },
-  ];
-  for (const h of hotels) await prisma.hotel.upsert({ where: { name: h.name }, create: h, update: {} });
-  const units = ['集團執辦', '餐飲行銷', '客房行銷', '客務部', '餐飲部'];
-  let i = 10;
-  for (const name of units) { await prisma.requestUnit.upsert({ where: { name }, create: { name, sortOrder: i }, update: {} }); i += 10; }
-  console.log('[demo] 館別 / 需求單位 就緒');
+  ] });
+  await tx.requestUnit.createMany({ data: ['集團執辦', '餐飲行銷', '客房行銷', '客務部', '餐飲部'].map((name, index) => ({ name, sortOrder: (index + 1) * 10 })) });
 }
-
-async function main() {
-  await wipe();
-  await seedDicts();
-  const hash = await bcrypt.hash(DEMO_PASSWORD, 10);
-
+async function seedDemo(tx, hash, now) {
+  const base = taipeiCalendarDay(now);
+  const addDays = days => new Date(base.getTime() + days * 86400000);
+  const ymd = date => date.toISOString().slice(0, 10);
   // ─── test_ 帳號：涵蓋每個角色 ───────────────────────────
   const staffData = [
     { name: 'test_admin',    email: 'test_admin@demo.local',    role: 'admin',    seniority: 'senior', roleTitle: '設計主管（管理員）', joined: addDays(-1200) },
@@ -71,14 +37,13 @@ async function main() {
   ];
   const staff = {};
   for (const s of staffData) {
-    staff[s.name] = await prisma.staff.create({ data: { ...s, password: hash } });
+    staff[s.name] = await tx.staff.create({ data: { ...s, password: hash } });
   }
-  console.log(`[demo] 建立 ${staffData.length} 個 test_ 帳號`);
 
   // ─── 案件（相對今天：逾期 / 本週 / 未來 / 已結案）─────────
   const mk = (o) => {
     const { designer, collaborators = [], ...rest } = o;
-    return prisma.case.create({
+    return tx.case.create({
       data: {
         ...rest,
         designer: { connect: { id: staff[designer].id } },
@@ -93,7 +58,7 @@ async function main() {
     urgent: true, contact: '行銷 陳經理', deliverables: ['主視覺 KV', 'IG 貼文 3 款'],
     openDate: addDays(-14), dispatchDate: addDays(-14), copyDate: addDays(-10), goLiveDate: addDays(-3),
     note: '此案上線日已過 → 會出現在「逾期」清單，方便測試逾期呈現。',
-    logs: [{ date: ymd(addDays(-8)), text: '第一版提案已送客戶', author: 'test_designer1' }],
+    logs: [{ date: ymd(addDays(-8)), note: '第一版提案已送客戶', by: 'test_designer1' }],
   });
   await mk({
     id: 'TEST-B-002', title: '【範例】官網 Banner（本週上線）', subTitle: '首頁輪播 3 款', hotel: '宜蘭館', requester: '客房行銷',
@@ -120,10 +85,9 @@ async function main() {
     closedOn: addDays(-24), actualWorkdays: 8, requestCount: 3, outputCount: 12,
     archivePath: '/設計部共用/2026/範例/兒童節活動', note: '已結案並封存，測試「歷史案件」與「本月結案」。',
   });
-  console.log('[demo] 建立 5 筆範例案件（逾期/本週/未來/協作/已結案）');
 
   // ─── 會議（會前提醒、議程、待辦、出席回覆、關聯案件）─────
-  const m1 = await prisma.meeting.create({
+  await tx.meeting.create({
     data: {
       title: '【範例】母親節主視覺提案會議', agenda: '確認 KV 方向、分工與時程；檢視第一版提案。',
       date: addDays(2), startTime: '14:00', endTime: '15:00', location: '3F 會議室 / Google Meet',
@@ -141,7 +105,7 @@ async function main() {
       },
     },
   });
-  await prisma.meeting.create({
+  await tx.meeting.create({
     data: {
       title: '【範例】部門週會', agenda: '各案進度同步。', date: addDays(6), startTime: '10:00', endTime: '10:30',
       type: 'internal', status: 'scheduled', remindMinutes: 10, hostId: staff['test_admin'].id, createdById: staff['test_admin'].id,
@@ -151,25 +115,36 @@ async function main() {
       ] },
     },
   });
-  console.log('[demo] 建立 2 場範例會議（含議程/待辦/提醒/出席）');
 
   // ─── 出差 / 休假 / 拍攝 ────────────────────────────────
-  await prisma.businessTrip.create({ data: { staffId: staff['test_designer1'].id, startDate: addDays(7), endDate: addDays(8), hotel: '花蓮館', task: '【範例】現場場勘與拍攝溝通', note: '測試出差顯示與行事曆。' } });
-  await prisma.vacation.create({ data: { staffId: staff['test_designer2'].id, startDate: addDays(10), endDate: addDays(11), type: 'annual', note: '【範例】特休' } });
-  await prisma.shoot.create({ data: { desc: '【範例】餐點情境拍攝 8 道', mode: 'outsource', startDate: addDays(5), endDate: addDays(5), photographer: '外部 王攝影工作室', hotel: '台南館', note: '測試拍攝行程與封存。', createdById: staff['test_admin'].id } });
-  console.log('[demo] 建立 出差 / 休假 / 拍攝 各 1 筆');
+  await tx.businessTrip.create({ data: { staffId: staff['test_designer1'].id, startDate: addDays(7), endDate: addDays(8), hotel: '花蓮館', task: '【範例】現場場勘與拍攝溝通', note: '測試出差顯示與行事曆。' } });
+  await tx.vacation.create({ data: { staffId: staff['test_designer2'].id, startDate: addDays(10), endDate: addDays(11), type: 'annual', note: '【範例】特休' } });
+  await tx.shoot.create({ data: { desc: '【範例】餐點情境拍攝 8 道', mode: 'outsource', startDate: addDays(5), endDate: addDays(5), photographer: '外部 王攝影工作室', hotel: '台南館', note: '測試拍攝行程與封存。', createdById: staff['test_admin'].id } });
 
-  console.log('\n┌───────────────────────────────────────────────┐');
-  console.log('│  DEMO 測試站已就緒                              │');
-  console.log('├───────────────────────────────────────────────┤');
-  console.log(`│  統一密碼：${DEMO_PASSWORD.padEnd(32)}│`);
-  console.log('│  test_admin@demo.local      （管理員）         │');
-  console.log('│  test_designer1@demo.local  （資深設計師）     │');
-  console.log('│  test_designer2@demo.local  （設計師）         │');
-  console.log('│  test_observer@demo.local   （觀察者·唯讀）    │');
-  console.log('└───────────────────────────────────────────────┘');
+  return { staff: 4, cases: 5, meetings: 2, schedules: 3 };
 }
 
-main()
-  .catch((e) => { console.error('[demo] error:', e); process.exit(1); })
-  .finally(async () => { await prisma.$disconnect(); });
+export async function resetDemoDatabase(client = prisma, { env = process.env, hashPassword = bcrypt.hash, now = new Date() } = {}) {
+  validateRuntimeConfig(env);
+  const { password } = validateDemoResetConfig(env);
+  await assertDemoDatabase(client, env);
+  const hash = await hashPassword(password, 12);
+  return client.$transaction(async tx => {
+    // Recheck the independently provisioned identity in the same snapshot as
+    // the destructive writes. The identity is preserved across resets.
+    await assertDemoDatabase(tx, env);
+    await wipe(tx);
+    await seedDicts(tx);
+    return seedDemo(tx, hash, now);
+  }, { isolationLevel: 'Serializable', maxWait: 5000, timeout: 30000 });
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  resetDemoDatabase()
+    .then(() => console.log('[demo] Reset committed with synthetic test accounts and sample records; no credentials printed.'))
+    .catch(e => {
+      console.error('[demo]', e instanceof ConfigurationError || e instanceof DatabaseIdentityError ? e.message : 'Reset failed; transaction rolled back. Verify database availability, identity and migration status before retrying.');
+      process.exitCode = 1;
+    })
+    .finally(() => prisma.$disconnect());
+}

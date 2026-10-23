@@ -10,6 +10,8 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import path from 'node:path';
 import { privateRequestUrl } from './lib/requestPrivacy.js';
+import { validateRuntimeConfig } from './lib/runtimeConfig.js';
+import { JWT_SECRET } from './middleware/auth.js';
 import { fileURLToPath } from 'node:url';
 
 import authRouter from './routes/auth.js';
@@ -27,6 +29,9 @@ import icalRouter from './routes/ical.js'; // J2
 import adminRouter from './routes/admin.js';
 import demoDataRouter from './routes/demoData.js'; // v9.4 暫用：正式→Demo 資料複製（僅 demo 站啟用）
 import { startMeetingReminderLoop } from './services/meetingReminders.js'; // M3
+
+// Validate before opening a listener or starting any background database work.
+const runtimeConfig = validateRuntimeConfig();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
@@ -128,7 +133,7 @@ app.use('/api', (req, res, next) => {
   const token = req.cookies?.designpm_token;
   if (token) {
     try {
-      const u = jwtGuard.verify(token, process.env.JWT_SECRET || 'change-me-in-prod');
+      const u = jwtGuard.verify(token, JWT_SECRET);
       if (u.role === 'observer') {
         return res.status(403).json({ error: 'read_only', message: '觀察者帳號為唯讀，無法執行此操作。' });
       }
@@ -187,7 +192,6 @@ const sendNoCacheHtml = (res, file) => {
 // see 401, and redirect. The user briefly saw the (data-less) main shell.
 // Now: if no valid cookie, send 302 → /login WITHOUT touching index.html.
 import jwt from 'jsonwebtoken';
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-prod';
 function isAuthed(req) {
   const token = req.cookies?.designpm_token;
   if (!token) return false;
@@ -200,9 +204,9 @@ function isAuthed(req) {
 }
 
 // Un-authenticated login page (always accessible)
-app.get('/login', (req, res) => {
-  // If already logged in, send to home
-  if (isAuthed(req)) return res.redirect(302, '/');
+app.get('/login', (_req, res) => {
+  // A signed cookie can belong to a removed or revoked account. Keep sign-in
+  // reachable even before an API response has cleared that stale cookie.
   sendNoCacheHtml(res, path.join(PUBLIC_DIR, 'login.html'));
 });
 
@@ -235,7 +239,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'server_error' });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = runtimeConfig.port;
 app.listen(PORT, () => {
   console.log(`[design-pm] listening on :${PORT}`);
   startMeetingReminderLoop(); // M3: 會前提醒排程

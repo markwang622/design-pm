@@ -281,3 +281,14 @@ model RequestUnit {
   updatedAt DateTime @updatedAt
   @@map("request_units")
 }
+
+// Provisioned once by an operator. App startup, bootstrap and demo reset never
+// create or change this identity; destructive tools verify it before writing.
+model DeploymentIdentity {
+  id          Int      @id @default(1)
+  environment String
+  instanceId  String   @unique
+  createdAt   DateTime @default(now())
+
+  @@map("deployment_identity")
+}
