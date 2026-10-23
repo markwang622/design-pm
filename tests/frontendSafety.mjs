@@ -103,7 +103,7 @@ async function test(name,fn){try{await fn();passed++;console.log('PASS '+name);}
 
 await test('drawer renders user-controlled text and attribute values inertly without dropping the text',()=>{
   const d=dom();for(const id of ['d-id','d-chips','d-head-due','d-head-extra','d-title','d-sub','d-collab-bar','d-grid','d-timeline-box','d-subitems','d-archive','d-closure','d-timeline','d-status','d-now-status','d-now-next','d-gate','d-log-submit','d-urgent-toggle','d-reassign','drawer','drawer-bg'])d.seed(id);
-  const c=baseContext(d);vm.runInContext(section('function openDrawer(c)','function saveClosure(c)'),c);
+  const c=baseContext(d);vm.runInContext(section('// Archive location: visible draft and explicit persistence.','function saveClosure(c)'),c);
   const text='<img data-audit-marker="text" src=x onerror="neverExecute()"> & \' "';
   const attr='"><img data-audit-marker="attribute" src=x onerror="neverExecute()">';
   const row=c.decorateCase(c.normalizeCase(fixture('A',{title:attr,note:text,requester:text,designer:{id:1,name:text},collaborators:[{id:2,name:text}],archivePath:attr,items:[{n:text,type:text,owner:text}],logs:[{date:'2026-10-22',note:text,by:text}]})));

@@ -708,6 +708,11 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
 .archive-field.missing .hint { color:var(--dk-red,#9A2E2E); font-weight: 500; }
 .archive-field.filled { background: #EEF6EE; border-color: #BFD9BF; border-style: solid; }
 .archive-field.filled .af-label { color:var(--dk-green,#2F6B2F); }
+.archive-field .af-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.archive-field .af-actions button { min-height:36px; white-space:nowrap; }
+.archive-field .af-feedback { flex:1; min-width:140px; font-size:12px; color:var(--fg-dim,#595959); }
+.archive-field .af-feedback.error { color:var(--dk-red,#A32D2D); }
+.archive-field input:focus-visible { outline:2px solid var(--dk-blue,#315B8A); outline-offset:2px; }
 
 .collab-bar { margin-bottom: 12px; padding: 8px 10px; background: #F7FAFD; border: 1px solid #DDEAF5; border-radius: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .collab-bar .cb-title { font-size: 11px; color:var(--dk-blue,#1E5A85); font-weight: 500; }
@@ -2166,6 +2171,7 @@ body.has-panel #d-timeline { max-height: 190px; overflow-y: auto; }
         </div>
       </div>
 
+      <div id="d-archive"></div>
       <div class="status-change">
         <span style="font-size: 13px; color: var(--fg-dim,#595959);">變更狀態：</span><i class="tip" data-tip="推到「待主管核可」會通知管理者，由管理者在審核中心核可後才正式結案歸檔。">ⓘ</i>
         <select id="d-status">
@@ -2195,7 +2201,6 @@ body.has-panel #d-timeline { max-height: 190px; overflow-y: auto; }
       <dl class="detail-grid" id="d-grid"></dl>
       <div id="d-timeline-box"></div>
       <div id="d-subitems"></div>
-      <div id="d-archive"></div>
       <div id="d-closure"></div>
     </details>
     <div class="gate-info" id="d-gate">
@@ -3757,6 +3762,79 @@ function renderStaff() {
   document.getElementById('staff-table').innerHTML = html;
 }
 
+// Archive location: visible draft and explicit persistence.
+const v41ArchivePending = new Map();
+const v41ArchiveDrafts = new Map();
+function v41ArchiveInput(c) {
+  const input = document.getElementById('d-archive-input');
+  return input && input.dataset.caseId === c.id ? input : null;
+}
+function v41ArchiveDraft(c) {
+  const input = v41ArchiveInput(c);
+  return String(input ? input.value : (v41ArchiveDrafts.get(c.id) ?? c.archivePath ?? '')).trim();
+}
+function v41ArchiveFeedback(c, message, isError = false) {
+  if (!v41ArchiveInput(c)) return;
+  const el = document.getElementById('d-archive-feedback');
+  if (el) { el.textContent = message; el.classList.toggle('error', isError); }
+}
+function v41RequireArchive(c) {
+  if (v41ArchiveDraft(c)) return true;
+  const input = v41ArchiveInput(c), field = document.getElementById('d-archive-field');
+  if (field) { field.classList.remove('filled'); field.classList.add('missing'); }
+  v41ArchiveFeedback(c, '請先填寫檔案歸檔位置，再送出主管核可。', true);
+  if (input) { input.setAttribute('aria-invalid', 'true'); input.focus(); input.scrollIntoView({ behavior:'smooth', block:'center' }); }
+  showToast('請先填寫檔案歸檔位置，再送出核可或結案', 'err');
+  return false;
+}
+function v41ApplyArchive(c, raw, path) {
+  if (!raw || typeof raw !== 'object') throw new Error('未收到儲存結果，請重新確認');
+  const apply = target => {
+    if (raw.contentVersion != null && raw.contentVersion < (target._contentVersion ?? 0)) return;
+    target.archivePath = raw.archivePath !== undefined ? raw.archivePath : (path || null);
+  };
+  apply(c);
+  const cached = CASES.find(x => x.id === c.id); if (cached && cached !== c) apply(cached);
+  v10SyncUpdatedAt(c, raw);
+  if (String(c.archivePath || '').trim() === path && v41ArchiveDrafts.get(c.id)?.trim() === path) v41ArchiveDrafts.delete(c.id);
+}
+function v41SaveArchive(c) {
+  if (v41ArchivePending.has(c.id)) return v41ArchivePending.get(c.id);
+  const input = v41ArchiveInput(c), btn = document.getElementById('d-archive-save');
+  if (!input || input.disabled || !btn || btn.disabled || IS_OBSERVER()) return Promise.resolve(false);
+  const path = v41ArchiveDraft(c), gen = window.v95DrawerSeq?.now();
+  const sameDrawer = () => input === v41ArchiveInput(c) && input.isConnected && gen === window.v95DrawerSeq?.now();
+  const controls = [input, btn, document.getElementById('d-status')].filter(Boolean);
+  const previous = controls.map(el => el.disabled);
+  const status = document.getElementById('d-status'); if (status) status.dataset.archiveLock = 'true';
+  controls.forEach(el => { el.disabled = true; }); btn.textContent = '儲存中…';
+  v41ArchiveFeedback(c, '正在儲存歸檔位置…');
+  const pending = (async () => {
+    try {
+      const raw = await api.cases.update(c.id, { archivePath:path || null });
+      v41ApplyArchive(c, raw, path);
+      if (sameDrawer()) {
+        input.value = c.archivePath || ''; input.removeAttribute('aria-invalid');
+        const field = document.getElementById('d-archive-field');
+        field?.classList.remove('missing'); field?.classList.toggle('filled', !!c.archivePath);
+        v41ArchiveFeedback(c, c.archivePath ? '歸檔位置已儲存' : '已清除歸檔位置；送出核可前請補填。');
+      }
+      return true;
+    } catch (err) {
+      if (sameDrawer()) {
+        const message = v10ConflictMsg(err, '歸檔位置儲存失敗，輸入內容已保留');
+        v41ArchiveFeedback(c, message, true); showToast(message, 'err');
+      }
+      return false;
+    } finally {
+      v41ArchivePending.delete(c.id);
+      if (sameDrawer()) { controls.forEach((el,i) => { el.disabled = previous[i]; }); if (status) delete status.dataset.archiveLock; btn.textContent = '儲存歸檔位置'; }
+    }
+  })();
+  v41ArchivePending.set(c.id, pending);
+  return pending;
+}
+
 // ============== Drawer ==============
 function openDrawer(c) {
   currentCase = c;
@@ -3842,25 +3920,31 @@ function openDrawer(c) {
     document.getElementById('d-subitems').innerHTML = '';
   }
 
-  // Archive path field (always shown, required for done)
-  const isDone = c.status === 'done';
-  const hasPath = !!c.archivePath;
-  const fieldClass = isDone && hasPath ? 'filled' : (isDone && !hasPath ? 'missing' : '');
+  // Required completion input stays beside the action that needs it.
+  const archiveDraft = v41ArchiveDrafts.get(c.id) ?? String(c.archivePath || '');
+  const archiveDirty = archiveDraft.trim() !== String(c.archivePath || '').trim();
+  const hasPath = !!String(c.archivePath || '').trim();
+  const needsPath = ['review_done','done','closed'].includes(c.status);
   document.getElementById('d-archive').innerHTML = `
-    <div class="archive-field ${fieldClass}" id="d-archive-field">
+    <div class="archive-field ${hasPath && !archiveDirty ? 'filled' : needsPath && !archiveDraft.trim() ? 'missing' : ''}" id="d-archive-field">
       <div class="af-label">
-        <span>📁 檔案歸檔位置 ${isDone ? '✓' : ''}<span class="af-req"> · 結案必填</span></span>
-        ${hasPath ? '<span style="font-size:10px;color:var(--dk-green,#2F6B2F);">已填</span>' : '<span style="font-size:10px;color:var(--dk-red,#A32D2D);">未填</span>'}
+        <label for="d-archive-input">檔案歸檔位置<span class="af-req"> · 送出核可前必填</span></label>
       </div>
-      <input id="d-archive-input" placeholder="e.g. /設計部共用/2026/Q2/${escapeHtml(c.id.split('-')[0])}-${escapeHtml(c.name)}" value="${escapeHtml(c.archivePath || '')}">
-      <div class="hint">請填入檔案（原檔、交付檔、參考資料）存放的路徑 / 網址。未填寫者無法結案。<br>格式建議：/設計部共用/年份/季度/案號-館別-專案名</div>
+      <input id="d-archive-input" data-case-id="${escapeHtml(c.id)}" aria-describedby="d-archive-hint d-archive-feedback" placeholder="例如：/設計部共用/年份/季度/案號-專案名，或雲端資料夾網址" value="${escapeHtml(archiveDraft)}">
+      <div class="hint" id="d-archive-hint">填寫原檔與交付檔的資料夾路徑或網址。可單獨儲存；變更狀態時也會一併儲存，主管核可後才正式結案。</div>
+      <div class="af-actions">
+        <button type="button" id="d-archive-save">儲存歸檔位置</button>
+        <span id="d-archive-feedback" class="af-feedback" role="status" aria-live="polite">${archiveDirty ? '尚未儲存；可按儲存，或變更狀態時一併儲存。' : hasPath ? '歸檔位置已儲存' : '尚未填寫歸檔位置'}</span>
+      </div>
     </div>
   `;
   document.getElementById('d-archive-input').oninput = e => {
-    c.archivePath = e.target.value.trim() || null;
-    const f = document.getElementById('d-archive-field');
-    f.classList.remove('filled','missing');
-    if (c.status === 'done' || c.status === 'closed') f.classList.add(c.archivePath ? 'filled' : 'missing');
+    const path = e.target.value.trim();
+    v41ArchiveDrafts.set(c.id, e.target.value);
+    const field = document.getElementById('d-archive-field');
+    field.classList.remove('filled','missing'); e.target.removeAttribute('aria-invalid');
+    const dirty = path !== String(c.archivePath || '').trim();
+    v41ArchiveFeedback(c, dirty ? '尚未儲存；可按儲存，或變更狀態時一併儲存。' : (path ? '歸檔位置已儲存' : '尚未填寫歸檔位置'));
   };
 
   v40RenderClosure(c);   // v40: 已交付（done／closed）才顯示結案數量；0 為有效值
@@ -3869,6 +3953,7 @@ function openDrawer(c) {
   const logs = c.logs || [{date: c.open, note: '建檔', by: 'Mark'}];
   tl.innerHTML = logs.map(l => `<div class="log-item"><div class="log-date">${ymd(l.date)} · ${escapeHtml(l.by || '')}</div><div class="log-note">${escapeHtml(l.note || '')}</div></div>`).join('');
   const sel = document.getElementById('d-status');
+  if (sel.dataset.archiveLock || sel.dataset.submitting) { sel.disabled = false; delete sel.dataset.archiveLock; delete sel.dataset.submitting; }
   sel.value = c.status;
   // v8.0: 回報區頂端顯示「現在是什麼狀態 + 下一步該做什麼」，依角色不同
   const nowS = document.getElementById('d-now-status');
@@ -4961,14 +5046,9 @@ window.openDrawer = function(c) {
       refreshAll();
     }
   };
-  // Archive-path persistence
-  const apInput = document.getElementById('d-archive-input');
-  if (apInput) {
-    let apTimer;
-    apInput.addEventListener('blur', async () => {
-      try { await api.cases.update(c.id, { archivePath: c.archivePath || null }); } catch (err) { /* silent */ }
-    });
-  }
+  // A visible save result replaces silent blur writes and avoids racing status PATCH.
+  const apSave = document.getElementById('d-archive-save');
+  if (apSave) apSave.onclick = () => v41SaveArchive(c);
   // Urgent toggle
   const ut = document.getElementById('d-urgent-toggle');
   if (ut) {
@@ -5568,29 +5648,50 @@ window.openDrawer = async function(c) {
   const sel = document.getElementById('d-status');
   if (sel) {
     sel.onchange = async function(e) {
-      const before = c.status;
-      const newVal = sel.value;
-      if (newVal === before) return;
-      // Validate archive path before asking reason if going to done
-      if (newVal === 'done' && (!c.archivePath || !String(c.archivePath).trim())) {
-        showToast('請先填寫檔案歸檔位置再結案', 'err');
-        sel.value = before;
-        return;
-      }
-      const reason = await promptReason(`狀態：<b>${before}</b> → <b>${newVal}</b>`);
-      if (!reason) { sel.value = before; return; }
+      const before = c.status, newVal = sel.value;
+      if (newVal === before || sel.dataset.submitting || IS_OBSERVER()) return;
+      const pending = v41ArchivePending.get(c.id);
+      if (sel.disabled && !pending) return;
+      const input = v41ArchiveInput(c), gen = window.v95DrawerSeq?.now();
+      const sameDrawer = () => input === v41ArchiveInput(c) && gen === window.v95DrawerSeq?.now();
+      sel.dataset.submitting = 'true';
       try {
-        await api.cases.update(c.id, { status: newVal, archivePath: c.archivePath || undefined, reason });
-        c.status = newVal;
-        if (newVal === 'done') c.closedOn = new Date();
-        decorateCases();
-        refreshAll();
-        await v33RenderChangeLog(c);
-        showToast(`✓ 狀態已更新並寫入變更記錄`);
+        if (pending && !await pending) { if (sameDrawer()) sel.value = before; return; }
+        if (!sameDrawer()) return;
+        if (['review_done','done','closed'].includes(newVal) && !v41RequireArchive(c)) { sel.value = before; return; }
+        // Lock the captured controls while the reason dialog and atomic save are pending.
+        const controls = [sel, input, document.getElementById('d-archive-save')].filter(Boolean);
+        const previous = controls.map(el => el.disabled);
+        sel.dataset.archiveLock = 'true';
+        controls.forEach(el => { el.disabled = true; });
+        try {
+          const reason = await promptReason(`狀態：<b>${before}</b> → <b>${newVal}</b>`);
+          if (!sameDrawer()) return;
+          if (!reason) { sel.value = before; return; }
+          const path = v41ArchiveDraft(c);
+          const raw = await api.cases.update(c.id, { status:newVal, archivePath:path || null, reason });
+          v41ApplyArchive(c, raw, path);
+          c.status = raw.status || newVal;
+          const cached = CASES.find(x => x.id === c.id); if (cached && cached !== c) cached.status = c.status;
+          if (newVal === 'done') c.closedOn = new Date();
+          decorateCases(); refreshAll();
+          if (sameDrawer()) {
+            input.value = c.archivePath || '';
+            document.getElementById('d-archive-field')?.classList.toggle('filled', !!c.archivePath);
+            v41ArchiveFeedback(c, c.archivePath ? '歸檔位置已儲存' : '尚未填寫歸檔位置');
+            await v33RenderChangeLog(c);
+            showToast('✓ 狀態與歸檔位置已儲存並寫入變更記錄');
+          }
+        } finally {
+          if (sameDrawer()) { controls.forEach((el,i) => { el.disabled = previous[i]; }); delete sel.dataset.archiveLock; }
+        }
       } catch (err) {
-        sel.value = before;
-        showToast('狀態更新失敗：' + (err.data?.message || err.message), 'err');
-      }
+        if (sameDrawer()) {
+          sel.value = before;
+          const message = v10ConflictMsg(err, '狀態更新失敗，輸入內容已保留');
+          v41ArchiveFeedback(c, message, true); showToast(message, 'err');
+        }
+      } finally { if (sameDrawer()) delete sel.dataset.submitting; }
     };
   }
 

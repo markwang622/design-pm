@@ -126,7 +126,7 @@ function closureEnv(extra={}){
   const {c,d}=env;c.VACATIONS=[];c.TRIPS=[];
   for(const id of ['d-id','d-chips','d-head-due','d-head-extra','d-title','d-sub','d-collab-bar','d-grid','d-timeline-box','d-subitems','d-archive','d-closure','d-timeline','d-status','d-now-status','d-now-next','d-gate','d-log-submit','d-urgent-toggle','d-reassign','drawer','drawer-bg'])d.seed(id);
   c.exportDetail=()=>{};c.openReassign=()=>{};c.refreshAll=()=>{};c.showEmail=kind=>previews.push(kind);c.saveClosure=()=>{};
-  vm.runInContext(section('function openDrawer(c)','function saveClosure(c)'),c);
+  vm.runInContext(section('// Archive location: visible draft and explicit persistence.','function saveClosure(c)'),c);
   const actualDrawer=c.openDrawer;
   const draw=raw=>{const row=c.decorateCase(c.normalizeCase(raw));actualDrawer(row);return row;};
   const seedInputs=(requested='2',output='4')=>{for(const [id,value]of [['d-req-count',requested],['d-out-count',output]]){let n=d.get(id);if(!n)n=d.seed(id,'input');n.value=value;}if(!d.get('d-closure-save'))d.seed('d-closure-save','button');};
@@ -349,6 +349,80 @@ for(const status of ['done','closed'])for(const [label,who,writable]of historica
   for(const id of ['d-req-count','d-out-count','d-closure-save']){const node=d.get(id);assert(node,id+' rendered through the wrapped opener');assert.equal(node.disabled,!writable,id+' write permission');if(writable){assert.equal(node.classList.contains('v37-historical-readonly'),false,id+' is exempt from historical readonly CSS');assert.equal(node.classList.contains('v36-readonly'),false,id+' is exempt from unauthorized CSS only when permitted');}}
   for(const id of ['d-status','d-archive-input','d-urgent-toggle','d-log-submit','d-reassign','d-closure-export']){const node=d.get(id);assert(node,id+' still exists');assert.equal(node.disabled,true,id+' historical behavior remains read-only');}
   d.get('d-req-count').value='7';d.get('d-out-count').value='9';await d.get('d-closure-save').click();await flush();assert.equal(writes.length,writable?1:0,'only an authorized native button click writes');if(writable)assert.deepEqual(writes[0].body,{requestCount:7,outputCount:9});
+});
+
+// Parse the shipped drawer markup so a required field moved beneath collapsed
+// details cannot pass merely because a fixture places it in the right location.
+function archiveWorkflowEnv(extra={}){
+  let stored=rawCase({status:'doing',archived:false,closedOn:null,archivePath:null});
+  const writes=[],reasons=[];const who=extra.ME||{id:1,name:'Designer',role:'member'};
+  const env=browser({ME:who,ME_NAME:()=>who.name,IS_OBSERVER:()=>who.role==='observer',currentRole:who.role==='admin'?'admin':'designer',...extra});
+  const {c,d}=env;
+  d.seed('archive-fixture').innerHTML=section('<div class="drawer" id="drawer">','<!-- Create project modal -->');d.seed('drawer-bg');
+  c.VACATIONS=[];c.TRIPS=[];c.exportDetail=()=>{};c.openReassign=()=>{};c.refreshAll=()=>{};c.saveClosure=()=>{};c.v51WireLogs=()=>{};c.v52WireBasicEdit=()=>{};
+  c.v33InjectDrawerExtras=async()=>{};c.v33RenderChangeLog=async()=>{};c.promptReason=async detail=>{reasons.push(detail);return 'Fixture status reason';};
+  c.decorateCases=()=>c.CASES.forEach(c.decorateCase);c.v37ReopenCase=()=>{};c.v71CanCancel=()=>false;
+  c.api={cases:{update:async(id,body)=>{writes.push({id,body:plain(body)});const result=extra.update?await extra.update(id,body):null;stored={...stored,...body};return result||structuredClone(stored);}}};
+  vm.runInContext(section('function v10SyncUpdatedAt(c, raw)','function v51LogsForApi(logs)'),c);
+  vm.runInContext(section('// Archive location: visible draft and explicit persistence.','function saveClosure(c)'),c);
+  vm.runInContext(section('// Intercept the inline status-change handler','// ── A3: 進度日誌持久化'),c);
+  vm.runInContext(section('const _v33OrigOpenDrawer =','// ─── Inject delete button'),c);
+  vm.runInContext(section('function v20SameId','// 任何人改名後'),c);
+  vm.runInContext(section('function v36CanWriteCase(c)','// ─── 歷史案件 view'),c);
+  vm.runInContext(section('// (#歷史) Drawer:','async function v37ReopenCase(c)'),c);
+  const draw=async(raw=stored)=>{const row=c.decorateCase(c.normalizeCase(raw));c.CASES=[row];await c.openDrawer(row);return row;};
+  const typePath=value=>{const input=d.get('d-archive-input');input.value=value;input.dispatchEvent({type:'input'});return input;};
+  const changeStatus=async value=>{const select=d.get('d-status');select.value=value;await select.dispatchEvent({type:'change'});await flush();};
+  return {...env,writes,reasons,draw,typePath,changeStatus,persisted:()=>c.normalizeCase(structuredClone(stored))};
+}
+await test('archive workflow keeps one required path input beside the current status outside collapsed details',async()=>{
+  const {d,draw}=archiveWorkflowEnv();await draw();const input=d.get('d-archive-input');assert(input,'actual opener renders the archive input');assert.equal(d.document.querySelectorAll('#d-archive-input').length,1);assert(d.get('d-report-zone').contains(input),'required path belongs to the visible status workflow');assert.equal(input.closest('details'),null,'path remains reachable with project details collapsed');assert.equal(input.disabled,false);assert.equal(d.get('d-archive-save').disabled,false);const feedback=d.get('d-archive-feedback');assert(feedback.getAttribute('aria-live')||feedback.getAttribute('role')==='status','save feedback is announced');
+});
+await test('archive workflow blocks blank approval submission before reason or PATCH and focuses the reachable field',async()=>{
+  const {d,writes,reasons,messages,draw,typePath,changeStatus}=archiveWorkflowEnv();const row=await draw();const input=typePath('   ');await changeStatus('review_done');
+  assert.equal(row.status,'doing');assert.equal(d.get('d-status').value,'doing');assert.equal(writes.length,0);assert.equal(reasons.length,0,'missing required data is explained before requesting a reason');assert.equal(d.document.activeElement,input);assert.equal(input.closest('details'),null);assert(d.get('d-archive-field').classList.contains('missing'));assert(messages.some(m=>m.type==='err'&&/歸檔/.test(m.message)));
+});
+await test('archive workflow explicitly saves a trimmed path before the waiting approval status PATCH',async()=>{
+  const pending=deferred();let calls=0;const {d,writes,draw,typePath,changeStatus,persisted}=archiveWorkflowEnv({update:async()=>{if(++calls===1)await pending.promise;}});const row=await draw();const input=typePath('  /shared/quarterly-final  ');assert.equal(row.archivePath,null,'typing changes the DOM draft only');input.dispatchEvent({type:'blur',bubbles:false});await flush();assert.equal(writes.length,0,'leaving input does not silently save');
+  const save=d.get('d-archive-save').click();await flush();assert.deepEqual(writes[0].body,{archivePath:'/shared/quarterly-final'});const transition=changeStatus('review_done');await flush();assert.equal(writes.length,1,'status waits for the in-flight standalone save');pending.resolve();await Promise.all([save,transition]);
+  const statusWrite=writes.find(w=>w.body.status==='review_done');assert(statusWrite,'real status adapter issues the approval transition after saving');assert.equal(statusWrite.body.archivePath,'/shared/quarterly-final');assert.equal(statusWrite.body.reason,'Fixture status reason');assert.equal(row.archivePath,'/shared/quarterly-final');assert.equal(row.status,'review_done');assert.equal(persisted().archivePath,'/shared/quarterly-final');assert.equal(persisted().status,'review_done');assert.equal(d.get('d-archive-save').disabled,false);
+});
+await test('archive workflow reports failed path persistence and retains the editable draft',async()=>{
+  const {d,messages,draw,typePath}=archiveWorkflowEnv({update:async()=>{throw {status:409,data:{message:'Synthetic archive save conflict'}};}});const row=await draw();const input=typePath('/shared/retry-this');await d.get('d-archive-save').click();await flush();
+  assert.equal(row.archivePath,null,'failed save cannot claim the draft is persisted');assert.equal(input.value,'/shared/retry-this');assert.equal(input.disabled,false);assert.equal(d.get('d-archive-save').disabled,false);assert.equal(row.status,'doing');assert.match(d.get('d-archive-feedback').textContent,/其他人更新/,'save failure stays next to the retained draft');assert(messages.some(m=>m.type==='err'&&/其他人更新/.test(m.message)),'save failure remains visible instead of silently losing the path');
+});
+await test('archive workflow status rejection keeps status and path draft with readable server feedback',async()=>{
+  const {d,writes,messages,draw,typePath,changeStatus}=archiveWorkflowEnv({update:async()=>{throw {status:422,data:{error:'archive_path_required',message:'Synthetic required archive path failure'}};}});const row=await draw();typePath('/shared/draft-survives');await changeStatus('review_done');
+  assert.equal(writes.length,1);assert.equal(writes[0].body.archivePath,'/shared/draft-survives');assert.equal(row.status,'doing');assert.equal(d.get('d-status').value,'doing');assert.equal(d.get('d-archive-input').value,'/shared/draft-survives');assert.equal(row.archivePath,null,'rejected transition cannot commit the unsaved DOM draft');assert(messages.some(m=>m.type==='err'&&/Synthetic required archive path failure/.test(m.message)));assert(!messages.some(m=>m.type!=='err'&&/已儲存|已更新/.test(m.message)),'rejected status cannot claim success');
+});
+await test('archive workflow active observer cannot edit the path or status',async()=>{
+  const {d,writes,draw}=archiveWorkflowEnv({ME:{id:1,name:'Designer',role:'observer'}});await draw();assert.equal(d.get('d-archive-input').disabled,true);assert.equal(d.get('d-archive-save').disabled,true);assert.equal(d.get('d-status').disabled,true);await d.get('d-archive-save').click();assert.equal(writes.length,0);
+});
+
+await test('archive workflow submits an unsaved draft atomically with review_done in one PATCH',async()=>{
+  const {d,writes,draw,typePath,changeStatus,persisted}=archiveWorkflowEnv();const row=await draw();typePath('  /shared/submit-with-draft  ');assert.equal(row.archivePath,null);await changeStatus('review_done');
+  assert.equal(writes.length,1,'submitting a draft needs only the status PATCH');assert.deepEqual(writes[0].body,{status:'review_done',archivePath:'/shared/submit-with-draft',reason:'Fixture status reason'});assert.equal(row.status,'review_done');assert.equal(row.archivePath,'/shared/submit-with-draft');assert.equal(persisted().archivePath,'/shared/submit-with-draft');assert.equal(d.get('d-archive-input').value,'/shared/submit-with-draft');
+});
+await test('archive workflow aborts waiting status when the pending explicit path save fails',async()=>{
+  const pending=deferred();const {d,writes,reasons,draw,typePath,changeStatus}=archiveWorkflowEnv({update:async()=>{await pending.promise;}});const row=await draw();typePath('/shared/keep-failed-draft');const save=d.get('d-archive-save').click();await flush();const transition=changeStatus('review_done');await flush();assert.equal(writes.length,1);pending.reject({status:409});await Promise.all([save,transition]);
+  assert.equal(writes.length,1,'failed prerequisite save cannot be followed by a status PATCH');assert.equal(reasons.length,0);assert.equal(row.status,'doing');assert.equal(row.archivePath,null);assert.equal(d.get('d-status').value,'doing');assert.equal(d.get('d-archive-input').value,'/shared/keep-failed-draft');assert.equal(d.get('d-archive-input').disabled,false);assert.equal(d.get('d-archive-save').disabled,false);assert.equal(d.get('d-status').disabled,false);
+});
+await test('archive workflow old pending save cannot replace a newly opened readonly drawer draft or unlock it',async()=>{
+  const pending=deferred();const {d,writes,draw,typePath}=archiveWorkflowEnv({update:async()=>{await pending.promise;}});await draw();typePath('/shared/previous-case');const save=d.get('d-archive-save').click();await flush();
+  const next=await draw(rawCase({id:'UNRELATED-CASE',status:'doing',archived:false,closedOn:null,designer:{id:2,name:'Other'},archivePath:'/shared/unrelated-case'}));const newInput=d.get('d-archive-input');assert.equal(newInput.value,'/shared/unrelated-case');assert.equal(newInput.disabled,true);assert.equal(d.get('d-archive-save').disabled,true);assert.equal(d.get('d-status').disabled,true);pending.resolve();await save;await flush();
+  assert.equal(writes.length,1);assert.equal(d.get('d-archive-input'),newInput);assert.equal(newInput.value,'/shared/unrelated-case');assert.equal(next.archivePath,'/shared/unrelated-case');assert.equal(newInput.disabled,true);assert.equal(d.get('d-archive-save').disabled,true);assert.equal(d.get('d-status').disabled,true);
+});
+
+await test('archive workflow reopening the same case preserves its unsaved raw path draft',async()=>{
+  const {d,writes,draw,typePath}=archiveWorkflowEnv();const first=await draw();typePath('  /shared/keep-dirty-draft  ');const reopened=await draw();assert.notEqual(reopened,first,'the renderer receives a fresh case object');assert.equal(d.get('d-archive-input').value,'  /shared/keep-dirty-draft  ');assert.equal(reopened.archivePath,null,'rerender does not turn a draft into persisted state');assert.equal(writes.length,0);assert.equal(d.get('d-archive-input').disabled,false);assert.equal(d.get('d-status').disabled,false);
+});
+await test('archive workflow switching from an old pending save to a writable case resets its operation locks',async()=>{
+  const pending=deferred();const {d,draw,typePath}=archiveWorkflowEnv({update:async()=>{await pending.promise;}});await draw();typePath('/shared/old-pending');const save=d.get('d-archive-save').click();await flush();await draw(rawCase({id:'WRITABLE-CASE',status:'doing',archived:false,closedOn:null,archivePath:'/shared/new-persisted'}));
+  const nextInput=d.get('d-archive-input'),nextStatus=d.get('d-status');assert.equal(nextInput.disabled,false);assert.equal(nextStatus.disabled,false,'old save cannot keep a new writable status locked');assert(!nextStatus.dataset.submitting);pending.resolve();await save;await flush();assert.equal(nextInput.value,'/shared/new-persisted');assert.equal(nextInput.disabled,false);assert.equal(d.get('d-archive-save').disabled,false);assert.equal(nextStatus.disabled,false);assert(!nextStatus.dataset.submitting);assert(!nextStatus.dataset.archiveLock);
+});
+await test('archive workflow old status completion cannot clear a new case submitting flag or unlock its controls',async()=>{
+  const firstPending=deferred(),secondPending=deferred();const {d,writes,draw,typePath,changeStatus}=archiveWorkflowEnv({update:async(id,body)=>{await(id==='CLOSURE-1'?firstPending.promise:secondPending.promise);return rawCase({...body,id});}});await draw();typePath('/shared/first-submit');const first=changeStatus('review_done');await flush();assert.equal(writes.length,1);
+  await draw(rawCase({id:'SECOND-WRITABLE',status:'doing',archived:false,closedOn:null,archivePath:null}));typePath('/shared/second-submit');const second=changeStatus('review_done');await flush();const status=d.get('d-status');assert.equal(writes.length,2);assert.equal(status.dataset.submitting,'true');assert.equal(status.disabled,true);firstPending.resolve();await first;await flush();assert.equal(status.dataset.submitting,'true','only the current operation can clear its submitting flag');assert.equal(status.disabled,true);assert.equal(d.get('d-archive-input').value,'/shared/second-submit');secondPending.resolve();await second;assert(!status.dataset.submitting);assert.equal(status.disabled,false);assert.equal(d.get('d-archive-input').disabled,false);
 });
 
 console.log(JSON.stringify({passed,failed,sourceRoot:root,liveNetwork:false,productionWrites:0,viewportMeasured:false}));
