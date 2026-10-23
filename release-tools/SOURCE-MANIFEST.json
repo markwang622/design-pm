@@ -1,0 +1,51 @@
+{
+  "format": 1,
+  "algorithm": "SHA256",
+  "source": "current design-pm release files; parent pins immutable commit before distribution",
+  "byteIdenticalToSource": true,
+  "dependencies": {
+    "prisma": "6.19.3",
+    "@prisma/client": "6.19.3",
+    "dotenv": "16.6.1"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2"
+  },
+  "files": [
+    {
+      "path": "prisma/schema.prisma",
+      "sha256": "bbc6e2ce04500825f9b12fa9f374814f204d4ba0c636f81086c38dd069ee1da0",
+      "bytes": 12182
+    },
+    {
+      "path": "prisma/legacy-upgrade-preflight.sql",
+      "sha256": "9a62abb5fb658718f24248810202622981d88fe78d5dfd50806ab40bca97b397",
+      "bytes": 558
+    },
+    {
+      "path": "src/lib/runtimeConfig.js",
+      "sha256": "d2093f90e178982e6c61d57a900e6dbbe22f03d493cb11418ee09fbf24a00cdb",
+      "bytes": 3800
+    },
+    {
+      "path": "scripts/database-maintenance.mjs",
+      "sha256": "b78783b4b3b236c8edf16d01ad5327ea6bec897ff8aa03aea0b319c223886227",
+      "bytes": 11696
+    },
+    {
+      "path": "prisma/migrations/0001_legacy_baseline/migration.sql",
+      "sha256": "45ebf883b8e12af0d2b3f93827b79d9637545eaa82b4c8c3ab80b59a467733ea",
+      "bytes": 10966
+    },
+    {
+      "path": "prisma/migrations/0002_runtime_safety/migration.sql",
+      "sha256": "6ebe4b39918d7b2270272bf9635e4d1a8597e90459e64c952085a3b425796998",
+      "bytes": 1381
+    },
+    {
+      "path": "prisma/migrations/migration_lock.toml",
+      "sha256": "1db17a8d051aa136110736752c5e1f8b7ed92b6ea8e803112fbbe2497047c210",
+      "bytes": 24
+    }
+  ]
+}

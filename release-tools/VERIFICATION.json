@@ -1,0 +1,23 @@
+{
+  "status": "complete",
+  "sourceFiles": 7,
+  "byteIdenticalToCurrentSource": true,
+  "lockfileVersion": 3,
+  "npmCi": "passed",
+  "postinstallGenerate": "passed",
+  "explicitGenerate": "passed",
+  "schemaValidate": "passed",
+  "syntaxChecks": "passed",
+  "databaseConnections": 0,
+  "remoteOrGitActions": false,
+  "localValidationNode": "26.0.0",
+  "targetNode": "20.20.2",
+  "targetNodeOfficialCompatibility": "Prisma v6 Node20 minimum20.9.0; target passes. All11 declared dependency Node engine ranges also accept20.20.2. Target Alpine runtime not executed locally.",
+  "officialRequirementSource": "https://www.prisma.io/docs/guides/upgrade-prisma-orm/v6",
+  "dependencies": {
+    "prisma": "6.19.3",
+    "@prisma/client": "6.19.3",
+    "dotenv": "16.6.1",
+    "deepmerge-ts": "8.0.2"
+  }
+}

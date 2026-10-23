@@ -1,0 +1,294 @@
+// ─────────────────────────────────────────────────────────────
+// Design Department PM System — Prisma schema
+// Datasource: Postgres (Zeabur-managed)
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Staff {
+  id         Int       @id @default(autoincrement())
+  name       String    @unique
+  email      String    @unique
+  password   String // bcrypt hash
+  role       String    @default("member") // 'admin' | 'member'
+  active     Boolean   @default(true)
+  joined     DateTime  @db.Date
+  departedOn DateTime? @db.Date
+  seniority  String // 'senior' | 'mid' | 'junior'
+  roleTitle  String    @default("設計師")
+  color      String?   // v4.8: 個人代表色 palette key (e.g. 'teal' | 'sea' | …)
+  // v7.3: 邀請啟用流程——管理員只指派 Email，密碼由本人首次登入時自行設定。
+  // 只影響用邀請建立的新帳號；既有帳號 pendingActivation=false，行為不變。
+  pendingActivation   Boolean   @default(false) // true 時禁止登入，必須先啟用
+  activationTokenHash String?                   // 只存 SHA-256，明碼僅在建立當下顯示一次
+  activationExpires   DateTime?                 // 啟用連結到期時間
+  resetTokenHash      String?
+  resetExpires        DateTime?
+  sessionVersion      Int       @default(0)
+  calendarVersion     Int       @default(0)
+  activatedAt         DateTime?                 // 完成啟用的時間
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  ownedCases        Case[]         @relation("owner")
+  collaboratedCases Case[]         @relation("collaborators")
+  createdCases      Case[]         @relation("creator")
+  notifications     Notification[]
+  vacations         Vacation[]      // v4.0
+  businessTrips     BusinessTrip[]  // v4.0
+  createdShoots     Shoot[]         @relation("shootCreator") // G2
+  hostedMeetings     Meeting[]         @relation("meetingHost")    // v6.0
+  createdMeetings    Meeting[]         @relation("meetingCreator") // v6.0
+  meetingAttendances MeetingAttendee[] @relation("meetingAttendee")// v6.0
+
+  @@map("staff")
+}
+
+// v4.0: 休假
+model Vacation {
+  id        Int      @id @default(autoincrement())
+  staffId   Int
+  staff     Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  type      String   @default("annual") // annual | sick | personal | other
+  note      String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([staffId])
+  @@index([startDate, endDate])
+  @@map("vacations")
+}
+
+// v4.0: 出差
+model BusinessTrip {
+  id        Int      @id @default(autoincrement())
+  staffId   Int
+  staff     Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  hotel     String   // 出差館別
+  task      String   // 任務說明
+  note      String   @default("")
+  archived  Boolean  @default(false) // v6.5: 手動封存（過期自動視為已結束，此為額外手動收起）
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([staffId])
+  @@index([startDate, endDate])
+  @@map("business_trips")
+}
+
+// G2: 拍攝行程（部門共享，不綁特定同仁；攝影師為自由文字）
+model Shoot {
+  id           Int      @id @default(autoincrement())
+  desc         String                      // 拍攝內容說明
+  mode         String   @default("in-house") // 'in-house'(自己拍攝) | 'outsource'(外發)
+  startDate    DateTime @db.Date
+  endDate      DateTime @db.Date
+  photographer String   @default("")       // 攝影師（自由文字，可填同事或外部工作室）
+  hotel        String?                      // 拍攝地點 / 館別（選填）
+  note         String   @default("")
+  archived     Boolean  @default(false)     // v6.6: 手動封存（過期自動視為已結束）
+  createdById  Int?                         // 建立者（權限用）
+  createdBy    Staff?   @relation("shootCreator", fields: [createdById], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([startDate, endDate])
+  @@map("shoots")
+}
+
+// v6.0: 會議（日期 + 起訖時間；僅內部與會者；可關聯案件）
+model Meeting {
+  id          Int      @id @default(autoincrement())
+  title       String                            // 會議主題
+  agenda      String   @default("")             // 議程 / 說明
+  date        DateTime @db.Date                 // 會議日期
+  startTime   String                            // 起始時間 "HH:MM"（Asia/Taipei 牆鐘時間）
+  endTime     String                            // 結束時間 "HH:MM"
+  location    String   @default("")             // 地點 / 線上連結（純文字）
+  type        String   @default("internal")     // internal | proposal | review | crossdept | other
+  status      String   @default("scheduled")    // scheduled | confirmed | cancelled | done
+  note        String   @default("")
+  seriesId      String?                         // M1: 重複會議系列 id（同系列共用）
+  minutes       String   @default("")           // M2: 會議記錄 / 結論
+  actionItems   Json?                           // M2: 待辦 [{ text, owner, done }]
+  remindMinutes Int      @default(0)             // M3: 會前提醒（分鐘，0=不提醒）
+  remindedAt    DateTime?                        // M3: 已發送提醒時間
+  archived      Boolean  @default(false)         // v6.5: 手動封存（過期自動視為已結束）
+  hostId      Int?                              // 主持人
+  host        Staff?   @relation("meetingHost", fields: [hostId], references: [id])
+  caseId      String?                           // 關聯案件（Case.id 為字串）
+  case        Case?    @relation(fields: [caseId], references: [id])
+  createdById Int?
+  createdBy   Staff?   @relation("meetingCreator", fields: [createdById], references: [id])
+  attendees   MeetingAttendee[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([date])
+  @@index([caseId])
+  @@index([seriesId])
+  @@map("meetings")
+}
+
+// v6.0: 會議與會者（含出席回覆狀態）
+model MeetingAttendee {
+  id        Int     @id @default(autoincrement())
+  meetingId Int
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  staffId   Int
+  staff     Staff   @relation("meetingAttendee", fields: [staffId], references: [id], onDelete: Cascade)
+  response  String  @default("pending") // pending | accepted | declined | tentative
+  required  Boolean @default(true)
+
+  @@unique([meetingId, staffId])
+  @@index([staffId])
+  @@map("meeting_attendees")
+}
+
+model Case {
+  id            String   @id // e.g., "SS-2026-04-001"
+  title         String
+  subTitle      String?
+  requester     String
+  hotel         String?
+  level         String // SS/S/A/B/C/D
+  category      String?
+  status        String   @default("todo") // todo/wait/doing/review/done
+  urgent        Boolean  @default(false)
+  note          String   @default("")
+  contact       String?  // B2: 案件聯絡人（選填）
+  deliverables  Json?    // C1: 製作物項目（多選，字串陣列）
+  needsOutsourcing Boolean @default(false) // D2: 需發包（預留 7–10 工作天）
+  copyPath      String?  // H2: 行銷提供的文案路徑/連結（選填）
+  source        String?  // H3: 專案來源 / 需求單號（選填）
+  // v7.7: 需求單位在公司內部系統提出的日期。用來量測「簽核鏈耗時」——
+  // 需求提出 → 需求單位主管 → 行銷主管 → 藝術設計部派發，這段完全不在
+  // 本系統內，卻會壓縮設計部可用天數。由 admin 於建案/匯入時帶入，
+  // 設計師端零負擔。
+  requestedOn   DateTime? @db.Date
+  openDate      DateTime @db.Date
+  dispatchDate  DateTime @db.Date
+  copyDate      DateTime? @db.Date
+  printDate     DateTime? @db.Date // H4: 印刷送印日（選填，建議上線日前 5 工作天）
+  goLiveDate    DateTime @db.Date
+  archivePath   String?
+  archived      Boolean  @default(false)
+  closedOn      DateTime? @db.Date
+  // v7.1: 專案取消（與結案不同——沒有交付，不可計入達成率）
+  cancelReason  String?              // 取消原因
+  cancelStage   String?              // 取消當下的階段（判斷白工程度）
+  cancelledOn   DateTime? @db.Date
+  requestCount  Int?
+  outputCount   Int?
+  actualWorkdays Int?
+  items         Json?
+  logs          Json?
+  contentVersion Int @default(0) // optimistic concurrency for logs/items only
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  designerId    Int
+  designer      Staff    @relation("owner", fields: [designerId], references: [id])
+  collaborators Staff[]  @relation("collaborators")
+
+  createdById   Int?
+  createdBy     Staff?   @relation("creator", fields: [createdById], references: [id])
+
+  transferLogs TransferLog[]
+  changeLogs   ChangeLog[]
+  meetings     Meeting[] // v6.0
+
+  @@index([status])
+  @@index([archived])
+  @@index([designerId])
+  @@index([createdById])
+  @@map("cases")
+}
+
+model ChangeLog {
+  id        Int      @id @default(autoincrement())
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  field     String   // goLiveDate | dispatchDate | copyDate | designerId | status | level | urgent | other
+  fromValue String?
+  toValue   String?
+  reason    String
+  operator  String
+  createdAt DateTime @default(now())
+
+  @@index([caseId, createdAt])
+  @@map("change_logs")
+}
+
+model TransferLog {
+  id       Int      @id @default(autoincrement())
+  caseId   String
+  case     Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  fromName String
+  toName   String
+  date     DateTime @default(now())
+  reason   String // 主管派發 | 離職移轉 | 自願轉移
+  operator String
+
+  @@map("transfer_logs")
+}
+
+model Notification {
+  id            Int      @id @default(autoincrement())
+  type          String // caseAssigned | collabInvite | statusChange | staffAdd | departure | overdue
+  recipientId   Int
+  recipient     Staff    @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  subject       String
+  body          String
+  relatedCaseId String?
+  createdAt     DateTime @default(now())
+  readAt        DateTime?
+
+  @@index([recipientId, readAt])
+  @@map("notifications")
+}
+
+// v3.7: 館別字典（admin 可動態新增 / 編輯 / 隱藏）
+model Hotel {
+  id        Int      @id @default(autoincrement())
+  region    String                 // 集團 / 新竹 / 台南 / 宜蘭 / 花蓮 / 嘉義 / 台中…
+  name      String   @unique       // 集團本部 / 新竹湖濱館 / 礁溪館 / …
+  sortOrder Int      @default(0)   // 顯示順序（小→大）
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@map("hotels")
+}
+
+// v4.7: 需求單位字典（admin 可動態新增 / 編輯 / 隱藏）
+model RequestUnit {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique       // 餐飲行銷 / 客房行銷 / 集團執辦 / 工務 / ...
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@map("request_units")
+}
+
+// Provisioned once by an operator. App startup, bootstrap and demo reset never
+// create or change this identity; destructive tools verify it before writing.
+model DeploymentIdentity {
+  id          Int      @id @default(1)
+  environment String
+  instanceId  String   @unique
+  createdAt   DateTime @default(now())
+
+  @@map("deployment_identity")
+}

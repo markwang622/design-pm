@@ -1,0 +1,26 @@
+{
+  "name": "design-pm-release-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pinned maintenance-only bundle for verified backup, baseline and isolated restore",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "postinstall": "prisma generate",
+    "generate": "prisma generate",
+    "validate": "prisma validate",
+    "db:backup": "node scripts/database-maintenance.mjs backup",
+    "db:baseline": "node scripts/database-maintenance.mjs baseline",
+    "db:restore-check": "node scripts/database-maintenance.mjs restore-check"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "dotenv": "16.6.1",
+    "prisma": "6.19.3"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2"
+  }
+}
