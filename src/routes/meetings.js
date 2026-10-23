@@ -268,18 +268,27 @@ router.post('/:id/action-to-log', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   const id = Number(req.params.id);
-  const existing = await prisma.meeting.findUnique({ where: { id } });
-  if (!existing) return res.status(404).json({ error: 'not_found' });
-  if (req.user.role !== 'admin' && existing.createdById !== req.user.id && existing.hostId !== req.user.id) {
-    return res.status(403).json({ error: 'forbidden' });
+  const mayDelete = (m) => req.user.role === 'admin' || m.createdById === req.user.id || m.hostId === req.user.id;
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const existing = await tx.meeting.findUnique({ where: { id } });
+      if (!existing) return { status: 404, error: 'not_found' };
+      if (!mayDelete(existing)) return { status: 403, error: 'forbidden' };
+      const affected = req.query.series === '1' && existing.seriesId
+        ? await tx.meeting.findMany({ where: { seriesId: existing.seriesId }, select: { id: true, createdById: true, hostId: true } })
+        : [existing];
+      if (affected.some((m) => !mayDelete(m))) return { status: 403, error: 'forbidden' };
+      // Delete only the authorized snapshot. Serializable isolation rolls back
+      // concurrent host/creator changes instead of deleting a new series member.
+      const deleted = await tx.meeting.deleteMany({ where: { id: { in: affected.map((m) => m.id) } } });
+      return { deleted: deleted.count };
+    }, { isolationLevel: 'Serializable' });
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    res.json({ ok: true, deleted: result.deleted });
+  } catch (e) {
+    if (e.code === 'P2034') return res.status(409).json({ error: 'write_conflict' });
+    throw e;
   }
-  // ?series=1 且屬於系列 → 刪除整個系列
-  if (req.query.series === '1' && existing.seriesId) {
-    const r = await prisma.meeting.deleteMany({ where: { seriesId: existing.seriesId } });
-    return res.json({ ok: true, deleted: r.count });
-  }
-  await prisma.meeting.delete({ where: { id } });
-  res.json({ ok: true, deleted: 1 });
 });
 
 export default router;

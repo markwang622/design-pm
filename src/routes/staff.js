@@ -18,6 +18,7 @@ const STAFF_COLOR_KEYS = new Set([
   'teal', 'sea', 'lavender', 'copper', 'rose', 'mustard',
   'forest', 'indigo', 'brick', 'olive', 'slate', 'plum',
 ]);
+const DEPARTURE_TERMINAL = ['done', 'closed', 'cancelled'];
 const colorSchema = z.string().refine((v) => STAFF_COLOR_KEYS.has(v), {
   message: 'invalid_color (must be one of palette keys)',
 });
@@ -148,14 +149,15 @@ router.post('/:id/reinvite', requireAdmin, async (req, res) => {
     return res.status(409).json({ error: 'already_activated', message: '此帳號已啟用，如需重設密碼請用「重設密碼」功能。' });
   }
   const invite = generateActivationToken();
-  await prisma.staff.update({
-    where: { id },
+  const replaced = await prisma.staff.updateMany({
+    where: { id, active: true, pendingActivation: true },
     data: {
       activationTokenHash: invite.hash,
       activationExpires: invite.expires,
       password: await bcrypt.hash(unusablePassword(), 12), // 一併換掉佔位密碼
     },
   });
+  if (replaced.count !== 1) return res.status(409).json({ error: 'invitation_changed', message: '帳號狀態已變更，請重新整理' });
   const inviteUrl = activationUrl(req, invite.token);
   notify({
     type: 'staffAdd', recipientId: id,
@@ -216,9 +218,50 @@ router.patch('/:id', async (req, res) => {
   }
 
   try {
-    const updated = await prisma.staff.update({ where: { id }, data });
+    const updated = data.name === undefined
+      ? await prisma.staff.update({ where: { id }, data })
+      : await prisma.$transaction(async (tx) => {
+        const current = await tx.staff.findUnique({ where: { id } });
+        if (!current) throw Object.assign(new Error('not_found'), { code: 'P2025' });
+        const staff = await tx.staff.update({ where: { id }, data });
+        if (current.name === staff.name) return staff;
+
+        // Old subitems identified people by display name. Preserve that identity
+        // durably before the old name disappears; labels on ID assignments also
+        // follow the rename. Historical logs and all unrelated JSON stay intact.
+        const cases = await tx.case.findMany({ select: { id: true, items: true, updatedAt: true, contentVersion: true } });
+        for (const c of cases) {
+          if (!Array.isArray(c.items)) continue;
+          let changed = false;
+          const items = c.items.map((item) => {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+            const assignedId = typeof item.assigneeId === 'number'
+              || (typeof item.assigneeId === 'string' && item.assigneeId.trim() !== '')
+              ? Number(item.assigneeId) : null;
+            const legacyMatch = item.assigneeId == null && current.name && item.owner === current.name;
+            if (assignedId !== id && !legacyMatch) return item;
+            if (item.assigneeId === id && item.owner === staff.name) return item;
+            changed = true;
+            return { ...item, assigneeId: id, owner: staff.name };
+          });
+          if (!changed) continue;
+          const previous = new Date(c.updatedAt).getTime();
+          if (!Number.isFinite(previous) || !Number.isSafeInteger(c.contentVersion) || c.contentVersion < 0) {
+            throw Object.assign(new Error('staff_rename_conflict'), { code: 'STAFF_RENAME_CONFLICT' });
+          }
+          const claimed = await tx.case.updateMany({
+            where: { id: c.id, updatedAt: c.updatedAt, contentVersion: c.contentVersion },
+            data: { items, contentVersion: { increment: 1 }, updatedAt: new Date(Math.max(Date.now(), previous + 1)) },
+          });
+          if (claimed.count !== 1) throw Object.assign(new Error('staff_rename_conflict'), { code: 'STAFF_RENAME_CONFLICT' });
+        }
+        return staff;
+      }, { isolationLevel: 'Serializable' });
     res.json({ ...updated, password: undefined, activationTokenHash: undefined, resetTokenHash: undefined, resetExpires: undefined, sessionVersion: undefined });
   } catch (e) {
+    if (e.code === 'STAFF_RENAME_CONFLICT' || e.code === 'P2034') {
+      return res.status(409).json({ error: 'staff_rename_conflict', message: '人員或子案件已被其他操作更新，姓名尚未變更，請重新整理後再試' });
+    }
     if (e.code === 'P2002') {
       return res.status(409).json({ error: 'duplicate', field: e.meta?.target });
     }
@@ -236,13 +279,13 @@ router.get('/:id/departure-preview', requireAdmin, async (req, res) => {
   if (!leaver) return res.status(404).json({ error: 'not_found' });
 
   const [ownedDone, ownedOpen, collabOn] = await Promise.all([
-    prisma.case.findMany({ where: { designerId: id, status: { in: ['done', 'closed'] }, archived: false } }),
+    prisma.case.findMany({ where: { designerId: id, status: { in: DEPARTURE_TERMINAL }, archived: false } }),
     prisma.case.findMany({
-      where: { designerId: id, status: { notIn: ['done', 'closed'] }, archived: false },
+      where: { designerId: id, status: { notIn: DEPARTURE_TERMINAL }, archived: false },
       include: { collaborators: { select: { id: true, name: true } } },
     }),
     prisma.case.findMany({
-      where: { archived: false, collaborators: { some: { id } }, NOT: { designerId: id } },
+      where: { archived: false, status: { notIn: DEPARTURE_TERMINAL }, collaborators: { some: { id } }, NOT: { designerId: id } },
       select: { id: true, title: true, designerId: true },
     }),
   ]);
@@ -280,78 +323,74 @@ router.post('/:id/departure', requireAdmin, async (req, res) => {
   const parsed = departureSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
 
-  const leaver = await prisma.staff.findUnique({ where: { id } });
-  if (!leaver) return res.status(404).json({ error: 'not_found' });
-  if (!leaver.active) return res.status(400).json({ error: 'already_departed' });
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      const reject = (status, error, extra = {}) => {
+        throw Object.assign(new Error(error), { departureStatus: status, detail: { error, ...extra } });
+      };
+      const leaver = await tx.staff.findUnique({ where: { id } });
+      if (!leaver) reject(404, 'not_found');
+      if (!leaver.active) reject(400, 'already_departed');
+      const [ownedDone, ownedOpen, collabOn] = await Promise.all([
+        tx.case.findMany({ where: { designerId: id, status: { in: DEPARTURE_TERMINAL }, archived: false } }),
+        tx.case.findMany({ where: { designerId: id, status: { notIn: DEPARTURE_TERMINAL }, archived: false } }),
+        tx.case.findMany({
+          where: { archived: false, status: { notIn: DEPARTURE_TERMINAL }, collaborators: { some: { id } }, NOT: { designerId: id } },
+          select: { id: true },
+        }),
+      ]);
 
-  // Pull current state
-  const [ownedDone, ownedOpen, collabOn] = await Promise.all([
-    prisma.case.findMany({ where: { designerId: id, status: { in: ['done', 'closed'] }, archived: false } }),
-    prisma.case.findMany({ where: { designerId: id, status: { notIn: ['done', 'closed'] }, archived: false } }),
-    prisma.case.findMany({
-      where: { archived: false, collaborators: { some: { id } }, NOT: { designerId: id } },
-      select: { id: true },
-    }),
-  ]);
+      // Validate the full plan before the first write, using the same snapshot
+      // as the transfers and departure. No case can be assigned to a disabled,
+      // unactivated, read-only account or the departing person themselves.
+      const successors = new Map();
+      for (const c of ownedOpen) {
+        const toId = parsed.data.successors[c.id];
+        if (toId === undefined) reject(400, 'missing_successor', { caseId: c.id, message: `案件 ${c.id} 尚未指定繼承人` });
+        let successor = successors.get(toId);
+        if (!successor) {
+          successor = await tx.staff.findUnique({ where: { id: toId } });
+          if (toId === id || !successor?.active || successor.pendingActivation || !['admin', 'member'].includes(successor.role)) {
+            reject(422, 'invalid_successor', { caseId: c.id, successorId: toId });
+          }
+          successors.set(toId, successor);
+        }
+      }
 
-  // Ensure every open owned case has a successor
-  for (const c of ownedOpen) {
-    if (!parsed.data.successors[c.id]) {
-      return res.status(400).json({
-        error: 'missing_successor',
-        caseId: c.id,
-        message: `案件 ${c.id} 尚未指定繼承人`,
-      });
-    }
+      const transferred = [], archived = [], removedCollab = [];
+      for (const c of ownedDone) {
+        await tx.case.update({ where: { id: c.id }, data: { archived: true } });
+        archived.push(c.id);
+      }
+      for (const c of ownedOpen) {
+        const toId = parsed.data.successors[c.id];
+        const toStaff = successors.get(toId);
+        await tx.case.update({
+          where: { id: c.id },
+          data: { designer: { connect: { id: toId } }, collaborators: { disconnect: { id: toId } } },
+        });
+        await tx.transferLog.create({ data: {
+          caseId: c.id, fromName: leaver.name, toName: toStaff.name,
+          reason: '離職移轉', operator: req.user.name,
+        } });
+        transferred.push({ caseId: c.id, toName: toStaff.name });
+      }
+      // Completed, cancelled and archived participation is reporting history.
+      // Only current work assignments are removed during departure.
+      for (const c of collabOn) {
+        await tx.case.update({ where: { id: c.id }, data: { collaborators: { disconnect: { id } } } });
+        removedCollab.push(c.id);
+      }
+      await tx.staff.update({ where: { id }, data: { active: false, departedOn: new Date() } });
+      return { leaver, transferred, archived, removedCollab };
+    }, { isolationLevel: 'Serializable' });
+  } catch (e) {
+    if (e.departureStatus) return res.status(e.departureStatus).json(e.detail);
+    if (e.code === 'P2034') return res.status(409).json({ error: 'write_conflict', message: '人員或案件已變更，請重新整理後再試' });
+    throw e;
   }
-
-  const transferred = [];
-  const archived = [];
-  const removedCollab = [];
-
-  await prisma.$transaction(async (tx) => {
-    // 1. Archive done cases
-    for (const c of ownedDone) {
-      await tx.case.update({ where: { id: c.id }, data: { archived: true } });
-      archived.push(c.id);
-    }
-
-    // 2. Transfer open cases
-    for (const c of ownedOpen) {
-      const toId = parsed.data.successors[c.id];
-      const toStaff = await tx.staff.findUnique({ where: { id: toId }, select: { id: true, name: true } });
-      if (!toStaff) throw new Error(`successor ${toId} not found`);
-      await tx.case.update({
-        where: { id: c.id },
-        data: { designer: { connect: { id: toId } } },
-      });
-      await tx.transferLog.create({
-        data: {
-          caseId: c.id,
-          fromName: leaver.name,
-          toName: toStaff.name,
-          reason: '離職移轉',
-          operator: req.user.name,
-        },
-      });
-      transferred.push({ caseId: c.id, toName: toStaff.name });
-    }
-
-    // 3. Remove collaborator relationships
-    for (const c of collabOn) {
-      await tx.case.update({
-        where: { id: c.id },
-        data: { collaborators: { disconnect: { id } } },
-      });
-      removedCollab.push(c.id);
-    }
-
-    // 4. Mark staff inactive
-    await tx.staff.update({
-      where: { id },
-      data: { active: false, departedOn: new Date() },
-    });
-  });
+  const { leaver, transferred, archived, removedCollab } = result;
 
   // Notifications (outside transaction)
   try {

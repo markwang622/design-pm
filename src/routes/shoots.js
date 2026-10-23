@@ -11,7 +11,10 @@ const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
 router.param('id', intIdParam); // v9.6: :id 統一驗正整數，不合法回 400 不碰 DB
 router.use(requireAuth);
 
-const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).transform((s) => new Date(s + 'T00:00:00Z'));
+const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => {
+  const date = new Date(s + 'T00:00:00Z');
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === s;
+}, 'invalid_calendar_date').transform((s) => new Date(s + 'T00:00:00Z'));
 
 const createSchema = z.object({
   desc: z.string().min(1).max(300),
@@ -84,7 +87,19 @@ router.patch('/:id', async (req, res) => {
   }
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues });
-  const updated = await prisma.shoot.update({ where: { id }, data: parsed.data, include });
+  const startDate = parsed.data.startDate ?? existing.startDate;
+  const endDate = parsed.data.endDate ?? existing.endDate;
+  if (endDate < startDate) {
+    return res.status(422).json({ error: 'invalid_range', message: '結束日不能早於起始日' });
+  }
+  // Claim the complete date pair used for validation. Two partial edits may
+  // each be valid against the old range while their combined result is not.
+  const changed = await prisma.shoot.updateMany({
+    where: { id, startDate: existing.startDate, endDate: existing.endDate },
+    data: parsed.data,
+  });
+  if (changed.count !== 1) return res.status(409).json({ error: 'schedule_conflict', message: '行程日期已變更，請重新整理後再試' });
+  const updated = await prisma.shoot.findUnique({ where: { id }, include });
   res.json(updated);
 });
 

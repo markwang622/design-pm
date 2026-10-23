@@ -5,7 +5,7 @@
 // 會議時間為 Asia/Taipei 牆鐘時間（date@Date + startTime "HH:MM"）。
 // ─────────────────────────────────────────────────────────────
 import { prisma } from '../lib/db.js';
-import { notify } from './notify.js';
+import { deliver } from './notify.js';
 
 function meetingStartInstant(dateObj, startTime) {
   const ymd = new Date(dateObj).toISOString().slice(0, 10);
@@ -27,20 +27,40 @@ export async function checkMeetingReminders() {
       const start = meetingStartInstant(m.date, m.startTime);
       const windowStart = new Date(start.getTime() - m.remindMinutes * 60000);
       if (now >= windowStart && now <= start) {
-        const recipients = [...new Set([m.hostId, ...m.attendees.map((a) => a.staffId)].filter(Boolean))];
-        const ymd = new Date(m.date).toISOString().slice(0, 10);
-        for (const rid of recipients) {
-          await notify({
-            type: 'meetingReminder', recipientId: rid, relatedCaseId: m.caseId || null,
-            subject: `【會議提醒】${m.title} 即將開始`,
-            body: `提醒您，會議「${m.title}」將於 ${ymd} ${m.startTime} 開始。\n地點：${m.location || '（未填）'}`,
-          }).catch(() => {});
-        }
-        await prisma.meeting.update({ where: { id: m.id }, data: { remindedAt: new Date() } });
-      } else if (now > start) {
-        // 已過開始時間仍未提醒（伺服器當時可能未運行）→ 標記避免日後誤發
-        await prisma.meeting.update({ where: { id: m.id }, data: { remindedAt: new Date() } });
+        try {
+          // The durable in-app notifications and the completion marker commit
+          // together. A failed recipient or competing worker rolls back the
+          // entire batch, so retry cannot duplicate successful recipients.
+          const delivery = await prisma.$transaction(async (tx) => {
+            const current = await tx.meeting.findUnique({ where: { id: m.id }, include: { attendees: { select: { staffId: true } } } });
+            if (!current || current.remindedAt || current.status === 'cancelled' || current.remindMinutes <= 0) return null;
+            const currentStart = meetingStartInstant(current.date, current.startTime);
+            if (now < new Date(currentStart.getTime() - current.remindMinutes * 60000) || now > currentStart) return null;
+            const recipients = [...new Set([current.hostId, ...current.attendees.map((a) => a.staffId)].filter(Boolean))];
+            if (!recipients.length) return null;
+            const ymd = new Date(current.date).toISOString().slice(0, 10);
+            const subject = `【會議提醒】${current.title} 即將開始`;
+            const body = `提醒您，會議「${current.title}」將於 ${ymd} ${current.startTime} 開始。\n地點：${current.location || '（未填）'}`;
+            for (const recipientId of recipients) {
+              await tx.notification.create({ data: { type: 'meetingReminder', recipientId, relatedCaseId: current.caseId || null, subject, body } });
+            }
+            await tx.meeting.update({ where: { id: current.id }, data: { remindedAt: new Date() } });
+            return { recipients, subject, body };
+          }, { isolationLevel: 'Serializable' });
+          // SMTP is best effort after DB commit; delivery failure must not erase
+          // the successfully persisted in-app reminder or open a duplicate batch.
+          if (delivery) {
+            for (const rid of delivery.recipients) {
+              try {
+                const recipient = await prisma.staff.findUnique({ where: { id: rid }, select: { email: true, active: true } });
+                if (recipient?.active && recipient.email) await deliver(recipient.email, delivery.subject, delivery.body);
+              } catch (e) { console.warn('[meeting-reminder] email failed:', e.message); }
+            }
+          }
+        } catch (e) { console.warn('[meeting-reminder] delivery deferred:', e.message); }
       }
+      // Expired windows remain unmarked: remindedAt means a durable reminder
+      // was created, rather than merely that the scheduler observed the meeting.
     }
   } catch (e) {
     console.warn('[meeting-reminder] check failed:', e.message);

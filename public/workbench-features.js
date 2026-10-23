@@ -83,8 +83,11 @@
     const view=ensureExplorer(), seq=++explorerSeq;
     view.innerHTML='<div class="wb-heading"><div><h1>案件總表</h1><p class="wb-help">依館別或人員查找所有案件，直接開啟查看或更新。</p></div><button class="wb-button" data-reload>重新整理</button></div><section class="wb-surface" data-ledger>載入案件中…</section>';
     view.querySelector('[data-reload]').onclick=renderExplorer;
-    try { explorerRows=await api.cases.listArchived(); if(seq!==explorerSeq)return; ledger(view.querySelector('[data-ledger]'),explorerRows,explorerState,'all'); }
-    catch(e) { view.querySelector('[data-ledger]').textContent='載入失敗，請按「重新整理」再試。'; }
+    // v20 F11: 成功與失敗都綁「本次序號 + 本次建立的 DOM 節點」，舊回應（含舊失敗）不得覆蓋新畫面
+    const node=view.querySelector('[data-ledger]');
+    const current=()=>seq===explorerSeq&&node.isConnected;
+    try { const rows=await api.cases.listArchived(); if(!current())return; explorerRows=rows; ledger(node,rows,explorerState,'all'); }
+    catch(e) { if(!current())return; node.textContent='載入失敗，請按「重新整理」再試。'; }
   }
   window.wbOpenCases = function(filters={}) { explorerState={...filters};switchView('cases-all'); };
   for(const role of ['admin','designer']) if(!NAV_DEF[role].some(n=>n.key==='cases-all')) NAV_DEF[role].push({key:'cases-all',label:'案件總表'});
@@ -111,20 +114,23 @@
     view.querySelector('[data-next]').onclick=()=>{v33Offset=Math.min(0,v33Offset+1);renderAnalytics();};
     view.querySelector('[data-refresh]').onclick=renderAnalytics;
     view.querySelector('#v37-staff-select').onchange=e=>{analyticsStaff=e.target.value;renderAnalytics();};
+    // v20 F11: 同上，success/catch 都以序號 + 本次節點守門
+    const contentNode=view.querySelector('[data-analytics-content]'), labelNode=view.querySelector('[data-period-label]');
+    const current=()=>seq===analyticsSeq&&contentNode.isConnected;
     try {
       const data=await api.analytics.get({period:v33Period,offset:v33Offset,...(analyticsStaff?{staffId:analyticsStaff}:{})});
-      if(seq!==analyticsSeq)return;
+      if(!current())return;
       const name=STAFF.find(s=>String(s.id)===analyticsStaff)?.name;
       const completed=data.cases.filter(c=>!name || c.designerId===Number(analyticsStaff) || c.collaboratorNames.includes(name));
-      view.querySelector('[data-period-label]').textContent=data.period.label;
+      labelNode.textContent=data.period.label;
       const end=new Date(new Date(data.period.end)-86400000).toISOString().slice(0,10);
-      view.querySelector('[data-analytics-content]').innerHTML=`<p class="wb-help">${date(data.period.start)} ～ ${end} · 依自然週／月／季／半年／年計算</p>
+      contentNode.innerHTML=`<p class="wb-help">${date(data.period.start)} ～ ${end} · 依自然週／月／季／半年／年計算</p>
         <div class="wb-metrics"><div><small>部門完成案件</small><strong>${data.totals.count}</strong></div><div><small>部門貢獻總分</small><strong>${data.totals.score.toFixed(1)}</strong></div><div><small>部門準時率</small><strong>${data.totals.onTimeRate==null?'—':Math.round(data.totals.onTimeRate*100)+'%'}</strong></div><div><small>${name?esc(name)+'參與':'部門'}期間工作</small><strong>${data.workCases.length}</strong></div></div>
         <div class="wb-analytics-grid"><section class="wb-surface"><h2>${name?esc(name)+'的完成貢獻':'已完成案件的貢獻排行'}</h2>${data.perStaff.filter(s=>s.totalCount||s.collab.count).map(s=>`<div class="wb-contribution"><strong>${esc(s.name)}</strong><span>主責 ${s.primary.count} · 協作 ${s.collab.count}</span><b>${s.totalScore.toFixed(1)} 分</b></div>`).join('')||'<p class="wb-help">本期間尚無已完成案件。</p>'}<p class="wb-help">僅計入結案日落在本期間的已結案案件。分級 × 主責 1／協作 0.4 × 提早 1.2／準時 1.1／逾期 0.8 × 急件 1.3。</p></section>
         <section class="wb-surface"><h2>本期間完成任務 · ${completed.length} 件</h2><div class="wb-completed">${completed.map(c=>`<p>${esc(c.title)}<small class="wb-help">${esc(c.designerName||'')} · 結案 ${date(c.closedOn)}</small></p>`).join('')||'<p class="wb-help">沒有符合條件的已完成案件。</p>'}</div></section></div>
         <section class="wb-surface wb-period-work"><h2>期間工作明細 · 含跨期案件</h2><p class="wb-help">派發日早於期間結束，且尚在辦理或結案／取消日落在期間開始之後。已逾期但仍在辦理的案件也會列入。結束日缺漏會標示待補，不自動省略。</p><div data-work-ledger></div></section>`;
-      ledger(view.querySelector('[data-work-ledger]'),data.workCases,ledgerState,'work');
-    } catch(e){view.querySelector('[data-analytics-content]').textContent='分析載入失敗：'+(e.data?.message||e.message);}
+      ledger(contentNode.querySelector('[data-work-ledger]'),data.workCases,ledgerState,'work');
+    } catch(e){ if(!current())return; contentNode.textContent='分析載入失敗：'+(e.data?.message||e.message); }
   };
 
   const originalStaff=window.renderStaff;

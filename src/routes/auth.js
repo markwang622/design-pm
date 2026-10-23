@@ -87,16 +87,26 @@ router.post('/activate', async (req, res) => {
   const strengthErr = validatePasswordStrength(password);
   if (strengthErr) return res.status(422).json({ error: 'weak_password', message: strengthErr });
 
-  const updated = await prisma.staff.update({
-    where: { id: staff.id },
-    data: {
-      password: await bcrypt.hash(password, 12),
-      pendingActivation: false,
-      activationTokenHash: null,   // 單次使用：立即作廢
-      activationExpires: null,
-      activatedAt: new Date(),
-    },
+  const passwordHash = await bcrypt.hash(password, 12);
+  // Claim the invitation atomically after hashing; a concurrent redemption or
+  // reinvite must make the old token unusable before any cookie is issued.
+  const updated = await prisma.$transaction(async (tx) => {
+    const claimedAt = new Date();
+    const claimed = await tx.staff.updateMany({
+      where: {
+        id: staff.id, activationTokenHash: hashToken(token),
+        pendingActivation: true, active: true, activationExpires: { gt: claimedAt },
+      },
+      data: {
+        password: passwordHash, pendingActivation: false,
+        activationTokenHash: null, activationExpires: null,
+        activatedAt: claimedAt, sessionVersion: { increment: 1 },
+      },
+    });
+    if (claimed.count !== 1) return null;
+    return tx.staff.findUnique({ where: { id: staff.id } });
   });
+  if (!updated) return res.status(404).json({ error: 'invalid_token', message: '連結無效或已被使用' });
   const jwtToken = signToken({ id: updated.id, name: updated.name, email: updated.email, role: updated.role, sessionVersion: updated.sessionVersion });
   setAuthCookie(res, jwtToken);
   res.json({ id: updated.id, name: updated.name, email: updated.email, role: updated.role, seniority: updated.seniority });

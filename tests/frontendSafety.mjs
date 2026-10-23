@@ -87,11 +87,12 @@ function context(extra={}){
 const dates=section('function d(y, m, dd)', '// J1:');
 const keys=section('function computeKeyDates(goLive)', '// ============== Staff');
 const normalize=section('function normalizeCase(b)', 'function findStaffId');
+const identity=section('function v20SameId', 'function ADMIN_NAME');
 const decorate=section('function decorateCase(c)', 'window.decorateCase');
 const escape=section('function escapeHtml(s)', 'async function v33SaveEdit');
 const oldStamp='2026-10-22T02:00:00.000Z',newStamp='2026-10-22T02:01:00.000Z',oldVersion=7,newVersion=8;
 const fixture=(id='A',extra={})=>({id,title:'Fixture '+id,hotel:'Hotel',requester:'Marketing',designer:{id:1,name:'Designer'},collaborators:[],status:'doing',level:'C',openDate:'2026-10-01',dispatchDate:'2026-10-02',goLiveDate:'2026-10-30',logs:[],items:[],updatedAt:oldStamp,contentVersion:oldVersion,...extra});
-function baseContext(d,extra={}){const c=context({document:d.document,STATUSES:[{key:'doing',name:'Designing'}],ENDED_STATUS_KEYS:new Set(['done','closed','cancelled']),v58ConflictsFor:()=>[],v80NextStep:()=>'',ME:{id:1,name:'Designer',role:'member'},ME_NAME:()=> 'Designer',currentRole:'designer',currentView:'personal',currentCase:null,...extra});vm.runInContext(dates+keys+normalize+decorate+escape,c);return c;}
+function baseContext(d,extra={}){const c=context({document:d.document,STATUSES:[{key:'doing',name:'Designing'}],ENDED_STATUS_KEYS:new Set(['done','closed','cancelled']),v58ConflictsFor:()=>[],v80NextStep:()=>'',ME:{id:1,name:'Designer',role:'member'},ME_NAME:()=> 'Designer',currentRole:'designer',currentView:'personal',currentCase:null,...extra});vm.runInContext(dates+keys+identity+normalize+decorate+escape,c);return c;}
 let passed=0,failed=0;
 async function test(name,fn){try{await fn();passed++;console.log('PASS '+name);}catch(e){failed++;console.error('FAIL '+name+'\n'+e.stack);}}
 

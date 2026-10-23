@@ -75,7 +75,7 @@ export function resolvePeriod(period, offset = 0, reference = taipeiCalendarDay(
     const cur = startOfWeekUTC(ref);
     start = addDaysUTC(cur, 7 * offset);
     end = addDaysUTC(start, 7);
-    const yyyy = start.getUTCFullYear();
+    const yyyy = addDaysUTC(start, 3).getUTCFullYear(); // ISO year is the week's Thursday
     const wkNum = isoWeekNumber(start);
     label = `${yyyy} W${String(wkNum).padStart(2, '0')}`;
   } else if (period === 'month') {
@@ -252,8 +252,10 @@ export async function rollup({ period, offset, staffId }) {
       if (c.urgent) pBucket.urgentCount += 1;
     }
 
-    // Collaborators
-    for (const co of c.collaborators) {
+    // One person has one role per case, including legacy transfers that left
+    // the primary owner in the collaborator relation.
+    const collaborators = distinctCollaborators(c);
+    for (const co of collaborators) {
       const cb = buckets.get(co.id);
       if (!cb) continue;
       const s = scoreCaseForStaff(c, 'collaborator');
@@ -274,7 +276,7 @@ export async function rollup({ period, offset, staffId }) {
       closedOn: c.closedOn,
       designerId: c.designerId,
       designerName: c.designer?.name,
-      collaboratorNames: c.collaborators.map((x) => x.name),
+      collaboratorNames: collaborators.map((x) => x.name),
       onTime,
       early,
       timely: timelyLabel, // 'early' | 'onTime' | 'overdue'
@@ -310,12 +312,22 @@ export async function rollup({ period, offset, staffId }) {
     },
     cases: caseList,
     workCases: work.map(c => ({ id: c.id, title: c.title, hotel: c.hotel, requester: c.requester,
-      status: c.status, level: c.level, designer: c.designer, collaborators: c.collaborators,
+      status: c.status, level: c.level, designer: c.designer, collaborators: distinctCollaborators(c),
       dispatchDate: c.dispatchDate, openDate: c.openDate, goLiveDate: c.goLiveDate,
       closedOn: c.closedOn, cancelledOn: c.cancelledOn, archived: c.archived,
       endDateMissing: ['done','closed','cancelled'].includes(c.status) && !(c.status === 'cancelled' ? c.cancelledOn : c.closedOn),
     })),
   };
+}
+
+function distinctCollaborators(row) {
+  const seen = new Set([String(row.designerId)]);
+  return (row.collaborators || []).filter(person => {
+    const id = String(person.id);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 function round2(n) {

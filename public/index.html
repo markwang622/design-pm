@@ -2321,6 +2321,39 @@ function ymd(dt) { return `${dt.getFullYear()}/${pad(dt.getMonth()+1)}/${pad(dt.
 function md(dt) { return `${pad(dt.getMonth()+1)}/${pad(dt.getDate())}`; }
 // v4.0 fix: TODAY 之前是寫死的 2026/4/23（prototype 時期）—改用真實當日日期
 const TODAY = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
+// v20 F10: 新表單的預設日期必須是「此刻的台灣當天」。
+//   · TODAY 只在頁面載入時算一次，跨夜沒重整就會是昨天
+//   · toISOString() 是 UTC，台灣 00:00–08:00 會得到昨天
+function v20TaiwanToday() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    const g = (t) => parts.find(p => p.type === t).value;
+    return `${g('year')}-${g('month')}-${g('day')}`;
+  } catch {
+    const d = new Date(Date.now() + 8 * 3600 * 1000);   // 無 Intl 時以 UTC+8 推算
+    return d.toISOString().slice(0, 10);
+  }
+}
+// v20 F09: 建立類送出的同步鎖。鎖在 click 當下（第一個 await 之前）就取得，
+// 連點只會送出一次；finally 一定釋放鎖，但只在「同一個按鈕元素仍在畫面上」時恢復它——
+// modal 若已重繪（新世代），舊按鈕已脫離 DOM，不去動新畫面。
+const v20Inflight = new Set();
+function v20GuardClick(btn, key) {
+  if (!btn || typeof btn.onclick !== 'function' || btn.onclick.__v20) return;
+  const inner = btn.onclick;
+  const guarded = async function (ev) {
+    if (v20Inflight.has(key)) { showToast('上一筆仍在送出中，請稍候', 'warn'); return; }
+    v20Inflight.add(key);
+    btn.disabled = true;
+    try { return await inner.call(this, ev); }
+    finally {
+      v20Inflight.delete(key);
+      if (btn.isConnected) btn.disabled = false;
+    }
+  };
+  guarded.__v20 = true;
+  btn.onclick = guarded;
+}
 function daysUntil(dt) { return Math.round((dt - TODAY) / 86400000); }
 const TW_HOLIDAYS_2026 = new Set([
   '2026/01/01',
@@ -2643,6 +2676,10 @@ const DELIVERABLES = ['電子看板','PDF','GIF','ai 檔','印刷輸出','官網
 const LEVELS = ['SS','S','A','B','C','D'];
 
 function activeDesigners() { return STAFF.filter(s => s.active).map(s => s.name); }
+// v20 contract: 轉派／離職繼承人只能是在職、已啟用的 admin/member，且排除移出者本人（observer、未啟用、離職者都不行）
+function v20TransferCandidates(excludeName) {
+  return STAFF.filter(s => s.active && !s.pendingActivation && (s.role === 'admin' || s.role === 'member') && s.name !== excludeName);
+}
 function allDesigners() { return STAFF.map(s => s.name); }
 function staffInfo(name) { return STAFF.find(s => s.name === name); }
 
@@ -2714,6 +2751,50 @@ function decorateCases() {
 // stale identity (v4.6 fix).
 let ME = { id: 0, name: '', email: '', role: 'member', seniority: 'mid' };
 function ME_NAME() { return ME?.name || ''; }
+// v20 F08: 歸屬一律以 id 判斷（改名後名字會變，id 不會）。id 可能是 number 或 string，統一比字串。
+// admin view-as 時以被檢視者的 id 為準；舊資料缺 id 才退回名字比對。
+function v20SameId(a, b) { return a != null && b != null && a !== '' && b !== '' && String(a) === String(b); }
+function v20ViewerId() {
+  if (typeof v36ViewAsName !== 'undefined' && v36ViewAsName) {
+    const s = (STAFF || []).find(x => x.name === v36ViewAsName);
+    if (s) return s.id;
+  }
+  return ME?.id ?? null;
+}
+function v20IsPrimary(c, viewerId) {
+  const id = viewerId === undefined ? v20ViewerId() : viewerId;
+  if (c._designerId != null) return v20SameId(c._designerId, id);
+  return !!c.designer && c.designer === ME_NAME();
+}
+function v20IsCollab(c, viewerId) {
+  const id = viewerId === undefined ? v20ViewerId() : viewerId;
+  if (Array.isArray(c._collaboratorIds) && c._collaboratorIds.length) return c._collaboratorIds.some(x => v20SameId(x, id));
+  return (c.collaborators || []).includes(ME_NAME());
+}
+function v20IsMine(c, viewerId) { return v20IsPrimary(c, viewerId) || v20IsCollab(c, viewerId); }
+// 任何人改名後同步所有名字快取（不需整頁重載）；view-as 若指向舊名也跟著更新
+function v20ApplyRename(staffId, oldName, newName) {
+  if (!newName || oldName === newName) return;
+  // 舊名可辨識 = 沒有其他人（不同 id）也叫這個名字；同名時不猜，避免誤配
+  const oldNameUnique = !!oldName && !(STAFF || []).some(s => s.name === oldName && !v20SameId(s.id, staffId));
+  const sid = Number(staffId);
+  const fix = (c) => {
+    if (v20SameId(c._designerId, staffId)) c.designer = newName;
+    if (Array.isArray(c._collaboratorIds)) c._collaboratorIds.forEach((cid, i) => { if (v20SameId(cid, staffId) && c.collaborators) c.collaborators[i] = newName; });
+    // 子任務：已有 assigneeId → 只同步顯示名；舊 owner-only 且可辨識 → 補穩定 assigneeId（不動 log 作者文字）
+    if (Array.isArray(c.items)) c.items.forEach(it => {
+      if (!it) return;
+      if (it.assigneeId != null && it.assigneeId !== '') { if (v20SameId(it.assigneeId, staffId)) it.owner = newName; }
+      else if (oldNameUnique && it.owner === oldName) { if (Number.isFinite(sid)) it.assigneeId = sid; it.owner = newName; }
+    });
+  };
+  (CASES || []).forEach(fix);
+  (window.V59_HISTORY || []).forEach(fix);
+  // 分析／館別頁的含封存快取也是身分快取：就地同步，避免改名後仍顯示舊名
+  try { if (typeof v69AllCases !== 'undefined' && Array.isArray(v69AllCases)) v69AllCases.forEach(fix); } catch (e) {}
+  try { if (typeof v81AllCases !== 'undefined' && Array.isArray(v81AllCases)) v81AllCases.forEach(fix); } catch (e) {}
+  if (typeof v36ViewAsName !== 'undefined' && v36ViewAsName === oldName) v36ViewAsName = newName;
+}
 function ADMIN_NAME() { return 'Mark'; }
 let currentRole = 'designer';
 let currentView = 'personal';
@@ -2748,7 +2829,7 @@ function doneCasesOf(name) {
   return CASES.filter(c => c.designer === name && c.status === 'done' && !c.archived);
 }
 function suggestSuccessor(excludeName, level) {
-  const candidates = STAFF.filter(s => s.active && s.name !== excludeName);
+  const candidates = v20TransferCandidates(excludeName);
   if (!candidates.length) return null;
   const senRank = {senior:0, mid:1, junior:2};
   const scored = candidates.map(s => ({
@@ -2816,7 +2897,7 @@ function switchView(v) {
 // ============== Personal ==============
 function myCases() {
   if (currentRole === 'designer') {
-    return CASES.filter(c => !c.archived && (c.designer === ME_NAME() || (c.collaborators||[]).includes(ME_NAME())));
+    return CASES.filter(c => !c.archived && v20IsMine(c));   // v20 F08: 依 id 歸屬
   }
   return CASES.filter(c => !c.archived);
 }
@@ -2834,7 +2915,7 @@ function renderPersonal() {
   const wReq = waitingOthers.filter(c => c.status === 'review').length;
   const wApp = waitingOthers.filter(c => c.status === 'review_done').length;
   const doneThisMonth = me.filter(c => FINAL_STATUS_KEYS.has(c.status)).length;
-  const collab = me.filter(c => c.designer !== ME_NAME() && (c.collaborators||[]).includes(ME_NAME()));
+  const collab = me.filter(c => !v20IsPrimary(c) && v20IsCollab(c));
   kpi.innerHTML = `
     <div class="kpi" data-kf="all"><div class="label">負責中</div><div class="value">${open.length}</div><div class="sub">本月總件數 ${me.length}</div></div>
     <div class="kpi" data-kf="week"><div class="label">本週到期</div><div class="value">${weekDue.length}</div><div class="sub">7 天內（上線日）</div></div>
@@ -2884,9 +2965,9 @@ function renderPersonal() {
   } else {
     // E1: 同一 grid 內以整列分隔標題拆成「個人負責 / 協作參與」
     const mine = sortCases(base.filter(c => c.designer === ME_NAME()));
-    const col = sortCases(base.filter(c => c.designer !== ME_NAME() && (c.collaborators||[]).includes(ME_NAME())));
+    const col = sortCases(base.filter(c => !v20IsPrimary(c) && v20IsCollab(c)));
     // admin（非 view-as）會看到全部案件，補「其他案件」區塊避免漏顯示
-    const other = sortCases(base.filter(c => c.designer !== ME_NAME() && !(c.collaborators||[]).includes(ME_NAME())));
+    const other = sortCases(base.filter(c => !v20IsPrimary(c) && !v20IsCollab(c)));
     // 新人空狀態：完全沒有案子時給可操作引導
     if (personalFilter === 'all' && !mine.length && !col.length && !other.length) {
       const hint = document.createElement('div');
@@ -2944,7 +3025,7 @@ async function v53RenderPersonalDone(listEl) {
     const meName = ME_NAME();
     const isAdminAll = ME.role === 'admin' && !(typeof v36ViewAsName !== 'undefined' && v36ViewAsName);
     let done = rows.map(normalizeCase).filter(c => FINAL_STATUS_KEYS.has(c.status));
-    if (!isAdminAll) done = done.filter(c => c.designer === meName || (c.collaborators||[]).includes(meName));
+    if (!isAdminAll) done = done.filter(c => v20IsMine(c));
     // 封存案未經 decorateCases，補上 makeCaseCard 需要的欄位（避免 reviewDate undefined）
     done.forEach(c => {
       const k = computeKeyDates(c.goLive);
@@ -4014,7 +4095,7 @@ function submitCreate() {
   const seq = (existing.length ? Math.max(...existing) : 0) + 1;
   const id = `${prefix}${seq.toString().padStart(3,'0')}`;
   const creator = ME_NAME();
-  const items = draftItems.filter(it => it.n && it.n.trim()).map(it => ({ n: it.n.trim(), type: it.type, owner: it.owner || designer }));
+  const items = draftItems.filter(it => it.n && it.n.trim()).map(it => { const owner = it.owner || designer; return { n: it.n.trim(), type: it.type, owner, assigneeId: findStaffId(owner) }; });
   const subTitle = items.length ? items.map(it => it.n).slice(0,2).join(' / ') + (items.length>2 ? ` ...等 ${items.length} 項` : '') : '—';
   const k = computeKeyDates(g);
   const collabs = draftCollabs.filter(n => n !== designer);
@@ -4063,7 +4144,7 @@ function openReassign(caseId) {
   document.getElementById('r-from-preview').textContent = c.designer;
   const rt = document.getElementById('r-to');
   rt.innerHTML = '<option value="">-- 選新負責人 --</option>' +
-    activeDesigners().filter(dn => dn !== c.designer).map(dn => `<option value="${escapeHtml(dn)}">${escapeHtml(dn)}（工作量 ${workloadScore(dn).toFixed(1)}）</option>`).join('');
+    v20TransferCandidates(c.designer).map(s => s.name).map(dn => `<option value="${escapeHtml(dn)}">${escapeHtml(dn)}（工作量 ${workloadScore(dn).toFixed(1)}）</option>`).join('');
   rt.onchange = () => document.getElementById('r-to-preview').textContent = rt.value || '（選新負責人）';
   document.getElementById('r-to-preview').textContent = '（選新負責人）';
   document.getElementById('r-reason').value = '';
@@ -4164,7 +4245,7 @@ function openDeparture(name) {
     active.forEach(c => {
       const sug = suggestSuccessor(name, c.level);
       if (sug) departurePicks[c.id] = sug.name;
-      const opts = STAFF.filter(st => st.active && st.name !== name).map(st => {
+      const opts = v20TransferCandidates(name).map(st => {
         const sc = workloadScore(st.name);
         const sel = (sug && sug.name === st.name) ? 'selected' : '';
         return `<option value="${escapeHtml(st.name)}" ${sel}>${escapeHtml(st.name)}（工作量 ${sc.toFixed(1)}${sug && sug.name === st.name ? ' ✨建議' : ''}）</option>`;
@@ -4642,9 +4723,10 @@ window.submitCreate = async function() {
   const designerId = findStaffId(designerName);
   if (!designerId) { showToast(`找不到設計師「${designerName}」`, 'err'); return; }
   const collabIds = draftCollabs.filter(n => n !== designerName).map(findStaffId).filter(Boolean);
-  const items = draftItems.filter(it => it.n && it.n.trim()).map(it => ({ n: it.n.trim(), type: it.type, owner: it.owner || designerName }));
+  // v20 F08: 子任務同時存 assigneeId，改名後仍能以 ID 歸屬
+  const items = draftItems.filter(it => it.n && it.n.trim()).map(it => { const owner = it.owner || designerName; return { n: it.n.trim(), type: it.type, owner, assigneeId: findStaffId(owner) }; });
   const _notifyTxt = (notifyDesigner || notifyCollaborators) ? ` · 已寄通知（${[notifyDesigner?'負責人':null, notifyCollaborators?'協作者':null].filter(Boolean).join('、')}）` : '';
-  const initialLog = { date: ymdIso(TODAY), note: `建檔 by ${ME_NAME()}${self ? '（自接）' : ' · 指派 ' + designerName}${_notifyTxt}`, by: ME_NAME() };
+  const initialLog = { date: v20TaiwanToday(), note: `建檔 by ${ME_NAME()}${self ? '（自接）' : ' · 指派 ' + designerName}${_notifyTxt}`, by: ME_NAME() };
   const body = {
     title: name, subTitle: items.length ? items.map(it => it.n).slice(0,2).join(' / ') + (items.length>2 ? ` ...等 ${items.length} 項` : '') : '',
     requester: unit, hotel, level, category: cat,
@@ -4655,7 +4737,7 @@ window.submitCreate = async function() {
     source: source || undefined,                   // H3: 專案來源/需求單號
     designerId, collaboratorIds: collabIds,
     ...(function(){ var el=document.getElementById('f-requested'); return (el && el.value) ? { requestedOn: el.value } : {}; })(), // v7.7
-    openDate: ymdIso(TODAY), dispatchDate: ymdIso(new Date(dispatch)),
+    openDate: v20TaiwanToday(), dispatchDate: ymdIso(new Date(dispatch)),
     copyDate: copyDate ? ymdIso(new Date(copyDate)) : undefined,
     printDate: printDate ? ymdIso(new Date(printDate)) : undefined, // H4: 印刷送印日
     goLiveDate: ymdIso(new Date(golive)),
@@ -4762,8 +4844,7 @@ api.cases.patchLogs = (id, body) => fetchJson('PATCH', `/api/cases/${encodeURICo
 api.cases.appendLog = (id, body) => fetchJson('POST',  `/api/cases/${encodeURIComponent(id)}/logs`, body);  // v10: 單筆原子新增，回完整 raw case
 function v51CanEditLogs(c) {
   if (currentRole === 'admin') return true;
-  const me = ME_NAME();
-  return c.designer === me || (c.collaborators || []).includes(me);
+  return v20IsMine(c);
 }
 // ═══ v6.8 進度日誌事件標籤（必選）═══════════════════════════
 // 目的：不增加額外表單負擔的前提下，累計「改稿次數 / 卡關時間 / 需求變更」
@@ -4915,7 +4996,7 @@ function v51WireLogs(c) {
   const btn = document.getElementById('d-log-submit');
   if (!btn) return;
   const dateInput = document.getElementById('d-log-date');
-  if (dateInput && !dateInput.value) dateInput.value = ymdIso(TODAY); // H1: 預設今天，可改
+  if (dateInput) dateInput.value = v20TaiwanToday(); // H1 + v20 F10: 每次開案件＝新表單，預設「此刻的台灣當天」，可改
   btn.onclick = async () => {
     const ta = document.getElementById('d-log-input');
     const txt = (ta && ta.value || '').trim(); if (!txt) return;
@@ -4972,8 +5053,16 @@ function v52WireBasicEdit(c) {
   panel.style.cssText = 'margin:0 0 16px;border:1px solid var(--glass-border,#E5E5E5);border-radius:8px;padding:8px 12px;background:var(--glass-bg,rgba(255,255,255,0.5));-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);';
   const _hotels = (typeof HOTELS !== 'undefined' && HOTELS) ? HOTELS : [];
   const _units = (typeof REQUEST_UNITS !== 'undefined' && REQUEST_UNITS) ? REQUEST_UNITS : [];
-  const hotelOpts = '<option value="">請選擇…</option>' + _hotels.map(h => `<option value="${escapeHtml(h.name)}" ${h.name === c.hotel ? 'selected' : ''}>${escapeHtml(h.region)} · ${escapeHtml(h.name)}</option>`).join('');
-  const unitOpts = '<option value="">請選擇…</option>' + _units.map(u => `<option value="${escapeHtml(u)}" ${u === c.unit ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('');
+  // v20 F07: 案件現值若已不在啟用清單（停用館別／歷史需求單位），必須保留為「已選」選項並標示，
+  // 否則下拉會落在「請選擇…」，改任何欄位（例如案名）存檔時就把原值清空。
+  const _hotelKnown = !c.hotel || _hotels.some(h => h.name === c.hotel);
+  const _unitKnown = !c.unit || _units.includes(c.unit);
+  const hotelOpts = '<option value="">請選擇…</option>'
+    + (_hotelKnown ? '' : `<option value="${escapeHtml(c.hotel)}" selected>${escapeHtml(c.hotel)}（停用／歷史值）</option>`)
+    + _hotels.map(h => `<option value="${escapeHtml(h.name)}" ${h.name === c.hotel ? 'selected' : ''}>${escapeHtml(h.region)} · ${escapeHtml(h.name)}</option>`).join('');
+  const unitOpts = '<option value="">請選擇…</option>'
+    + (_unitKnown ? '' : `<option value="${escapeHtml(c.unit)}" selected>${escapeHtml(c.unit)}（停用／歷史值）</option>`)
+    + _units.map(u => `<option value="${escapeHtml(u)}" ${u === c.unit ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('');
   // C1: 製作物多選（含案件既有的自訂項目）
   let selDeliv = Array.isArray(c.deliverables) ? c.deliverables.slice() : [];
   const allDeliv = DELIVERABLES.concat(selDeliv.filter(d => !DELIVERABLES.includes(d)));
@@ -5201,6 +5290,8 @@ if (depBtn) {
         successors[c.id] = toId;
       }
     }
+    if (v20Inflight.has('depart')) { showToast('離職流程送出中，請稍候', 'warn'); return; }
+    v20Inflight.add('depart'); depBtn.disabled = true;
     try {
       const result = await api.staff.depart(leaver.id, { successors });
       showEmail('departure');
@@ -5211,8 +5302,9 @@ if (depBtn) {
       renderStaff();
       refreshAll();
     } catch (e) {
+      // 409/422 等：顯示後端訊息，視窗與已選繼承人保留，修正後可直接重送
       showToast('離職流程失敗：' + (e.data?.message || e.message), 'err');
-    }
+    } finally { v20Inflight.delete('depart'); depBtn.disabled = false; }
   };
 }
 
@@ -5231,6 +5323,8 @@ if (rsBtn) {
       closeReassign();
       return;
     }
+    if (v20Inflight.has('transfer')) { showToast('轉派送出中，請稍候', 'warn'); return; }
+    v20Inflight.add('transfer'); rsBtn.disabled = true;
     try {
       await api.cases.transfer(c.id, { toDesignerId: toId, reason });
       await reloadCase(c.id);
@@ -5240,8 +5334,9 @@ if (rsBtn) {
       if (currentCase && currentCase.id === c.id && fresh) openDrawer(fresh);
       closeReassign();
     } catch (e) {
+      // 409/422：顯示後端訊息，保留已選人與原因
       showToast('轉派失敗：' + (e.data?.message || e.message), 'err');
-    }
+    } finally { v20Inflight.delete('transfer'); rsBtn.disabled = false; }
   };
 }
 
@@ -5924,14 +6019,19 @@ async function v34SaveProfile() {
   try {
     if (Object.keys(body).length > 0) {
       const updated = await api.staff.update(t.id, body);
-      const idx = STAFF.findIndex(s => s.id === t.id);
+      const idx = STAFF.findIndex(s => v20SameId(s.id, t.id));
+      const oldName = idx >= 0 ? STAFF[idx].name : t.name;
       if (idx >= 0) STAFF[idx] = normalizeStaff(updated);
+      v20ApplyRename(t.id, oldName, updated.name);   // v20 F08: 案件/歷史/view-as 名字快取同步
       if (isSelf) {
         ME.name = updated.name;
         ME.email = updated.email;
         const badge = document.getElementById('user-badge');
         if (badge) badge.firstChild.nodeValue = `👤 ${ME.name} · ${ME.role === 'admin' ? '管理員' : '設計師'} `;
       }
+      // v20 F08: 後端改名會在交易內同步子任務 owner/assigneeId 並推進案件 revision；
+      // 重新取回案件，讓之後的編輯帶著新的 updatedAt/contentVersion（不在前端自行虛增 revision）
+      if (updated.name !== oldName && typeof reloadAllCases === 'function') await reloadAllCases();
     }
     if (pwChange) {
       await api.auth.changePassword(pwChange);
@@ -5945,7 +6045,9 @@ async function v34SaveProfile() {
     if (currentView === 'staff') renderStaff();
     refreshAll();
   } catch (e) {
-    if (e.status === 409) showToast('Email 重複，請換一個', 'err');
+    // 視窗不關閉，保留已輸入內容
+    if (e.data?.error === 'staff_rename_conflict') showToast(e.data.message || '改名時案件資料同時被修改，這次沒有儲存，請稍後再試', 'err');
+    else if (e.status === 409) showToast('Email 重複，請換一個', 'err');
     else if (e.data?.error === 'wrong_current_password') showToast('舊密碼不正確', 'err');
     else if (e.data?.error === 'weak_password') showToast('密碼不夠強：' + (e.data.message || '至少 10 字、含大小寫與數字'), 'err');
     else if (e.data?.error === 'password_reset_forbidden') showToast(e.data.message || '無權限重設此用戶密碼', 'err');
@@ -6028,12 +6130,13 @@ function v34EnsureImportView() {
       </div>
       <details style="margin-top:14px;font-size:12px;">
         <summary style="cursor:pointer;color:#1F6FEB;">CSV 範例 + 完整欄位說明</summary>
-        <pre style="margin-top:8px;padding:10px;background:#F4F4F4;border-radius:4px;font-size:11px;overflow-x:auto;line-height:1.5;">title,subTitle,requester,hotel,level,category,designerName,collaboratorNames,status,urgent,note,openDate,dispatchDate,copyDate,goLiveDate,closedOn,archivePath,requestCount,outputCount
+        <pre style="margin-top:8px;padding:10px;background:#F4F4F4;border-radius:4px;font-size:11px;overflow-x:auto;line-height:1.5;">title,subTitle,requester,hotel,level,category,designerName,collaboratorNames,status,urgent,note,openDate,dispatchDate,copyDate,goLiveDate,closedOn,archivePath,requestCount,outputCount,cancelReason,cancelStage,cancelledOn
 品牌更新,城旅 VI,集團執辦,集團,SS,提案,Sunny,Michelle,doing,false,進行中,2026-04-02,2026-04-02,2026-04-04,2026-04-30,,,,
 餐飲 IG 廣告,5/1 上線,餐飲行銷,新竹湖濱館,A,2 數位廣宣,Ruby,,review,true,,2026-04-08,2026-04-08,2026-04-11,2026-04-27,,,,</pre>
         <p style="line-height:1.7;">
           - <b>level</b>：SS / S / A / B / C / D（預設 C）<br>
-          - <b>status</b>：todo / wait / doing / review / done（預設 todo；中文也接受：尚未開始 / 等待中 / 進行中 / 確稿中 / 已完成）<br>
+          - <b>status</b>：todo / wait / doing / review / review_done / print / done / closed / cancelled（空白 = todo；中文也接受：尚未開始 / 等待中 / 進行中 / 確稿中 / 待主管核可 / 送印中 / 已完成 / 已結案 / 已取消）。無法辨識的狀態會標為問題列<br>
+          - <b>cancelled</b> 列必填 <b>cancelReason</b>（${V34_CANCEL_REASONS.map(escapeHtml).join(" / ")}）；cancelStage 選填（取消時所在階段，預設 todo），cancelledOn 選填 YYYY-MM-DD<br>
           - <b>urgent</b>：true / false（或 是 / 否）<br>
           - <b>collaboratorNames</b>：用 <code>;</code>（分號）或 <code>、</code> 串多人<br>
           - <b>日期欄位</b>：YYYY-MM-DD 格式<br>
@@ -6078,8 +6181,9 @@ function v34EnsureImportView() {
   document.getElementById('v34-csv-input').onchange = v34HandleCsvFile;
   document.getElementById('v34-csv-clear').onclick = () => { v34CsvRows = []; v34RenderCsvPreview(); document.getElementById('v34-csv-preview').style.display='none'; document.getElementById('v34-csv-input').value=''; document.getElementById('v34-csv-filename').textContent='尚未選擇'; document.getElementById('v34-csv-clear').style.display='none'; document.getElementById('v34-csv-result').style.display='none'; };
   document.getElementById('v34-csv-toggle-all').onclick = () => {
-    const all = v34CsvRows.every(r => r._skip);
-    v34CsvRows.forEach(r => r._skip = !all);
+    const open = v34CsvRows.filter(r => !r._imported);
+    const all = open.every(r => r._skip);
+    open.forEach(r => r._skip = !all);
     v34RenderCsvPreview();
   };
   document.getElementById('v34-csv-submit').onclick = v34SubmitImport;
@@ -6118,15 +6222,48 @@ function v34ParseCsv(text) {
   return rows;
 }
 
-const V34_STATUS_MAP = {
+// v20 F12: null-prototype，避免 constructor／toString／__proto__ 等繼承屬性被當成合法狀態
+const V34_STATUS_MAP = Object.assign(Object.create(null), {
   '尚未開始':'todo','未開始':'todo','todo':'todo',
-  '等待中':'wait','等待':'wait','wait':'wait',
-  '進行中':'doing','處理中':'doing','doing':'doing',
-  '確稿中':'review','review':'review','確稿':'review',
+  '等待中':'wait','等待':'wait','等待資料／協調中':'wait','等待資料/協調中':'wait','wait':'wait',
+  '進行中':'doing','處理中':'doing','設計製作中':'doing','doing':'doing',
+  '確稿中':'review','review':'review','確稿':'review','待需求單位確認':'review',
+  '待主管核可':'review_done','review_done':'review_done',
+  '製作／送印中':'print','製作/送印中':'print','送印中':'print','print':'print',
   '已完成':'done','已完成，結案':'done','已完成,結案':'done','結案':'done','done':'done',
+  '已結案':'closed','closed':'closed',
+  '已取消':'cancelled','取消':'cancelled','cancelled':'cancelled',
   '休假':'wait', // 把「休假」歸為 wait
   '':'todo',
-};
+});
+// 只取自有屬性、且必須是字串，否則視為無法辨識
+function v34StatusLookup(v) {
+  if (typeof v !== 'string') return null;
+  if (!Object.prototype.hasOwnProperty.call(V34_STATUS_MAP, v)) return null;
+  const r = V34_STATUS_MAP[v];
+  return typeof r === 'string' ? r : null;
+}
+// v20 F12/D8: 與後端 bulkRowSchema 對齊；不認得的值一律標為問題列，不再默默變成 todo
+const V34_CANCEL_REASONS = ['需求方取消', '活動/檔期取消', '預算未過', '重複需求', '併入其他案', '延到下期', '內部方向調整', '其他'];
+const V34_ACTIVE_STATUSES = ['todo', 'wait', 'doing', 'review', 'review_done', 'print'];
+function v34ValidateRow(r) {
+  const issues = [];
+  if (!r.title) issues.push('缺 title');
+  if (!r.designerName) issues.push('缺 designerName');
+  else {
+    const found = STAFF.find(s => s.name.toLowerCase() === r.designerName.toLowerCase());
+    if (!found) issues.push(`查無設計師「${r.designerName}」`);
+    else if (!found.active) issues.push('設計師已離職');
+  }
+  if (r._statusRaw != null) issues.push(`無法辨識的狀態「${r._statusRaw}」`);
+  const unknownCollabs = (r.collaboratorNames || []).filter(n => !STAFF.some(s => s.name.toLowerCase() === n.toLowerCase()));
+  if (unknownCollabs.length) issues.push(`查無協作者「${unknownCollabs.join('、')}」`);
+  if (r.status === 'cancelled' && !r.cancelReason) issues.push('取消案件需填 cancelReason');
+  if (r.cancelReason && !V34_CANCEL_REASONS.includes(r.cancelReason)) issues.push(`cancelReason 不在選項內「${r.cancelReason}」`);
+  if (r.cancelStage && !V34_ACTIVE_STATUSES.includes(r.cancelStage)) issues.push(`cancelStage 無效「${r.cancelStage}」`);
+  if (r._serverError) issues.push('伺服器：' + r._serverError);
+  return issues;
+}
 
 const V34_LEVEL_VALID = new Set(['SS','S','A','B','C','D']);
 
@@ -6138,7 +6275,14 @@ function v34NormalizeRow(rawRow, headers) {
   // Normalize status
   if (obj.status) {
     const k = obj.status.toLowerCase().replace(/\s/g,'');
-    obj.status = V34_STATUS_MAP[k] || V34_STATUS_MAP[obj.status] || 'todo';
+    const mapped = v34StatusLookup(k) || v34StatusLookup(obj.status);
+    if (mapped) obj.status = mapped;
+    else { obj._statusRaw = obj.status; delete obj.status; }
+  } else { obj.status = 'todo'; } // 空白 = todo（明確寫入，避免空字串被後端 enum 拒絕）
+  ['cancelReason','cancelStage','cancelledOn'].forEach(k => { if (obj[k] === '') delete obj[k]; });
+  if (obj.cancelStage) {
+    const cs = obj.cancelStage.toLowerCase().replace(/\s/g,'');
+    obj.cancelStage = v34StatusLookup(cs) || v34StatusLookup(obj.cancelStage) || obj.cancelStage;
   }
   // Normalize urgent
   if (typeof obj.urgent === 'string') {
@@ -6181,14 +6325,7 @@ async function v34HandleCsvFile(e) {
   v34CsvRows = rows.slice(1).map(r => {
     const obj = v34NormalizeRow(r, headers);
     obj._skip = false;
-    obj._issues = [];
-    if (!obj.title) obj._issues.push('缺 title');
-    if (!obj.designerName) obj._issues.push('缺 designerName');
-    else {
-      const found = STAFF.find(s => s.name.toLowerCase() === obj.designerName.toLowerCase());
-      if (!found) obj._issues.push(`查無設計師「${obj.designerName}」`);
-      else if (!found.active) obj._issues.push('設計師已離職');
-    }
+    obj._issues = v34ValidateRow(obj);
     if (obj._issues.length) obj._skip = true; // skip problematic rows by default
     return obj;
   });
@@ -6206,17 +6343,17 @@ function v34RenderCsvPreview() {
     const hasIssue = r._issues.length > 0;
     return `
       <tr style="${hasIssue ? 'background:#FFF5F5;' : ''}">
-        <td style="border:1px solid #E5E5E5;text-align:center;padding:4px;"><input type="checkbox" ${r._skip ? '' : 'checked'} data-i="${i}" class="v34-csv-skip"></td>
+        <td style="border:1px solid #E5E5E5;text-align:center;padding:4px;"><input type="checkbox" ${r._skip ? '' : 'checked'} ${r._imported ? 'disabled title="已匯入"' : ''} data-i="${i}" class="v34-csv-skip"></td>
         <td style="border:1px solid #E5E5E5;padding:4px 6px;">${escapeHtml(r.title || '')}</td>
         <td style="border:1px solid #E5E5E5;padding:4px;">
           <input value="${escapeHtml(r.designerName || '')}" data-i="${i}" class="v34-csv-designer" style="width:90px;border:1px solid #E0E0E0;padding:2px 4px;font-size:11px;">
         </td>
         <td style="border:1px solid #E5E5E5;text-align:center;padding:4px;">${escapeHtml(r.level || '')}</td>
-        <td style="border:1px solid #E5E5E5;padding:4px 6px;">${escapeHtml(r.status || '')}</td>
+        <td style="border:1px solid #E5E5E5;padding:4px 6px;">${escapeHtml(r.status || r._statusRaw || '')}</td>
         <td style="border:1px solid #E5E5E5;padding:4px 6px;">${escapeHtml(r.hotel || '')}</td>
         <td style="border:1px solid #E5E5E5;padding:4px 6px;">${escapeHtml(r.requester || '')}</td>
         <td style="border:1px solid #E5E5E5;padding:4px 6px;font-family:'SF Mono','Consolas',monospace;font-size:10px;">${escapeHtml(r.goLiveDate || '')}</td>
-        <td style="border:1px solid #E5E5E5;padding:4px 6px;color:#C0392B;font-size:10px;">${r._issues.join('; ')}</td>
+        <td style="border:1px solid #E5E5E5;padding:4px 6px;color:#C0392B;font-size:10px;">${escapeHtml(r._issues.join('; '))}</td>
       </tr>
     `;
   }).join('');
@@ -6232,27 +6369,25 @@ function v34RenderCsvPreview() {
     inp.onchange = () => {
       const i = parseInt(inp.dataset.i,10);
       v34CsvRows[i].designerName = inp.value.trim();
-      // Re-validate
+      // Re-validate（v20 D8: 整列重驗，不會清掉狀態／協作者等其他問題）
       const r = v34CsvRows[i];
-      r._issues = [];
-      if (!r.title) r._issues.push('缺 title');
-      if (!r.designerName) r._issues.push('缺 designerName');
-      else {
-        const found = STAFF.find(s => s.name.toLowerCase() === r.designerName.toLowerCase());
-        if (!found) r._issues.push(`查無設計師「${r.designerName}」`);
-        else if (!found.active) r._issues.push('設計師已離職');
-      }
+      delete r._serverError;
+      r._issues = v34ValidateRow(r);
       v34RenderCsvPreview();
     };
   });
 }
 
 async function v34SubmitImport() {
-  const rows = v34CsvRows.filter(r => !r._skip);
-  if (rows.length === 0) { showToast('沒有勾選任何列', 'err'); return; }
-  // strip internal _skip / _issues
+  // v20 D8: 送出前整批重驗（STAFF 可能已更新），有問題的勾選列不送
+  v34CsvRows.forEach(r => { if (!r._imported) r._issues = v34ValidateRow(r); });
+  const rows = v34CsvRows.filter(r => !r._skip && !r._imported);
+  if (rows.length === 0) { v34RenderCsvPreview(); showToast('沒有勾選任何列', 'err'); return; }
+  const bad = rows.filter(r => r._issues.length);
+  if (bad.length) { v34RenderCsvPreview(); showToast(`有 ${bad.length} 筆勾選列仍有問題，請修正或取消勾選後再匯入`, 'err'); return; }
+  // strip internal fields
   const payload = rows.map(r => {
-    const { _skip, _issues, ...clean } = r;
+    const { _skip, _issues, _statusRaw, _serverError, _imported, ...clean } = r;
     return clean;
   });
   const btn = document.getElementById('v34-csv-submit');
@@ -6280,6 +6415,10 @@ async function v34SubmitImport() {
         ` : '<div style="color:#1F8A4C;font-size:12px;">🎉 全部匯入成功！</div>'}
       </div>
     `;
+    // v20 D8: 後端逐列結果回寫預覽——成功列鎖定不重送，失敗列保留並標出伺服器訊息
+    (result.created || []).forEach(c => { const r = rows[c.rowIndex]; if (r) { r._imported = true; r._skip = true; delete r._serverError; r._issues = []; } });
+    (result.errors || []).forEach(e => { const r = rows[e.rowIndex]; if (r) { r._serverError = e.message || '匯入失敗'; r._issues = v34ValidateRow(r); } });
+    v34RenderCsvPreview();
     showToast(`✓ 匯入 ${result.summary.created} / ${result.summary.total} 筆`);
     await reloadAllCases();
     refreshAll();
@@ -6697,6 +6836,11 @@ async function v36ApprovalDecision(id, decision) {
   const comment = cmtEl ? cmtEl.value.trim() : '';
   const verb = decision === 'approve' ? '通過審核並結案' : '退回';
   if (!confirm(`確定${verb}案件 ${id}？`)) return;
+  const lockKey = 'approve:' + id;
+  if (v20Inflight.has(lockKey)) { showToast('此案審核送出中，請稍候', 'warn'); return; }
+  v20Inflight.add(lockKey);
+  const btns = Array.from(document.querySelectorAll('[data-approve-id]')).filter(b => b.dataset.approveId === String(id));
+  btns.forEach(b => { b.disabled = true; });
   try {
     await api.cases.approve(id, { decision, comment });
     showToast(`✓ 案件 ${id} 已${verb}`);
@@ -6707,8 +6851,12 @@ async function v36ApprovalDecision(id, decision) {
     if (e.data?.error === 'archive_path_required') {
       showToast('案件未填寫歸檔路徑，無法結案 — 請先在抽屜中補上', 'err');
     } else {
+      // v20 contract: 409（狀態已被他人變更）等一律顯示後端訊息；不重繪清單，保留已輸入的審核意見
       showToast('操作失敗：' + (e.data?.message || e.message), 'err');
     }
+  } finally {
+    v20Inflight.delete(lockKey);
+    btns.forEach(b => { if (b.isConnected) b.disabled = false; });
   }
 }
 
@@ -7004,7 +7152,7 @@ window.renderDashboard = function() {
     const live = CASES.filter(c => !c.archived);
     const myName = (typeof v36ViewAsName !== 'undefined' && v36ViewAsName) ? v36ViewAsName : ME_NAME();
     const isAdminView = ME.role === 'admin' && !(typeof v36ViewAsName !== 'undefined' && v36ViewAsName);
-    const mine = isAdminView ? live : live.filter(c => c.designer === myName || (c.collaborators||[]).includes(myName));
+    const mine = isAdminView ? live : live.filter(c => v20IsMine(c));
     // v8.0: review 是等需求單位、review_done 才是等主管，標籤不可混用
     const reviewing = mine.filter(c => c.status === 'review' || c.status === 'review_done')
       .map(c => ({...c, why: c.status === 'review' ? '待需求單位確認' : '待主管核可'}));
@@ -7180,7 +7328,7 @@ window.renderGantt = function() {
       if (!id) return;
       const c = CASES.find(x => x.id === id);
       if (!c) return;
-      const isMine = c.designer === myName || (c.collaborators||[]).includes(myName);
+      const isMine = v20IsMine(c);
       const row = bar.closest('.g-row, .gantt-row');
       if (row && !isMine) row.style.display = 'none';
     });
@@ -7300,6 +7448,8 @@ window.openDrawer = async function(c) {
   // Force read-only on every interactive element regardless of write-permission
   drawer.querySelectorAll('input, textarea, select, button').forEach(el => {
     if (el.id === 'drawer-close' || el.id === 'd-back' || el.id === 'v37-reopen-btn') return;
+    // v20 F05: 取消案的「還原」是合法動作，只在有權限時才會被渲染出來，不可被唯讀 sweep 禁用
+    if (el.id === 'v71-restore' && v71CanCancel(c)) return;
     if (el.classList.contains('close')) return;
     el.disabled = true;
     el.classList.add('v37-historical-readonly');
@@ -8469,7 +8619,7 @@ async function v40RenderAvailabilityModal(modal) {
   await v40LoadAvailability();
   const myVac = VACATIONS.filter(v => v.staffId === ME.id);
   const myTrips = TRIPS.filter(t => t.staffId === ME.id);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = v20TaiwanToday(); // v20 F10: 原 toISOString() 為 UTC
   // v6.5: 出差「進行中｜已結束」— 已結束 = 過了結束日 或 手動封存
   const tripActive = myTrips.filter(t => !v65TripEnded(t)).sort((a,b) => a.startDate < b.startDate ? -1 : 1);
   const tripEnded = myTrips.filter(t => v65TripEnded(t)).sort((a,b) => a.startDate > b.startDate ? -1 : 1);
@@ -8574,6 +8724,8 @@ async function v40RenderAvailabilityModal(modal) {
       if (currentView === 'gantt') renderGantt();
     } catch (e) { showToast('新增失敗：' + (e.data?.message || e.message), 'err'); }
   };
+  v20GuardClick(document.getElementById('v40-vac-add'), 'create:vacation');   // v20 F09
+  v20GuardClick(document.getElementById('v40-trip-add'), 'create:trip');
 }
 
 window.v40DeleteVacation = async function(id) {
@@ -9081,7 +9233,7 @@ async function v55RenderModal() {
   if (!modal) return;
   await v55LoadShoots();
   const inputStyle = 'width:100%;padding:6px 8px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;box-sizing:border-box;';
-  const today = ymdIso(TODAY);
+  const today = v20TaiwanToday(); // v20 F10
   const editing = v55EditId ? SHOOTS.find(s => s.id === v55EditId) : null;
   const hotelOpts = '<option value="">（不指定地點）</option>' + (typeof HOTELS !== 'undefined' ? HOTELS : []).map(h => `<option value="${escapeHtml(h.name)}" ${editing && editing.hotel === h.name ? 'selected' : ''}>${escapeHtml(h.name)}</option>`).join('');
   // 依起始日排序（近→遠）
@@ -9166,6 +9318,7 @@ async function v55RenderModal() {
       if (currentView === 'gantt') renderGantt();
     } catch (e) { showToast('儲存失敗：' + (e.data?.message || e.message), 'err'); }
   };
+  v20GuardClick(document.getElementById('v55-save'), 'save:shoot');   // v20 F09
   modal.querySelectorAll('button[data-sedit]').forEach(b => b.onclick = () => { v55EditId = Number(b.dataset.sedit); v55RenderModal(); modal.scrollTop = 0; });
   modal.querySelectorAll('button[data-sdel]').forEach(b => b.onclick = async () => {
     if (!confirm('刪除這筆拍攝行程？')) return;
@@ -9414,7 +9567,7 @@ async function v61RenderModal() {
   await v61LoadMeetings();
   const inputStyle = 'width:100%;padding:6px 8px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;box-sizing:border-box;';
   const lblStyle = 'font-size:11px;color:var(--fg-muted,#8C8C8C);';
-  const today = ymdIso(TODAY);
+  const today = v20TaiwanToday(); // v20 F10
   const editing = v61EditId ? MEETINGS.find(m => m.id === v61EditId) : null;
   const roster = (STAFF || []).filter(s => s.active && s.role !== 'observer');
   const editAttIds = editing ? new Set((editing.attendees || []).map(a => a.staffId)) : new Set();
@@ -9612,6 +9765,7 @@ async function v61RenderModal() {
       if (currentView === 'calendar' && typeof renderCalendar === 'function') renderCalendar();
     } catch (e) { showToast('儲存失敗：' + (e.data?.message || e.message), 'err'); }
   };
+  v20GuardClick(document.getElementById('v61-save'), 'save:meeting');   // v20 F09
   modal.querySelectorAll('button[data-medit]').forEach(b => b.onclick = () => { v61EditId = Number(b.dataset.medit); v61RenderModal(); modal.scrollTop = 0; });
   modal.querySelectorAll('button[data-mdel]').forEach(b => b.onclick = async () => {
     const id = Number(b.dataset.mdel);
@@ -9905,10 +10059,11 @@ function v57CollectEvents() {
   // 範圍：mine → 只含與本人相關（負責/協作/本人拍攝/本人假勤）
   const me = (typeof ME_NAME === 'function' ? ME_NAME() : '') || '';
   const mine = v57Scope === 'mine' && !!me;
-  const caseMine  = (c) => !mine || c.designer === me || (c.collaborators || []).includes(me);
+  const caseMine  = (c) => !mine || v20IsMine(c);
   const nameMine  = (n) => !mine || n === me;
-  const shootMine = (s) => !mine || (s.createdBy && s.createdBy.name === me) || (s.photographer || '').includes(me);
-  const meetingMine = (m) => !mine || m.host?.name === me || (m.attendees || []).some(a => a.staff?.name === me);
+  const shootMine = (s) => !mine || v20SameId(s.createdById ?? s.createdBy?.id, v20ViewerId()) || (s.photographer || '').includes(me); // v20 F08: 建立者以 id；攝影師為自由文字仍比名字
+  // v20 F08: 會議主持人／出席者以 id 比對（同名不同人不誤配、自己改名不漏）；view-as 時以被檢視者 id
+  const meetingMine = (m) => { if (v57Scope !== 'mine') return true; const vid = v20ViewerId(); return v20SameId(m.hostId ?? m.host?.id, vid) || (m.attendees || []).some(a => v20SameId(a.staffId ?? a.staff?.id, vid)); };
   // 專案：上線日 + 確稿日 +（送印日 / 需發包建議日）
   if (v57Layers.project) {
     (CASES || []).filter(c => !c.archived && caseMine(c)).forEach(c => {
@@ -10342,8 +10497,8 @@ function v43InjectSubItemsPanel(c, body) {
   if (!body) return;
   const isAdmin = ME.role === 'admin';
   const myName = ME_NAME();
-  const isPrimary = c.designer === myName || c._designerId === ME.id;
-  const isCollab = (c.collaborators || []).includes(myName);
+  const isPrimary = v20IsPrimary(c, ME.id);   // 寫入權限一律以登入者本人判斷（不受 view-as 影響）
+  const isCollab = v20IsCollab(c, ME.id);
   const canWrite = isAdmin || isPrimary || isCollab;
 
   const panel = document.createElement('div');
@@ -10368,7 +10523,7 @@ function v43InjectSubItemsPanel(c, body) {
     const cards = items.length === 0
       ? `<div style="color:var(--fg-muted,#8C8C8C);font-size:12px;padding:14px;text-align:center;background:rgba(255,255,255,0.5);border-radius:6px;border:1px dashed #BFE0CB;">尚無子案件${canWrite ? '，點下方「＋ 新增子案件」開始' : ''}</div>`
       : items.map((it, i) => {
-        const assigneeName = it.assigneeId ? (STAFF.find(s => s.id === it.assigneeId)?.name || it.owner) : (it.owner || '');
+        const assigneeName = it.assigneeId ? (STAFF.find(s => v20SameId(s.id, it.assigneeId))?.name || it.owner) : (it.owner || '');
         return `
           <div class="v43-item-card" data-idx="${i}" style="background:var(--card-bg,#fff);border:1px solid #DDEDE0;border-radius:6px;padding:12px;margin-bottom:8px;">
             <!-- Header row: drag handle, index, name preview, status, delete -->
@@ -10399,7 +10554,7 @@ function v43InjectSubItemsPanel(c, body) {
                 <label style="${labelStyle}">負責人</label>
                 <select data-i="${i}" data-k="assigneeId" ${canWrite?'':'disabled'} style="${inputStyle}">
                   <option value="">（同主負責）</option>
-                  ${STAFF.filter(s=>s.active && s.role !== 'admin').map(s=>`<option value="${s.id}" ${(it.assigneeId===s.id||(!it.assigneeId&&it.owner===s.name))?'selected':''}>${escapeHtml(s.name)}</option>`).join('')}
+                  ${STAFF.filter(s=>s.active && s.role !== 'admin').map(s=>`<option value="${s.id}" ${(it.assigneeId ? v20SameId(it.assigneeId, s.id) : it.owner===s.name)?'selected':''}>${escapeHtml(s.name)}</option>`).join('')}
                 </select>
               </div>
             </div>
@@ -10443,7 +10598,7 @@ function v43InjectSubItemsPanel(c, body) {
                 </div>`).join('')}
               ${canWrite?`<div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;">
                 <input data-ilognew="${i}" placeholder="新增此子項目進度…" style="${inputStyle}flex:1;min-width:140px;">
-                <input type="date" data-ilogdate="${i}" value="${ymdIso(TODAY)}" style="${inputStyle}width:auto;flex-shrink:0;" title="日誌日期">
+                <input type="date" data-ilogdate="${i}" value="${v20TaiwanToday()}" style="${inputStyle}width:auto;flex-shrink:0;" title="日誌日期">
                 <button data-act="ilogadd" data-i="${i}" style="flex-shrink:0;padding:0 12px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">＋ 記錄</button>
               </div>`:''}
             </div>
@@ -10515,7 +10670,7 @@ function v43InjectSubItemsPanel(c, body) {
           items[i][k] = v;
           // Mirror assigneeId → owner name (legacy)
           if (k === 'assigneeId') {
-            const s = STAFF.find(x => x.id === v);
+            const s = STAFF.find(x => v20SameId(x.id, v));
             items[i].owner = s ? s.name : '';
           }
           // In-place header updates — DO NOT re-render (would destroy active input and lose focus)
@@ -10613,7 +10768,9 @@ function v43InjectSubItemsPanel(c, body) {
             n: it.n.trim(),
             type: it.type || '',
             owner: it.owner || '',
-            assigneeId: it.assigneeId || null,
+            // v20 F08: 保留 ID；舊 owner-only 若名字只對到一人則補上 ID
+            assigneeId: (it.assigneeId != null && it.assigneeId !== '' && Number.isFinite(Number(it.assigneeId))) ? Number(it.assigneeId)
+              : (() => { const m = (STAFF || []).filter(s => it.owner && s.name === it.owner); return m.length === 1 ? Number(m[0].id) : null; })(),
             start: it.start || null,
             end: it.end || null,
             status: it.status || '尚未製作',
@@ -10655,8 +10812,9 @@ function v44CollectMySubItems() {
     if (!Array.isArray(c.items) || c.items.length === 0) return;
     c.items.forEach((it, idx) => {
       // 「我的子案件」= 顯式指派給我；不抓「同主負責」的（那些已在主案件卡片內呈現）
-      const mine = (it.assigneeId && it.assigneeId === ME.id)
-        || (!it.assigneeId && it.owner === myName);
+      // v20 F08: 以 assigneeId 優先（數字/字串皆可）；無 ID 的舊資料才比名字
+      const hasId = it.assigneeId != null && it.assigneeId !== '';
+      const mine = hasId ? v20SameId(it.assigneeId, ME.id) : (!!myName && it.owner === myName);
       if (!mine) return;
       out.push({ c, it, idx });
     });
@@ -11082,9 +11240,11 @@ const V71_REASONS = [
 ];
 function v71CanCancel(c) {
   if (typeof IS_OBSERVER === 'function' && IS_OBSERVER()) return false;
-  return currentRole === 'admin' || c.designer === ME_NAME();
+  // v20 F05: 只有 admin 或「主責本人」（以 id 判斷，不受 view-as 與改名影響）
+  return ME.role === 'admin' || v20IsPrimary(c, ME.id);
 }
 let v71Reason = null;
+let v71NoteDraft = ''; // v20: 切換原因 chip 重繪時保留已輸入的補充說明
 function v71OpenCancel(c) {
   if (!v71CanCancel(c)) { showToast('只有主負責人或 admin 可取消專案', 'err'); return; }
   v71Reason = null;
@@ -11125,12 +11285,18 @@ function v71OpenCancel(c) {
         <button id="v71-cancelbtn" style="padding:7px 14px;font-size:12px;border:1px solid var(--input-border,#D4D4D4);background:transparent;color:var(--fg,#1F1F1F);border-radius:6px;cursor:pointer;">返回</button>
         <button id="v71-ok" style="padding:7px 16px;font-size:12px;border:none;background:#9A2E2E;color:#fff;border-radius:6px;cursor:pointer;">確認取消專案</button>
       </div>`;
+    const noteEl = document.getElementById('v71-note');
+    if (noteEl) { noteEl.value = v71NoteDraft; noteEl.oninput = () => { v71NoteDraft = noteEl.value; }; }
     modal.querySelectorAll('[data-vr]').forEach(b => b.onclick = () => { v71Reason = b.dataset.vr; render(); });
     document.getElementById('v71-x').onclick = close;
     document.getElementById('v71-cancelbtn').onclick = close;
     document.getElementById('v71-ok').onclick = async () => {
       if (!v71Reason) { showToast('請選擇取消原因', 'err'); return; }
       const note = (document.getElementById('v71-note') || {}).value || '';
+      const okBtn = document.getElementById('v71-ok');
+      const lockKey = 'cancel:' + c.id;
+      if (v20Inflight.has(lockKey)) return;
+      v20Inflight.add(lockKey); if (okBtn) okBtn.disabled = true;
       try {
         await api.cases.cancel(c.id, { reason: v71Reason, note: note.trim() || undefined });
         showToast('✓ 專案已取消並封存（可在歷史案件還原）');
@@ -11138,9 +11304,11 @@ function v71OpenCancel(c) {
         document.getElementById('drawer-bg')?.click();
         await reloadAllCases();
         refreshAll();
-      } catch (e) { showToast('取消失敗：' + (e.data?.message || e.message), 'err'); }
+      } catch (e) { showToast('取消失敗：' + (e.data?.message || e.message), 'err'); }  // 原因與說明保留在視窗中
+      finally { v20Inflight.delete(lockKey); if (okBtn && okBtn.isConnected) okBtn.disabled = false; }
     };
   };
+  v71NoteDraft = '';
   render();
 }
 // 抽屜注入「取消專案 / 還原」按鈕
@@ -11160,8 +11328,20 @@ function v71InjectDrawerBtn(c) {
     const rb = document.getElementById('v71-restore');
     if (rb) rb.onclick = async () => {
       if (!confirm('還原這個專案？會回到取消前的階段。')) return;
-      try { await api.cases.uncancel(c.id); showToast('✓ 已還原'); document.getElementById('drawer-bg')?.click(); await reloadAllCases(); refreshAll(); }
-      catch (e) { showToast('還原失敗：' + (e.data?.message || e.message), 'err'); }
+      // v20 F05: confirm 期間權限可能已變（view-as 切換、角色重載）→ 送出前再驗一次
+      if (!v71CanCancel(c)) { showToast('只有主負責人或 admin 可還原專案', 'err'); return; }
+      const gen = window.v95DrawerSeq.now(), caseId = c.id;
+      const stillMine = () => gen === window.v95DrawerSeq.now() && currentCase && currentCase.id === caseId;
+      rb.disabled = true;
+      try {
+        await api.cases.uncancel(caseId);
+        showToast('✓ 已還原');
+        await reloadAllCases(); refreshAll();
+        if (stillMine()) document.getElementById('drawer-bg')?.click();
+      } catch (e) {
+        showToast('還原失敗：' + (e.data?.message || e.message), 'err');   // 409/422 顯示後端訊息
+        if (stillMine()) rb.disabled = !v71CanCancel(c);
+      }
     };
   } else if (!FINAL_STATUS_KEYS.has(c.status) && v71CanCancel(c)) {
     wrap.style.cssText = 'margin:12px 0 4px;display:flex;justify-content:flex-end;';
@@ -11878,6 +12058,6 @@ window.switchView = function (v) {
 };
 
 </script>
-<script src="/workbench-features.js?v=cbd38ff4f3e8"></script>
+<script src="/workbench-features.js?v=1f8eef2a6976"></script>
 </body>
 </html>

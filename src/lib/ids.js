@@ -1,22 +1,36 @@
-// Case ID generator: {LEVEL}-{YYYY}-{MM}-{SEQ:03d}
-// Uses the existing Cases table to find the highest seq for the given level+month.
+// Case ID generator: {LEVEL}-{YYYY}-{MM}-{SEQ:03d}.
+// Read numeric suffixes: lexical order stops advancing when 999 becomes 1000.
 import { prisma } from './db.js';
 
 export async function nextCaseId(level, date = new Date()) {
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, '0');
   const prefix = `${level}-${y}-${m}-`;
-
-  const latest = await prisma.case.findFirst({
+  const rows = await prisma.case.findMany({
     where: { id: { startsWith: prefix } },
-    orderBy: { id: 'desc' },
     select: { id: true },
   });
-
-  let seq = 1;
-  if (latest) {
-    const tail = latest.id.slice(prefix.length); // "003"
-    seq = parseInt(tail, 10) + 1;
+  let highest = 0n;
+  for (const row of rows) {
+    const suffix = row.id.slice(prefix.length);
+    if (!/^\d+$/.test(suffix)) continue;
+    const seq = BigInt(suffix);
+    if (seq > highest) highest = seq;
   }
-  return `${prefix}${String(seq).padStart(3, '0')}`;
+  return `${prefix}${String(highest + 1n).padStart(3, '0')}`;
+}
+
+// The unique Case.id constraint arbitrates concurrent allocation. Rebuild the
+// complete create data after a collision so ID-derived fields stay consistent.
+export async function createWithCaseId(level, date, create) {
+  for (let attempt = 0; ; attempt++) {
+    const id = await nextCaseId(level, date);
+    try { return await create(id); }
+    catch (e) {
+      const target = e.meta?.target;
+      const idConflict = !target || (Array.isArray(target) ? target.includes('id') : /(?:^id$|_pkey$)/.test(String(target)));
+      if (e.code === 'P2002' && idConflict && attempt < 4) continue;
+      throw e;
+    }
+  }
 }

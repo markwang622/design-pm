@@ -16,13 +16,13 @@ const SENIORITY_RANK = { senior: 0, mid: 1, junior: 2 };
 export async function workloadScore(staffId) {
   const [owned, collab] = await Promise.all([
     prisma.case.findMany({
-      where: { designerId: staffId, archived: false, status: { notIn: ['done', 'closed'] } },
+      where: { designerId: staffId, archived: false, status: { notIn: ['done', 'closed', 'cancelled'] } },
       select: { level: true },
     }),
     prisma.case.findMany({
       where: {
         archived: false,
-        status: { notIn: ['done', 'closed'] },
+        status: { notIn: ['done', 'closed', 'cancelled'] },
         collaborators: { some: { id: staffId } },
         NOT: { designerId: staffId },
       },
@@ -39,9 +39,10 @@ export async function workloadScore(staffId) {
  * Compute workload for every active staff member.
  * Returns array of { id, name, seniority, score } sorted by score ascending.
  */
-export async function workloadForAll({ excludeId } = {}) {
+export async function workloadForAll({ excludeId, assignableOnly = false } = {}) {
   const staff = await prisma.staff.findMany({
-    where: { active: true, ...(excludeId ? { NOT: { id: excludeId } } : {}) },
+    where: { active: true, ...(excludeId ? { NOT: { id: excludeId } } : {}),
+      ...(assignableOnly ? { pendingActivation: false, role: { in: ['admin', 'member'] } } : {}) },
     select: { id: true, name: true, seniority: true },
     orderBy: { id: 'asc' },
   });
@@ -57,7 +58,7 @@ export async function workloadForAll({ excludeId } = {}) {
  * Rule: lowest workload wins. Tie-break: for SS/S cases, prefer higher seniority.
  */
 export async function suggestSuccessor({ excludeId, level }) {
-  const ranked = await workloadForAll({ excludeId });
+  const ranked = await workloadForAll({ excludeId, assignableOnly: true });
   if (ranked.length === 0) return null;
 
   const minScore = ranked[0].score;

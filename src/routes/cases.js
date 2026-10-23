@@ -2,7 +2,8 @@ import { safeRouter } from '../lib/safeRouter.js';
 import { z } from 'zod';
 import { prisma } from '../lib/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
-import { nextCaseId } from '../lib/ids.js';
+import { createWithCaseId } from '../lib/ids.js';
+import { taipeiCalendarDay } from '../services/analytics.js';
 import { caseEditPermission } from '../lib/casePermissions.js';
 import { caseContentInclude, replaceCaseJson, appendCaseLog, sendCaseEditError } from '../lib/caseJsonEdits.js';
 import { notify, tplCaseAssigned, tplCollabInvite } from '../services/notify.js';
@@ -13,6 +14,57 @@ router.use(requireAuth);
 
 // ─── Helpers ───────────────────────────────────────────────
 const caseInclude = caseContentInclude;
+
+const CANCEL_REASONS = ['需求方取消', '活動/檔期取消', '預算未過', '重複需求', '併入其他案', '延到下期', '內部方向調整', '其他'];
+const ACTIVE_STATUSES = ['todo', 'wait', 'doing', 'review', 'review_done', 'print'];
+const terminalStatus = status => status === 'done' || status === 'closed';
+
+function workflowError(status, error, message) {
+  return Object.assign(new Error(message), { caseWorkflow: true, status, error });
+}
+function sendWorkflowError(res, e) {
+  if (e.code === 'P2034') e = workflowError(409, 'case_conflict', '案件已被其他操作更新，請重新載入案件後再試');
+  if (!e.caseWorkflow) return false;
+  res.status(e.status).json({ error: e.error, message: e.message });
+  return true;
+}
+async function writeWorkflowAudit(tx, caseId, changes, reason, operator) {
+  if (!changes.length) return;
+  await tx.changeLog.createMany({ data: changes.map(change => ({ caseId, ...change, reason, operator })) });
+}
+
+// Claim the snapshot before changing relations. The row lock, ownership change,
+// transfer record and audit all belong to one transaction; callers notify after it.
+// Serializable also protects assignment eligibility against concurrent departures.
+async function applyWorkflow(existing, data, changes, reason, operator, toDesignerId) {
+  return prisma.$transaction(async tx => {
+    let target;
+    if (toDesignerId !== undefined) {
+      target = await tx.staff.findUnique({ where: { id: toDesignerId } });
+      if (!target?.active || target.pendingActivation || !['admin', 'member'].includes(target.role)) {
+        throw workflowError(422, 'designer_unavailable', '主負責人不存在、已停用、尚未啟用或為觀察者，請選擇已啟用的設計師或管理員');
+      }
+    }
+    const { collaborators, ...scalarData } = data;
+    const claimed = await tx.case.updateMany({
+      where: { id: existing.id, designerId: existing.designerId, status: existing.status, updatedAt: existing.updatedAt },
+      data: { ...scalarData, ...(target && { designerId: target.id }) },
+    });
+    if (claimed.count !== 1) throw workflowError(409, 'case_conflict', '案件已被其他操作更新，請重新載入案件後再試');
+    if (collaborators || target) {
+      await tx.case.update({
+        where: { id: existing.id },
+        data: { collaborators: collaborators || { disconnect: [{ id: target.id }] } },
+      });
+    }
+    if (target) {
+      const from = await tx.staff.findUnique({ where: { id: existing.designerId }, select: { name: true } });
+      await tx.transferLog.create({ data: { caseId: existing.id, fromName: from?.name || '—', toName: target.name, reason, operator } });
+    }
+    await writeWorkflowAudit(tx, existing.id, changes, reason, operator);
+    return tx.case.findUnique({ where: { id: existing.id }, include: caseInclude });
+  }, { isolationLevel: 'Serializable' });
+}
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).transform((s) => new Date(s + 'T00:00:00Z'));
 
@@ -103,6 +155,12 @@ const bulkRowSchema = z.object({
   archivePath: z.string().optional(),
   requestCount: z.number().int().optional(),
   outputCount: z.number().int().optional(),
+  cancelReason: z.enum(CANCEL_REASONS).optional(),
+  cancelStage: z.enum(ACTIVE_STATUSES).optional(),
+  cancelledOn: z.string().refine(s => {
+    const date = parseDate(s);
+    return date && Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === s;
+  }, 'cancelledOn 必須是有效的 YYYY-MM-DD 日期').optional(),
 });
 
 const bulkImportSchema = z.object({
@@ -126,7 +184,7 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
   const fallbackGoLive = parsed.data.defaultGoLiveDate
     ? parseDate(parsed.data.defaultGoLiveDate)
     : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 2 weeks from now
-  const today = new Date();
+  const today = taipeiCalendarDay();
 
   // Build a name → id lookup for staff
   const allStaff = await prisma.staff.findMany({
@@ -160,6 +218,15 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
       continue;
     }
 
+    const unknownCollaborators = r.collaboratorNames.filter(n => !nameToId.has(n.toLowerCase()));
+    if (unknownCollaborators.length) {
+      errors.push({ rowIndex: i, title: r.title, message: `找不到協作者「${unknownCollaborators.join('、')}」，請修正 CSV 人員名稱後重新匯入此列` });
+      continue;
+    }
+    if (r.status === 'cancelled' && !r.cancelReason) {
+      errors.push({ rowIndex: i, title: r.title, message: '取消案件必須提供 cancelReason（例如：需求方取消），請補齊後重新匯入此列' });
+      continue;
+    }
     const collabIds = (r.collaboratorNames || [])
       .map((n) => nameToId.get(String(n).toLowerCase()))
       .filter((id) => id && id !== designerId);
@@ -173,42 +240,45 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
     const closedOn = parseDate(r.closedOn);
 
     try {
-      const id = await nextCaseId(r.level, openDate);
-      const data = {
-        id,
-        title: r.title.slice(0, 100),
-        subTitle: r.subTitle,
-        requester: r.requester,
-        hotel: r.hotel,
-        level: r.level,
-        category: r.category,
-        status: r.status,
-        urgent: !!r.urgent,
-        note: r.note || '',
-        requestedOn,
-        openDate,
-        dispatchDate,
-        copyDate,
-        goLiveDate,
-        designer: { connect: { id: designerId } },
-        collaborators: { connect: collabIds.map((id) => ({ id })) },
-        createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
-      };
-      // Status-specific fields (v3.6: any of done/closed/review_done are "終態")
-      const isFinal = r.status === 'done' || r.status === 'closed' || r.status === 'review_done';
-      if (isFinal) {
-        data.closedOn = closedOn || today;
-        if (r.archivePath) data.archivePath = r.archivePath;
-        if (r.requestCount !== undefined) data.requestCount = r.requestCount;
-        if (r.outputCount !== undefined) data.outputCount = r.outputCount;
-        if (data.archivePath == null || data.archivePath === '') {
-          data.archivePath = `/設計部共用/2026/匯入/${id}-${r.title}`.replace(/\s+/g, '_');
+      const row = await createWithCaseId(r.level, openDate, async id => {
+        const data = {
+          id,
+          title: r.title.slice(0, 100),
+          subTitle: r.subTitle,
+          requester: r.requester,
+          hotel: r.hotel,
+          level: r.level,
+          category: r.category,
+          status: r.status,
+          urgent: !!r.urgent,
+          note: r.note || '',
+          requestedOn,
+          openDate,
+          dispatchDate,
+          copyDate,
+          goLiveDate,
+          designer: { connect: { id: designerId } },
+          collaborators: { connect: collabIds.map((id) => ({ id })) },
+          createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
+        };
+        // Only actual closure receives a completion date. Review submission is active.
+        if (terminalStatus(r.status) || r.status === 'review_done') {
+          if (terminalStatus(r.status)) data.closedOn = closedOn || today;
+          if (r.archivePath) data.archivePath = r.archivePath;
+          if (r.requestCount !== undefined) data.requestCount = r.requestCount;
+          if (r.outputCount !== undefined) data.outputCount = r.outputCount;
+          if (data.archivePath == null || data.archivePath === '') {
+            data.archivePath = `/設計部共用/2026/匯入/${id}-${r.title}`.replace(/\s+/g, '_');
+          }
+          // closed → also auto-archive (v3.6 #17)
+          if (r.status === 'closed') data.archived = true;
         }
-        // closed → also auto-archive (v3.6 #17)
-        if (r.status === 'closed') data.archived = true;
-      }
 
-      const row = await prisma.case.create({ data, include: caseInclude });
+        if (r.status === 'cancelled') {
+          Object.assign(data, { archived: true, closedOn: null, cancelReason: r.cancelReason, cancelStage: r.cancelStage || 'todo', cancelledOn: parseDate(r.cancelledOn) || today });
+        }
+        return prisma.case.create({ data, include: caseInclude });
+      });
       created.push({ rowIndex: i, id: row.id, title: row.title, designer: row.designer.name });
     } catch (e) {
       errors.push({
@@ -267,8 +337,7 @@ router.post('/', async (req, res) => {
   // Designer must not be in collaborators list
   const collabIds = body.collaboratorIds.filter((id) => id !== body.designerId);
 
-  // Bug #1 修復：nextCaseId 為「讀最大+1」非原子，兩個併發建立可能撞同 ID。
-  // 撞號（P2002 unique violation）時重算 ID 再試，最多 5 次。
+  // Shared bounded collision retry also covers clone and bulk import.
   const caseData = {
     title: body.title,
     subTitle: body.subTitle,
@@ -295,17 +364,8 @@ router.post('/', async (req, res) => {
     collaborators: { connect: collabIds.map((id) => ({ id })) },
     createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
   };
-  let created;
-  for (let attempt = 0; ; attempt++) {
-    const id = await nextCaseId(body.level, body.openDate);
-    try {
-      created = await prisma.case.create({ data: { id, ...caseData }, include: caseInclude });
-      break;
-    } catch (e) {
-      if (e.code === 'P2002' && attempt < 4) continue; // ID 撞號 → 重算重試
-      throw e;
-    }
-  }
+  const created = await createWithCaseId(body.level, body.openDate, id =>
+    prisma.case.create({ data: { id, ...caseData }, include: caseInclude }));
 
   // B1: 通知改為由前端勾選決定（預設不寄）
   try {
@@ -354,6 +414,13 @@ router.patch('/:id', async (req, res) => {
     ? '主責與協作者調整、取消專案請交由主負責人或管理員處理'
     : '僅管理員、主負責人與共同協作者可編輯；結案仍須管理員核可' });
 
+  if (body.status === 'cancelled') {
+    return res.status(422).json({ error: 'cancel_action_required', message: `取消案件必須填寫原因，請使用 POST /api/cases/${existing.id}/cancel 並提供 reason` });
+  }
+  if (existing.status === 'cancelled' && body.status !== undefined) {
+    return res.status(422).json({ error: 'uncancel_action_required', message: `請先使用 POST /api/cases/${existing.id}/uncancel 還原取消，再調整案件狀態` });
+  }
+
   // ── Archive-path guard ───────────────────────────────────
   // Required when going into review_done / done / closed (any "終態")
   const FINAL_STATUSES = new Set(['review_done', 'done', 'closed']);
@@ -394,6 +461,7 @@ router.patch('/:id', async (req, res) => {
     ...(body.level !== undefined && { level: body.level }),
     ...(body.category !== undefined && { category: body.category }),
     ...(body.status !== undefined && { status: body.status }),
+    ...(body.requestedOn !== undefined && { requestedOn: body.requestedOn }),
     ...(body.openDate !== undefined && { openDate: body.openDate }),
     ...(body.dispatchDate !== undefined && { dispatchDate: body.dispatchDate }),
     ...(body.copyDate !== undefined && { copyDate: body.copyDate }),
@@ -409,47 +477,34 @@ router.patch('/:id', async (req, res) => {
     ...(body.archivePath !== undefined && { archivePath: body.archivePath }),
   };
 
-  if (body.designerId !== undefined && body.designerId !== existing.designerId) {
-    data.designer = { connect: { id: body.designerId } };
-    await prisma.transferLog.create({
-      data: {
-        caseId: existing.id,
-        fromName: (await prisma.staff.findUnique({ where: { id: existing.designerId }, select: { name: true } }))?.name ?? '—',
-        toName: (await prisma.staff.findUnique({ where: { id: body.designerId }, select: { name: true } }))?.name ?? '—',
-        reason: '主管派發',
-        operator: req.user.name,
-      },
-    });
-  }
-
+  const transferring = body.designerId !== undefined && body.designerId !== existing.designerId;
   if (body.collaboratorIds !== undefined) {
     data.collaborators = {
-      set: body.collaboratorIds.filter((id) => id !== (body.designerId ?? existing.designerId)).map((id) => ({ id })),
+      set: [...new Set(body.collaboratorIds)].filter(id => id !== (body.designerId ?? existing.designerId)).map(id => ({ id })),
     };
+  } else if (body.designerId !== undefined) {
+    data.collaborators = { disconnect: [{ id: body.designerId }] };
   }
 
-  // When entering a final-ish state, stamp closedOn (idempotent)
-  if (body.status && FINAL_STATUSES.has(body.status) && !existing.closedOn) {
-    data.closedOn = new Date();
+  if (body.status !== undefined) {
+    if (terminalStatus(body.status)) {
+      if (!terminalStatus(existing.status) || !existing.closedOn) data.closedOn = taipeiCalendarDay();
+      if (body.status === 'closed') data.archived = true;
+    } else {
+      data.closedOn = null;
+      if (terminalStatus(existing.status)) data.archived = false;
+    }
   }
 
-  // (v3.6 #17) closed → auto-archive
-  if (body.status === 'closed') {
-    data.archived = true;
-  }
-
-  const updated = await prisma.case.update({
-    where: { id: req.params.id },
-    data,
-    include: caseInclude,
-  });
-
-  // Persist ChangeLog rows for tracked-field diffs
-  if (changes.length > 0) {
-    try {
-      await writeChangeLog(updated.id, changes, reasonStr, req.user.name);
-    } catch (e) {
-      console.warn('[cases.update] changelog write failed:', e.message);
+  let updated;
+  if (transferring || body.status !== undefined) {
+    try { updated = await applyWorkflow(existing, data, changes, reasonStr, req.user.name, transferring ? body.designerId : undefined); }
+    catch (e) { if (sendWorkflowError(res, e)) return; throw e; }
+  } else {
+    updated = await prisma.case.update({ where: { id: req.params.id }, data, include: caseInclude });
+    if (changes.length) {
+      try { await writeChangeLog(updated.id, changes, reasonStr, req.user.name); }
+      catch (e) { console.warn('[cases.update] changelog write failed:', e.message); }
     }
   }
 
@@ -526,38 +581,18 @@ router.post('/:id/approve', requireAdmin, async (req, res) => {
     });
   }
 
-  const data = { };
-  if (decision === 'approve') {
-    if (!existing.archivePath || !String(existing.archivePath).trim()) {
-      return res.status(422).json({
-        error: 'archive_path_required',
-        message: '結案前必須先填寫檔案歸檔位置',
-      });
-    }
-    data.status = 'closed';
-    data.archived = true;
-    if (!existing.closedOn) data.closedOn = new Date();
-  } else {
-    data.status = 'doing';
+  if (decision === 'approve' && (!existing.archivePath || !String(existing.archivePath).trim())) {
+    return res.status(422).json({ error: 'archive_path_required', message: '結案前必須先填寫檔案歸檔位置' });
   }
-
-  const updated = await prisma.case.update({
-    where: { id: existing.id },
-    data,
-    include: caseInclude,
-  });
-
-  // ChangeLog
+  const data = decision === 'approve'
+    ? { status: 'closed', archived: true, closedOn: taipeiCalendarDay() }
+    : { status: 'doing', archived: false, closedOn: null };
+  let updated;
   try {
-    await writeChangeLog(
-      updated.id,
+    updated = await applyWorkflow(existing, data,
       [{ field: 'status', fromValue: 'review_done', toValue: data.status }],
-      decision === 'approve' ? `審核通過 ${comment ? '— ' + comment : ''}` : `退回修改 ${comment ? '— ' + comment : ''}`,
-      req.user.name,
-    );
-  } catch (e) {
-    console.warn('[approve] changelog failed:', e.message);
-  }
+      `${decision === 'approve' ? '審核通過' : '退回修改'}${comment ? ' — ' + comment : ''}`, req.user.name);
+  } catch (e) { if (sendWorkflowError(res, e)) return; throw e; }
 
   // Notify designer
   try {
@@ -650,7 +685,6 @@ router.post('/:id/archive', requireAdmin, async (req, res) => {
 // 取消 ≠ 結案：沒有交付，不得計入達成率/結案數/交付天數。
 // 記錄「取消當下的階段」以評估白工程度（愈後期取消愈貴）。
 // 權限：主負責人或 admin。自動封存（從看板/行事曆收起，仍可在歷史查到）。
-const CANCEL_REASONS = ['需求方取消', '活動/檔期取消', '預算未過', '重複需求', '併入其他案', '延到下期', '內部方向調整', '其他'];
 const cancelSchema = z.object({
   reason: z.enum(CANCEL_REASONS),
   note: z.string().max(500).optional(),
@@ -666,24 +700,19 @@ router.post('/:id/cancel', async (req, res) => {
   if (!isAdmin && !isPrimary) {
     return res.status(403).json({ error: 'forbidden', message: '只有主負責人或 admin 可取消專案' });
   }
-  const updated = await prisma.case.update({
-    where: { id: existing.id },
-    data: {
-      status: 'cancelled',
-      cancelReason: parsed.data.reason,
-      cancelStage: existing.status,           // 取消當下的階段＝白工程度依據
-      cancelledOn: new Date(),
-      archived: true,                          // 自動收起
+  if (terminalStatus(existing.status)) {
+    return res.status(422).json({ error: 'closed_case', message: '已結案案件請先還原為進行中，再使用取消動作' });
+  }
+  let updated;
+  try {
+    updated = await applyWorkflow(existing, {
+      status: 'cancelled', cancelReason: parsed.data.reason, cancelStage: existing.status,
+      cancelledOn: taipeiCalendarDay(), archived: true, closedOn: null,
       note: parsed.data.note ? `${existing.note || ''}\n[取消] ${parsed.data.note}`.trim() : existing.note,
-    },
-    include: caseInclude,
-  });
-  await writeChangeLog(
-    existing.id,
-    [{ field: 'status', fromValue: existing.status, toValue: 'cancelled' }],
-    `專案取消：${parsed.data.reason}${parsed.data.note ? ' — ' + parsed.data.note : ''}`,
-    req.user?.name || ''
-  ).catch((e) => console.warn('[cancel] changelog failed:', e.message));
+    }, [{ field: 'status', fromValue: existing.status, toValue: 'cancelled' }],
+    `專案取消：${parsed.data.reason}${parsed.data.note ? ' — ' + parsed.data.note : ''}`, req.user.name);
+  } catch (e) { if (sendWorkflowError(res, e)) return; throw e; }
+
   res.json(updated);
 });
 
@@ -698,18 +727,14 @@ router.post('/:id/uncancel', async (req, res) => {
   if (!isAdmin && !isPrimary) {
     return res.status(403).json({ error: 'forbidden', message: '只有主負責人或 admin 可還原' });
   }
-  const back = existing.cancelStage || 'doing';
-  const updated = await prisma.case.update({
-    where: { id: existing.id },
-    data: { status: back, cancelReason: null, cancelStage: null, cancelledOn: null, archived: false },
-    include: caseInclude,
-  });
-  await writeChangeLog(
-    existing.id,
-    [{ field: 'status', fromValue: 'cancelled', toValue: back }],
-    '還原取消的專案',
-    req.user?.name || ''
-  ).catch(() => {});
+  const back = ACTIVE_STATUSES.includes(existing.cancelStage) ? existing.cancelStage : 'doing';
+  let updated;
+  try {
+    updated = await applyWorkflow(existing,
+      { status: back, cancelReason: null, cancelStage: null, cancelledOn: null, archived: false, closedOn: null },
+      [{ field: 'status', fromValue: 'cancelled', toValue: back }], '還原取消的專案', req.user.name);
+  } catch (e) { if (sendWorkflowError(res, e)) return; throw e; }
+
   res.json(updated);
 });
 
@@ -723,23 +748,16 @@ router.post('/:id/transfer', requireAdmin, async (req, res) => {
   const existing = await prisma.case.findUnique({ where: { id: req.params.id }, include: { designer: true } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
 
-  const toStaff = await prisma.staff.findUnique({ where: { id: toDesignerId } });
-  if (!toStaff) return res.status(400).json({ error: 'designer_not_found' });
-
-  const updated = await prisma.case.update({
-    where: { id: req.params.id },
-    data: { designer: { connect: { id: toDesignerId } } },
-    include: caseInclude,
-  });
-  await prisma.transferLog.create({
-    data: {
-      caseId: existing.id,
-      fromName: existing.designer.name,
-      toName: toStaff.name,
-      reason,
-      operator: req.user.name,
-    },
-  });
+  if (toDesignerId === existing.designerId) {
+    return res.status(422).json({ error: 'same_designer', message: '請選擇不同的主負責人後再轉派' });
+  }
+  let updated;
+  try {
+    updated = await applyWorkflow(existing, {},
+      [{ field: 'designerId', fromValue: String(existing.designerId), toValue: String(toDesignerId) }],
+      reason.trim() || '主管派發', req.user.name, toDesignerId);
+  } catch (e) { if (sendWorkflowError(res, e)) return; throw e; }
+  const toStaff = updated.designer;
 
   // notify
   try {
@@ -905,8 +923,7 @@ router.post('/:id/clone', async (req, res) => {
     return res.status(403).json({ error: 'forbidden', message: '只有 admin 或原負責人可以原案重啟' });
   }
 
-  const today = new Date();
-  const newId = await nextCaseId(src.level, today);
+  const today = taipeiCalendarDay();
   const newGoLive = parsed.data.goLiveDate
     ? new Date(parsed.data.goLiveDate + 'T00:00:00Z')
     : new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
@@ -918,9 +935,9 @@ router.post('/:id/clone', async (req, res) => {
     src.note || null,
   ].filter(Boolean).join('\n');
 
-  const created = await prisma.case.create({
+  const created = await createWithCaseId(src.level, today, id => prisma.case.create({
     data: {
-      id: newId,
+      id,
       title: src.title,
       subTitle: src.subTitle,
       requester: src.requester,
@@ -935,11 +952,11 @@ router.post('/:id/clone', async (req, res) => {
       copyDate: src.copyDate, // optional reference
       goLiveDate: newGoLive,
       designer: { connect: { id: src.designerId } },
-      collaborators: { connect: src.collaborators.map((c) => ({ id: c.id })) },
+      collaborators: { connect: src.collaborators.filter(c => c.id !== src.designerId).map((c) => ({ id: c.id })) },
       createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
     },
     include: caseInclude,
-  });
+  }));
 
   // Notify designer of the new case
   try {
