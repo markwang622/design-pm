@@ -178,6 +178,36 @@ function analyticsEnv(handler,staff=[],extra={}){
   c.currentView='analytics';c.v33EnsureAnalyticsView=()=>{};c.openDrawerById=()=>{};
   vm.runInContext(extension,c);return {...env,reads,writes,view};
 }
+// Run legacy initialization against the actual workbench shell rather than the usual inert ensure double.
+function analyticsInitEnv(handler,extra={}){
+  const env=analyticsEnv(handler,[],extra);
+  vm.runInContext(section('function v33EnsureAnalyticsView()', "let v33Period = 'month';"),env.c);
+  return env;
+}
+await test('legacy analytics ensure preserves a pending workbench report and its successful response',async()=>{
+  const pending=deferred(),{c,view,reads}=analyticsInitEnv(()=>pending.promise);
+  const render=c.renderAnalytics(),content=view.querySelector('[data-analytics-content]');
+  assert(content?.isConnected,'actual workbench loading node starts connected');
+  c.v33EnsureAnalyticsView();
+  pending.resolve(reportData({cases:[completedCase('PENDING-ENSURE-REPORT')],totals:{count:1,score:1.2,onTimeRate:1}}));await render;
+  assert.equal(reads.length,1,'late initialization must not issue another report request');
+  assert.equal(view.querySelector('[data-analytics-content]'),content,'legacy ensure preserves the pending renderer node');
+  assert(content.isConnected);assert(view.textContent.includes('PENDING-ENSURE-REPORT'),'the successful report is visible');
+  c.v33EnsureAnalyticsView();assert.equal(view.querySelector('[data-analytics-content]'),content,'the completed workbench report also remains healthy');
+});
+await test('late legacy analytics bootstrap and period wiring preserve the pending workbench report',async()=>{
+  const boot=deferred(),pending=deferred();
+  const {c,view,reads}=analyticsInitEnv(()=>pending.promise,{bootstrap:()=>boot.promise});
+  vm.runInContext(section('function v33WirePeriodControls()', '// Hook bootstrap to wire analytics after initial render')+section('const _v33OrigBootstrap = bootstrap;', '// ═══════════════════════════════════════════════════════════════'),c);
+  const bootstrap=c.bootstrap(),render=c.renderAnalytics(),content=view.querySelector('[data-analytics-content]'),quarter=view.querySelector('[data-period="quarter"]');
+  assert(content?.isConnected,'new report is pending before bootstrap finishes');
+  boot.resolve();await bootstrap;
+  pending.resolve(reportData({cases:[completedCase('BOOTSTRAP-REPORT')],totals:{count:1,score:1.2,onTimeRate:1}}));await render;
+  assert.equal(view.querySelector('[data-analytics-content]'),content,'actual legacy bootstrap and wire functions preserve the pending node');
+  assert(content.isConnected);assert(view.textContent.includes('BOOTSTRAP-REPORT'),'late successful response renders');
+  assert.equal(reads.length,1);assert.equal(view.querySelector('[data-period="quarter"]'),quarter,'workbench period control is retained');
+  quarter.click();await flush();assert.deepEqual(reads.at(-1),{period:'quarter',offset:0},'retained workbench period handler still requests its natural interval');
+});
 await test('completed personal report distinguishes same-name people by stable participation IDs',async()=>{
   const staff=[person(1,'Same name'),person(2,'Same name')];
   const cases=[completedCase('Owned by selected person'),completedCase('Owned by other same-name person',{designerId:2,collaboratorIds:[],collaboratorNames:[]}),completedCase('Selected person collaborated',{designerId:2,collaboratorIds:[1],collaboratorNames:['Same name']}),completedCase('Different person collaborated',{designerId:3,designerName:'Third',collaboratorIds:[2],collaboratorNames:['Same name']})];

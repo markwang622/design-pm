@@ -7,7 +7,8 @@
 <!-- 中文：Chiron Hei HK（昭源黑體，Google Fonts 自動分包）；拉丁/數字：LINE Seed Sans（自架） -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chiron+Hei+HK:wght@400;500;700&display=swap">
+<!-- Optional fallback glyphs must not delay application scripts or the login bootstrap. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chiron+Hei+HK:wght@400;500;700&display=swap" media="print" onload="this.media='all'">
 <style>
 /* ===== LINE Seed Sans (Latin/數字) — 中文落 Noto Sans TC ===== */
 /* 純拉丁 OTF，無 CJK glyph，中文自動 fallback；jsDelivr CDN ~43KB/字重 */
@@ -5799,7 +5800,8 @@ function v33EnsureAnalyticsView() {
     container.dataset.view = 'analytics';
     (main || document.body).appendChild(container);
   }
-  if (container.querySelector('#v33-analytics-totals')) return; // healthy already
+  // Preserve the current workbench report while late legacy bootstrap wiring completes.
+  if (container.querySelector('#v33-analytics-totals, [data-analytics-content]')) return;
   container.innerHTML = `
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
       <h2 style="margin:0;">部門產出 / 貢獻分析</h2>
