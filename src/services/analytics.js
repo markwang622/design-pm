@@ -319,6 +319,8 @@ export async function rollup({ period, offset, staffId }) {
       status: c.status, level: c.level, designer: c.designer, collaborators: distinctCollaborators(c),
       dispatchDate: c.dispatchDate, openDate: c.openDate, goLiveDate: c.goLiveDate,
       closedOn: c.closedOn, cancelledOn: c.cancelledOn, archived: c.archived,
+      // REPORTS-P2-D2: explicit lifecycle outcome (a sealed_incomplete case is neither active nor completed).
+      lifecycleMode: c.lifecycleMode ?? 'legacy', lifecycleStatus: c.lifecycleStatus ?? null,
       endDateMissing: ['done','closed','cancelled'].includes(c.status) && !(c.status === 'cancelled' ? c.cancelledOn : c.closedOn),
     })),
   };

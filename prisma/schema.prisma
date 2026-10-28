@@ -41,6 +41,7 @@ model Staff {
   collaboratedCases Case[]         @relation("collaborators")
   createdCases      Case[]         @relation("creator")
   notifications     Notification[]
+  noticeDismissals  MemberNoticeDismissal[] // REPORTS-P2-D2：成員更新通知的已關閉紀錄
   vacations         Vacation[]      // v4.0
   businessTrips     BusinessTrip[]  // v4.0
   createdShoots     Shoot[]         @relation("shootCreator") // G2
@@ -195,6 +196,42 @@ model Case {
   items         Json?
   logs          Json?
   contentVersion Int @default(0) // optimistic concurrency for logs/items only
+  // REPORTS-P1-C1：每案交付模式。既有資料一律 legacy；records 只能由「流程開關開啟後的新建案」
+  // 或管理者明確導入取得，單向、不可退回（DB 觸發器保護）。
+  deliveryMode            String    @default("legacy") // legacy | records
+  deliveryModeSince       DateTime?
+  deliveryModeById        Int?
+  deliveryModeByName      String?
+  deliveryModeReason      String?
+  deliveryModeRequestId   String?   @unique // 管理者導入的穩定操作 ID（新建案為 null）
+  deliveryModeFingerprint String?
+  pendingDeliverySubmissionId String? @unique // 待主管核可的送審 ID（同案同時最多一筆）
+  // REPORTS-P2-D1a：時程受控模式，與 deliveryMode 互相獨立。既有資料一律 legacy；managed 只能由管理者
+  // 明確導入（單向、導入章不可改，DB 觸發器保護）。scheduleBaseline 是「導入當下觀測到的日期」，
+  // 不是歷史原始承諾；導入前沒有證據的日期維持未知。
+  scheduleMode            String    @default("legacy") // legacy | managed
+  scheduleModeSince       DateTime?
+  scheduleModeById        Int?
+  scheduleModeByName      String?
+  scheduleModeReason      String?
+  scheduleModeRequestId   String?   @unique // 管理者導入的穩定操作 ID
+  scheduleModeFingerprint String?
+  scheduleBaseline        Json?     // {dispatchDate, copyDate, printDate, goLiveDate, observedAt, source:'observed_at_adoption'}
+  pendingScheduleRequestId String?  @unique // 待主管決議的改期申請 ID（同案同時最多一筆）
+  // REPORTS-P2-D1b：生命週期受控模式（與 deliveryMode／scheduleMode 互相獨立）。既有資料一律 legacy；managed
+  // 只能由管理者明確導入（單向、導入章不可改）。lifecycleStatus 是明確的生命週期結果，不從 archived／done 推論：
+  // active｜sealed_incomplete（未完成封存，不算完成也不算取消）｜completed｜cancelled。currentCycleId 必須指向同案的
+  // 週期（SQL 複合外鍵）。三種待決指標（交付送審／改期／生命週期）同時最多一個。CHECK 與觸發器見 migration 0006。
+  lifecycleMode            String    @default("legacy") // legacy | managed
+  lifecycleModeSince       DateTime?
+  lifecycleModeById        Int?
+  lifecycleModeByName      String?
+  lifecycleModeReason      String?
+  lifecycleModeRequestId   String?   @unique // 管理者導入的穩定操作 ID
+  lifecycleModeFingerprint String?
+  lifecycleStatus          String?   // managed 才有值
+  currentCycleId           String?   @unique
+  pendingLifecycleRequestId String?  @unique // 待主管決議的封存／復工申請 ID
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -207,6 +244,11 @@ model Case {
 
   transferLogs TransferLog[]
   changeLogs   ChangeLog[]
+  deliveries   DeliveryRecord[] // REPORTS-P1-A：交付明細（刪案受 RESTRICT 保護）
+  deliverySubmissions DeliverySubmission[] // REPORTS-P1-C1：送審與決議依據（刪案受 RESTRICT 保護）
+  scheduleRequests ScheduleRequest[] // REPORTS-P2-D1a：改期申請與決議（刪案受 RESTRICT 保護）
+  cycles            CaseCycle[]        // REPORTS-P2-D1b：工作週期（刪案受 RESTRICT 保護）
+  lifecycleRequests LifecycleRequest[] // REPORTS-P2-D1b：未完成封存／復工申請與決議（刪案受 RESTRICT 保護）
   meetings     Meeting[] // v6.0
 
   @@index([status])
@@ -242,6 +284,289 @@ model TransferLog {
   operator String
 
   @@map("transfer_logs")
+}
+
+// REPORTS-P1-A：案件交付明細。id 由用戶端產生，同時是冪等鍵；紀錄只新增與作廢，
+// 不編輯、不刪除。記錄者／作廢者為登入身分的 ID＋姓名快照（不建 Staff 外鍵，
+// 避免人員硬刪除時破壞交付依據）。CHECK 與觸發器見 migration 0003。
+model DeliveryRecord {
+  id             String    @id
+  caseId         String
+  case           Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  itemKey        String?   // 指向 cases.items[].key（若有）；案件層級交付可為空
+  itemName       String    // 交付品名快照（僅供顯示歷史，不作孤兒修復）
+  kind           String    // main | extension | support
+  quantity       Int
+  unit           String    // 目前僅「件」
+  deliveredOn    DateTime  @db.Date
+  note           String?
+  recordedById   Int
+  recordedByName String
+  // 冪等指紋：送出意圖（含「是否自填品名」）的 SHA-256；重送必須完全相同才回放
+  requestFingerprint String
+  createdAt      DateTime  @default(now())
+  voidedAt       DateTime?
+  voidedById     Int?
+  voidedByName   String?
+  voidReason     String?
+  voidRequestId  String?   @unique
+  // REPORTS-P2-D1b：新增時歸屬的工作週期（生命週期受控案才有值；同案複合外鍵、建立後不可改）。
+  // 既有與 legacy 案的紀錄為 null＝歸屬未知，不回填、不改掛。
+  cycleId        String?
+
+  @@index([caseId, deliveredOn])
+  @@index([caseId, itemKey])
+  @@map("case_deliveries")
+}
+
+// REPORTS-P1-C1：交付明細制的送審依據與一次性決議。送審內容建立後不可改；決議（核可／退回／
+// 撤回／取消）只能蓋一次章。每輪送審一列，保留歷次依據。CHECK 與觸發器見 migration 0004。
+model DeliverySubmission {
+  id                    String    @id // 用戶端穩定送審 ID（冪等鍵）
+  caseId                String
+  case                  Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  requestFingerprint    String
+  submittedById         Int
+  submittedByName       String
+  createdAt             DateTime  @default(now())
+  completenessConfirmed Boolean
+  caseContentVersion    Int       // 送審前（瀏覽器所見）的案件版本
+  caseUpdatedAt         DateTime
+  archivePath           String
+  recordIds             Json      // 有效交付紀錄 ID（排序）
+  recordsFingerprint    String    // 有效紀錄內容指紋
+  summary               Json      // kind × unit 分組
+  zeroSupport           Json      // 有效 support 0 的 {id,itemName,note}
+  itemsSnapshot         Json      // 送審時的子案件 {key,n}
+  legacyCounts          Json      // 舊 requestCount／outputCount（僅保存，不加總）
+  decision              String?   // approved | rejected | withdrawn | cancelled
+  decidedAt             DateTime?
+  decidedById           Int?
+  decidedByName         String?
+  decisionReason        String?
+  decisionOperationId   String?   @unique
+  decisionFingerprint   String?
+  zeroSupportApproved   Boolean?
+
+  @@index([caseId, createdAt])
+  @@map("case_delivery_submissions")
+}
+
+// REPORTS-P2-D1a：改期申請。申請內容（原因、原時程、提案、瀏覽器版本、指派快照）不可改；
+// 決議（核准／退回／撤回／因取消失效）只能蓋一次章。核准後的正式時程另存 approvedSchedule。
+// CHECK 與觸發器見 migration 0005。原因分類只供申請與查閱，不代表免責或 KPI 排除。
+model ScheduleRequest {
+  id                  String    @id // 用戶端穩定申請 ID（冪等鍵）
+  caseId              String
+  case                Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  requestFingerprint  String
+  requestedById       Int
+  requestedByName     String
+  createdAt           DateTime  @default(now())
+  reasonCategory      String
+  reason              String
+  impactFrom          DateTime? @db.Date
+  impactTo            DateTime? @db.Date
+  currentSchedule     Json // 申請當下的正式時程 {dispatchDate, copyDate, printDate, goLiveDate}（YYYY-MM-DD 或 null＝未填／未知）
+  proposedSchedule    Json // 完整提案時程（同格式）
+  caseUpdatedAt       DateTime // 申請者瀏覽器所見的案件版本
+  caseContentVersion  Int
+  assignmentSnapshot  Json // {designerId, collaboratorIds}
+  decision            String? // approved | rejected | withdrawn | invalidated
+  decidedAt           DateTime?
+  decidedById         Int?
+  decidedByName       String?
+  decisionReason      String?
+  decisionOperationId String?   @unique
+  decisionFingerprint String?
+  approvedSchedule    Json?
+
+  @@index([caseId, createdAt])
+  @@map("case_schedule_requests")
+}
+
+// REPORTS-P2-D1b：工作週期。開始證據（導入時觀測或復工核准）不可改；結束只能蓋一次章，
+// 結果為 sealed_incomplete｜completed｜cancelled。同案只有一個未結束週期、序號唯一。週期快照只引用
+// 交付紀錄 ID，不是第二份產出帳：全案數量永遠以唯一的交付紀錄計一次。
+model CaseCycle {
+  id             String    @id // 伺服器產生
+  caseId         String
+  case           Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  sequence       Int
+  source         String    // adoption | resume
+  startedAt      DateTime  @default(now())
+  startedById    Int
+  startedByName  String
+  startReason    String
+  startRequestId String    // 導入 requestId 或復工申請 ID
+  startSnapshot  Json
+  endedAt        DateTime?
+  outcome        String?   // sealed_incomplete | completed | cancelled
+  endedById      Int?
+  endedByName    String?
+  endReason      String?
+  endRequestId   String?   // 封存申請 ID（完成／取消為 null）
+  endSnapshot    Json?
+
+  @@unique([caseId, sequence])
+  @@unique([caseId, id])
+  @@map("case_cycles")
+}
+
+// REPORTS-P2-D1b：未完成封存／原案號復工申請。內容（原因、證據、快照、瀏覽器版本）不可改；決議只能蓋一次章。
+model LifecycleRequest {
+  id                  String    @id // 用戶端穩定申請 ID（冪等鍵）
+  caseId              String
+  case                Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  kind                String    // seal | resume
+  cycleId             String    // 申請針對的週期（封存＝目前開放週期；復工＝已封存的目前週期）
+  requestFingerprint  String
+  requestedById       Int
+  requestedByName     String
+  createdAt           DateTime  @default(now())
+  reasonCategory      String    // 沿用 D1a 八類（只供申請與統計查閱，不代表免責或 KPI 排除）
+  reason              String
+  archivePath         String?   // 封存：已儲存的歸檔位置快照
+  noFileDeclared      Boolean?  // 封存：明確聲明無可歸檔檔案
+  noFileReason        String?
+  snapshot            Json      // 狀態、四個里程碑、指派、有效交付 ID
+  caseUpdatedAt       DateTime
+  caseContentVersion  Int
+  decision            String?   // approved | rejected | withdrawn | invalidated
+  decidedAt           DateTime?
+  decidedById         Int?
+  decidedByName       String?
+  decisionReason      String?
+  decisionOperationId String?   @unique
+  decisionFingerprint String?
+  resultCycleId       String?   // 核准復工時建立的週期
+
+  @@unique([caseId, id])
+  @@index([caseId, createdAt])
+  @@map("case_lifecycle_requests")
+}
+
+// REPORTS-P2-D2：成員更新通知「已關閉」紀錄。每帳號每公告版本一列（唯一），以登入 session 識別；
+// 公告內容不在資料庫（伺服器端白名單模組，僅一般成員可用功能）。隨帳號刪除一併刪除（不是業務證據）。
+model MemberNoticeDismissal {
+  id          Int      @id @default(autoincrement())
+  staffId     Int
+  staff       Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  noticeId    String
+  dismissedAt DateTime @default(now())
+
+  @@unique([staffId, noticeId])
+  @@map("member_notice_dismissals")
+}
+
+// REPORTS-P3-E1a：報表來源版本（只增）。由 migration 0008 的白名單觸發器在來源列鎖定後寫入；id（序列 CACHE 1、
+// 不循環）就是同列的實際異動順序，capturedAt 是 DB clock_timestamp()，transactionId 是完整 64 位交易 ID。
+// 讀取時整筆交易以其最後一筆來源異動的記錄時間歸期（不是 commit 時間）。不建任何外鍵指回可刪業務列。
+// 欄位白名單、append-only／purge 與 baseline 見 migration 0008（SQL-only，勿用 db push 重建）。
+model ReportSourceEvent {
+  id            BigInt   @id @default(autoincrement())
+  capturedAt    DateTime @db.Timestamptz(6)
+  transactionId BigInt
+  tableName     String
+  rowKey        String
+  op            String   // B baseline | I | U（只含有變的白名單欄位，明確 null 保留）| D tombstone
+  data          Json
+
+  @@index([transactionId])
+  @@index([tableName, rowKey])
+  @@map("report_source_events")
+}
+
+// REPORTS-P3-E1a：來源版本的起點（單列）。coverageStart 之前的期末狀態無法重建，只能標「資料不足」。
+model ReportSourceCoverage {
+  id                    Int      @id
+  coverageStart         DateTime @db.Timestamptz(6)
+  baselineEventMaxId    BigInt?
+  baselineTransactionId BigInt
+
+  @@map("report_source_coverage")
+}
+
+// REPORTS-P3-E1b：週／月／季工作報告的不可變快照。payload 內嵌顯示內容（不建外鍵指回可刪業務列）；同期間同規則版本的
+// 修訂為 1,2,3…，supersedesId 自連前一版（SQL NO ACTION，不連鎖刪除）。不可 UPDATE；DELETE 只在明確全站 purge；
+// 不可 TRUNCATE。generatedAt 由 DB clock_timestamp() 蓋。期間對齊、C/K、版本鏈 CHECK 與觸發器見 migration 0009（SQL-only）。
+// 時間欄位一律以 SQL 微秒字串讀寫（src/lib/workReports.js），不經 JS Date 截斷。
+model ReportSnapshot {
+  id                  String   @id
+  periodKind          String
+  startDate           DateTime @db.Date
+  endDateExclusive    DateTime @db.Date
+  cutoffInstant       DateTime @db.Timestamptz(6)
+  knowledgeCutoff     DateTime @db.Timestamptz(6)
+  observedAt          DateTime @db.Timestamptz(6)
+  generatedAt         DateTime @db.Timestamptz(6)
+  coverageStart       DateTime? @db.Timestamptz(6)
+  rulesVersion        String
+  revision            Int
+  supersedesId        String?
+  revisionReason      String?
+  generatedById       Int?
+  generatedByName     String?
+  trigger             String   // manual | scheduled（E3 預留）
+  idempotencyKey      String   @unique
+  requestFingerprint  String
+  payload             Json
+  payloadSha256       String
+  sourceCompleteness  String   // insufficient | partial | complete
+  endStateMaxEventId  BigInt?
+  knowledgeMaxEventId BigInt?
+
+  @@unique([periodKind, startDate, rulesVersion, revision])
+  @@map("report_snapshots")
+}
+
+// REPORTS-P3-E3：自動初版排程的單列狀態（首次啟用時寫入：設定的起始日、DB 時鐘、當時的來源 coverage 作為 epoch）。
+// coverage 改變（全站重置等）時排程暫停，須以維運 CLI 明確重新初始化。CHECK／觸發器見 migration 0010（SQL-only）。
+model ReportSchedulerState {
+  id            Int       @id
+  epoch         Int
+  startDate     DateTime  @db.Date
+  activatedAt   DateTime  @db.Timestamptz(6)
+  coverageStart DateTime  @db.Timestamptz(6)
+  weekCursor    DateTime? @db.Date
+  monthCursor   DateTime? @db.Date
+  quarterCursor DateTime? @db.Date
+  status        String    // active | paused
+  pausedReason  String?
+  updatedAt     DateTime  @db.Timestamptz(6)
+
+  @@map("report_scheduler_state")
+}
+
+// REPORTS-P3-E3：每個 (periodKind, startDate, rulesVersion) 一筆自動初版 job；穩定 idempotencyKey、租約、重試與結果快照。
+// 完成（succeeded／skipped_existing）後不可改；snapshotId 外鍵、CHECK 與觸發器見 migration 0010（SQL-only）。時間以 SQL 微秒字串讀寫。
+model ReportJobRun {
+  id               String    @id
+  epoch            Int
+  periodKind       String
+  startDate        DateTime  @db.Date
+  endDateExclusive DateTime  @db.Date
+  rulesVersion     String
+  dueAt            DateTime  @db.Timestamptz(6)
+  idempotencyKey   String    @unique
+  status           String    // pending | running | succeeded | skipped_existing | blocked
+  attemptCount     Int       @default(0)
+  maxAttempts      Int
+  nextAttemptAt    DateTime  @db.Timestamptz(6)
+  leaseToken       String?
+  leaseOwner       String?
+  leaseUntil       DateTime? @db.Timestamptz(6)
+  snapshotId       String?
+  lastErrorCode    String?
+  retryCount       Int       @default(0)
+  lastRetryReason  String?
+  createdAt        DateTime  @db.Timestamptz(6)
+  updatedAt        DateTime  @db.Timestamptz(6)
+  finishedAt       DateTime? @db.Timestamptz(6)
+
+  @@unique([periodKind, startDate, rulesVersion])
+  @@index([status, nextAttemptAt])
+  @@map("report_job_runs")
 }
 
 model Notification {

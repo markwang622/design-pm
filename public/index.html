@@ -1077,6 +1077,20 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
   .v33-edit-grid > label.v33-wide { grid-column: 1 / -1; }
   .v33-edit-grid input, .v33-edit-grid select { min-height: 34px; }
 }
+
+/* 子案件卡片：依卡片實際寬度（不是 viewport）重排。我的任務右側窄詳情只剩約 268px，
+   原本固定三欄會讓原生 date 的 min-content 把狀態欄擠成直排。
+   欄數由 auto-fit 依容器寬度決定：寬時三欄，窄時日期兩欄、狀態獨占下一列，最窄時全部單欄。 */
+.v43-item-card { container: v43card / inline-size; }
+.v43-item-card input, .v43-item-card select { min-width: 0; max-width: 100%; }
+.v43-row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); gap: 8px; margin-bottom: 10px; }
+.v43-row3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr)); gap: 8px; }
+.v43-row2 > div, .v43-row3 > div { min-width: 0; }
+@container v43card (max-width: 399px) {
+  .v43-row3 > .v43-status-cell { grid-column: 1 / -1; }
+}
+.v43-name-preview { min-width: 0; overflow-wrap: anywhere; }
+.v43-ilog-new { flex: 1 1 140px; }
 /* 抽屜整體：避免任何子元素撐破容器寬度 */
 @media (max-width: 560px) {
   .drawer, .drawer-body { min-width: 0; }
@@ -1887,6 +1901,10 @@ body.has-panel #d-timeline { max-height: 190px; overflow-y: auto; }
 
 </style>
 <link rel="stylesheet" href="/workbench-features.css?v=0a748a434d05">
+<link rel="stylesheet" href="/case-deliveries.css?v=dc1cbdf999b3">
+<link rel="stylesheet" href="/case-workflow.css?v=361136b4fe17">
+<link rel="stylesheet" href="/case-lifecycle.css?v=bc4a55966fd2">
+<link rel="stylesheet" href="/work-reports.css?v=c621c2849c6d">
 </head>
 <body>
 <div class="app">
@@ -3111,9 +3129,9 @@ function makeCaseCard(c) {
   const relDay = (() => {
     if (!c.goLive) return '';
     // 已結案／已取消不是逾期，只顯示日期關係即可
-    const ended = ENDED_STATUS_KEYS.has(c.status) || c.archived;
+    const ended = v2Ended(c);   // REPORTS-P2-D2: sealed / completed / cancelled are distinct
     const d = Math.round((new Date(c.goLive) - TODAY) / 86400000);
-    if (ended) return isCancelled(c) ? '已取消' : '已結案';
+    if (ended) return v2OutcomeLabel(c);
     if (d === 0) return '今天'; if (d === 1) return '明天'; if (d === -1) return '昨天';
     return d < 0 ? `逾期 ${-d} 天` : `${d} 天後`;
   })();
@@ -3234,6 +3252,8 @@ async function v54KanbanDrop(caseId, newStatus) {
   if (!caseId) return;
   const c = CASES.find(x => x.id === caseId);
   if (!c || c.status === newStatus) return;
+  // REPORTS-P1-C2: 明細制送審／結案在任何樂觀更新之前改走送審流程（權限以真實 ID 判斷，協作者可送審）
+  if (window.caseWorkflowUi && window.caseWorkflowUi.interceptKanban(c, newStatus)) return;
   // 權限：admin 或 主負責人（與抽屜一致）
   if (!(ME.role === 'admin' || c.designer === ME_NAME())) {
     showToast('只有主負責人或 admin 可變更狀態', 'err'); return;
@@ -3669,7 +3689,8 @@ function v62ShowOverdue() { v62ShowCaseList('overdue'); }
 async function v62LoadClosed() {
   const raw = await api.cases.listArchived();
   // v7.1: 取消的案子雖然也是封存狀態，但沒有交付 → 不可計入結案統計
-  return raw.map(normalizeCase).filter(c => !isCancelled(c) && (c.archived || FINAL_STATUS_KEYS.has(c.status)));
+  // REPORTS-P2-D2: an incomplete seal is archived but NOT a completion.
+  return raw.map(normalizeCase).filter(c => v2Outcome(c) === 'completed');
 }
 function v62ShowClosed(items) {
   const list = (items || []).slice().sort((a, b) => (b.closedOn ? +new Date(b.closedOn) : 0) - (a.closedOn ? +new Date(a.closedOn) : 0));
@@ -4016,6 +4037,26 @@ function v40RenderClosure(c) {
   if (!V40_DELIVERED.has(c.status)) { box.innerHTML = ''; return; }
   const wdUsed = c.actualWorkdays || workdaysBetween(c.open, c.closedOn || c.goLive);
   const shown = v => (v === null || v === undefined || v === '') ? '—' : escapeHtml(String(v));
+  // REPORTS-P1-C2: 明細制已核可案件的產出以交付明細／核可依據為準：不提供必然失敗的結案數量補填。
+  // 舊版數量照原值顯示（未知仍是「—」，0 仍是 0）。
+  if (c.deliveryMode === 'records') {
+    box.innerHTML = `
+      <div class="closure-box">
+        <div class="cb-title">✓ 結案摘要（交付明細制）</div>
+        <div class="cb-grid">
+          <div class="cb-metric"><div class="cb-label">實際工作天</div><div class="cb-value">${escapeHtml(String(wdUsed))}</div><div class="cb-sub">開單→結案</div></div>
+          <div class="cb-metric"><div class="cb-label">需求數（舊版）</div><div class="cb-value" data-closure-value="requestCount">${shown(c.requestCount)}</div><div class="cb-sub">僅供參考</div></div>
+          <div class="cb-metric"><div class="cb-label">設計產出數（舊版）</div><div class="cb-value" data-closure-value="outputCount">${shown(c.outputCount)}</div><div class="cb-sub">僅供參考</div></div>
+        </div>
+        <div id="d-closure-msg" class="cb-msg" role="status" aria-live="polite">交付數量以「交付成果」明細與核可依據為準；核可後不再補填舊版數量。</div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn-secondary" style="padding:6px 12px;font-size:12px;" id="d-closure-export">匯出專案明細</button>
+        </div>
+      </div>
+    `;
+    document.getElementById('d-closure-export').onclick = () => exportDetail(c);
+    return;
+  }
   const val = v => (v === null || v === undefined) ? '' : escapeHtml(String(v));
   box.innerHTML = `
       <div class="closure-box">
@@ -4530,6 +4571,10 @@ const roleSwitchEl = document.getElementById('role-switch');
 if (roleSwitchEl) {
   roleSwitchEl.addEventListener('click', e => {
     if (e.target.tagName !== 'BUTTON') return;
+    // REPORTS-P2-D2: 管理者選單（v36BuildUserMenu）的按鈕自帶 onclick、沒有 data-role，且點擊時選單已重建；
+    // 只處理帶「有效」data-role 的舊切換鈕，否則 currentRole 會被設成 undefined、側欄被清空。
+    const role = e.target.dataset && e.target.dataset.role;
+    if (!role || !Object.prototype.hasOwnProperty.call(NAV_DEF, role)) return;
     // Only admins may flip role; members stay as designer.
     if (ME.role !== 'admin' && e.target.dataset.role === 'admin') {
       showToast('只有管理員可切換到 Admin 模式', 'err');
@@ -4537,7 +4582,7 @@ if (roleSwitchEl) {
     }
     document.querySelectorAll('.role-switch button').forEach(b => b.classList.remove('active'));
     e.target.classList.add('active');
-    currentRole = e.target.dataset.role;
+    currentRole = role;
     currentView = (currentRole === 'admin' || currentRole === 'observer') ? 'dashboard' : 'personal';
     document.body.classList.toggle('observer-mode', currentRole === 'observer'); // 預覽唯讀
     renderNav();
@@ -4594,7 +4639,8 @@ v30ViewReloaders.hotels = () => window.renderHotelOverview();
 
 async function fetchJson(method, url, body) {
   // 觀察者唯讀：前端攔截所有寫入（後端另有強制把關，這層只是讓誤觸有友善提示）
-  if (typeof IS_OBSERVER === 'function' && IS_OBSERVER() && !['GET', 'HEAD'].includes(method.toUpperCase()) && !/\/api\/auth\//.test(url)) {
+  // REPORTS-P2-D2: closing one's own release notice is allowed for observers (not a business write).
+  if (typeof IS_OBSERVER === 'function' && IS_OBSERVER() && !['GET', 'HEAD'].includes(method.toUpperCase()) && !/\/api\/auth\//.test(url) && !/^\/api\/notices\/[A-Za-z0-9_-]{4,80}\/dismiss$/.test(url)) {
     if (typeof showToast === 'function') showToast('觀察者帳號為唯讀，無法進行更動', 'err');
     const err = new Error('read_only'); err.data = { error: 'read_only', message: '觀察者帳號為唯讀' }; err.status = 403;
     throw err;
@@ -4735,8 +4781,35 @@ function normalizeCase(b) {
     actualWorkdays: b.actualWorkdays ?? null,
     requestCount: b.requestCount ?? null,
     outputCount: b.outputCount ?? null,
+    // REPORTS-P1-C2: 交付明細制欄位。缺欄位＝舊制（安全預設）；明細制為單向，送審中的送審 ID 一併保留。
+    deliveryMode: b.deliveryMode === 'records' ? 'records' : 'legacy',
+    deliveryModeSince: b.deliveryModeSince || null,
+    deliveryModeByName: b.deliveryModeByName || null,
+    deliveryModeReason: b.deliveryModeReason || null,
+    pendingDeliverySubmissionId: b.pendingDeliverySubmissionId ?? null,
+    _deliveryCounts: b._count ? { deliveries: b._count.deliveries ?? 0, submissions: b._count.deliverySubmissions ?? 0 } : null,
+    // REPORTS-P2-D2: schedule (D1a) and lifecycle (D1b) fields. Missing = legacy (never downgrade a known managed case).
+    scheduleMode: b.scheduleMode === 'managed' ? 'managed' : 'legacy',
+    scheduleBaseline: b.scheduleBaseline || null,
+    pendingScheduleRequestId: b.pendingScheduleRequestId ?? null,
+    lifecycleMode: b.lifecycleMode === 'managed' ? 'managed' : 'legacy',
+    lifecycleStatus: b.lifecycleStatus || null,
+    currentCycleId: b.currentCycleId ?? null,
+    pendingLifecycleRequestId: b.pendingLifecycleRequestId ?? null,
+    _lifecycleCounts: b._count ? { cycles: b._count.cycles ?? 0, requests: b._count.lifecycleRequests ?? 0, scheduleRequests: b._count.scheduleRequests ?? 0 } : null,
   };
 }
+// REPORTS-P2-D2: one outcome selector for every reader. A lifecycle-managed case uses its explicit lifecycleStatus
+// (active | sealed_incomplete | completed | cancelled): archived means "filed away", never "completed", and a sealed
+// case keeps its working status. Legacy cases keep the historical meaning (ended status or archived = finished).
+function v2Outcome(c) {
+  if (!c) return 'active';
+  if (c.lifecycleMode === 'managed' && c.lifecycleStatus) return c.lifecycleStatus === 'active' ? 'active' : c.lifecycleStatus;
+  if (typeof isCancelled === 'function' ? isCancelled(c) : c.status === 'cancelled') return 'cancelled';
+  return (ENDED_STATUS_KEYS.has(c.status) || c.archived) ? 'completed' : 'active';
+}
+function v2Ended(c) { return v2Outcome(c) !== 'active'; }
+function v2OutcomeLabel(c) { return ({ sealed_incomplete: '未完成封存', completed: '已結案', cancelled: '已取消' })[v2Outcome(c)] || ''; }
 function ymdIso(dt) { // API expects YYYY-MM-DD
   if (!dt) return null;
   const d = dt instanceof Date ? dt : new Date(dt);
@@ -5334,9 +5407,14 @@ function v52WireBasicEdit(c) {
       showToast('提醒：印刷送印日距上線日不足 5 個工作天，仍會儲存', 'warn');
     }
     const prev = { name: c.name, hotel: c.hotel, unit: c.unit, contact: c.contact, deliverables: c.deliverables, cat: c.cat, needsOutsourcing: c.needsOutsourcing, copyPath: c.copyPath, source: c.source, printDate: c.printDate };
+    // REPORTS-P2-D2: on a schedule-managed case the print date is a milestone — it is changed (with a reason, or by an
+    // approved request when postponed/cleared) from 「時程與週期」, never by this reason-less detail save.
+    const printManaged = c.scheduleMode === 'managed' && (printDateStr || null) !== (c.printDate ? ymdIso(c.printDate) : null);
+    if (printManaged) showToast('送印日屬受控里程碑，請在「時程與週期」調整（提前需寫原因，延後或清除需申請）；其他欄位照常儲存', 'warn');
     try {
-      await api.cases.update(c.id, { title, hotel, requester: unit, contact, deliverables: selDeliv, category: selDeliv.join('、'), needsOutsourcing, copyPath: copyPath || null, source: source || null, printDate: printDateStr || null });
-      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact; c.deliverables = selDeliv.slice(); c.cat = selDeliv.join('、'); c.needsOutsourcing = needsOutsourcing; c.copyPath = copyPath; c.source = source; c.printDate = printDateStr ? new Date(printDateStr) : null;
+      await api.cases.update(c.id, { title, hotel, requester: unit, contact, deliverables: selDeliv, category: selDeliv.join('、'), needsOutsourcing, copyPath: copyPath || null, source: source || null,
+        ...(c.scheduleMode === 'managed' ? {} : { printDate: printDateStr || null }) });
+      c.name = title; c.hotel = hotel; c.unit = unit; c.contact = contact; c.deliverables = selDeliv.slice(); c.cat = selDeliv.join('、'); c.needsOutsourcing = needsOutsourcing; c.copyPath = copyPath; c.source = source; if (c.scheduleMode !== 'managed') c.printDate = printDateStr ? new Date(printDateStr) : null;
       showToast('✓ 基本資料已更新');
       openDrawer(c);
       refreshAll();
@@ -5614,14 +5692,33 @@ function v33EnsureReasonModal() {
   wrap.innerHTML = html;
   document.body.appendChild(wrap);
 }
-function promptReason(detailHtml) {
+// REPORTS-P2-D2: on schedule/lifecycle-managed cases a reason must be specific (the server refuses placeholders such as
+// 「—」); re-ask with the user's own text kept instead of letting the request fail. Legacy cases keep the optional reason.
+function v2ReasonProblem(text) {
+  const t = String(text ?? '').trim();
+  if (t.length < 2) return '請寫出具體原因（至少 2 個字）';
+  if (/^[\s\p{P}\p{S}\d]+$/u.test(t) || /^(—|-|n\/?a|無|看板拖曳|改期|延期|調整|更新|修改|變更)$/i.test(t)) return '請寫出具體原因，而不是符號或動作描述';
+  return null;
+}
+async function v2PromptReason(c, detailHtml) {
+  const managed = !!c && (c.scheduleMode === 'managed' || c.lifecycleMode === 'managed');
+  let text = '', note = '';
+  for (;;) {
+    const r = await promptReason(detailHtml + (managed ? `<div style="margin-top:6px;font-size:11px;color:var(--dk-amber,#8C6A12);">受控案件須寫明具體原因。${note ? '<b>' + escapeHtml(note) + '</b>' : ''}</div>` : ''), text);
+    if (!r || !managed) return r;
+    const problem = v2ReasonProblem(r === '—' ? '' : r);
+    if (!problem) return r;
+    text = r === '—' ? '' : r; note = problem;
+  }
+}
+function promptReason(detailHtml, initialValue) {
   v33EnsureReasonModal();
   const bg = document.getElementById('v33-reason-bg');
   const modal = document.getElementById('v33-reason-modal');
   const input = document.getElementById('v33-reason-input');
   const detail = document.getElementById('v33-reason-detail');
   detail.innerHTML = detailHtml || '可填寫此次調整的原因（選填），將寫入該案的變更記錄。';
-  input.value = '';
+  input.value = initialValue || '';
   bg.classList.add('open');
   modal.style.display = 'block';
   input.focus();
@@ -5650,6 +5747,8 @@ window.openDrawer = async function(c) {
     sel.onchange = async function(e) {
       const before = c.status, newVal = sel.value;
       if (newVal === before || sel.dataset.submitting || IS_OBSERVER()) return;
+      // REPORTS-P1-C2: 明細制送審／結案與待審中的改狀態改走送審流程（不呼叫舊 PATCH）
+      if (window.caseWorkflowUi && window.caseWorkflowUi.interceptStatus(c, before, newVal, sel)) return;
       const pending = v41ArchivePending.get(c.id);
       if (sel.disabled && !pending) return;
       const input = v41ArchiveInput(c), gen = window.v95DrawerSeq?.now();
@@ -5665,7 +5764,7 @@ window.openDrawer = async function(c) {
         sel.dataset.archiveLock = 'true';
         controls.forEach(el => { el.disabled = true; });
         try {
-          const reason = await promptReason(`狀態：<b>${before}</b> → <b>${newVal}</b>`);
+          const reason = await v2PromptReason(c, `狀態：<b>${before}</b> → <b>${newVal}</b>`);
           if (!sameDrawer()) return;
           if (!reason) { sel.value = before; return; }
           const path = v41ArchiveDraft(c);
@@ -5700,7 +5799,7 @@ window.openDrawer = async function(c) {
   if (ut) {
     ut.onclick = async function() {
       const before = c.urgent;
-      const reason = await promptReason(`急件標記：<b>${before ? '是' : '否'}</b> → <b>${!before ? '是' : '否'}</b>`);
+      const reason = await v2PromptReason(c, `急件標記：<b>${before ? '是' : '否'}</b> → <b>${!before ? '是' : '否'}</b>`);
       if (!reason) return;
       try {
         await api.cases.update(c.id, { urgent: !before, reason });
@@ -5845,7 +5944,7 @@ async function v33SaveEdit(c) {
     return;
   }
   const fields = Object.keys(patch).map(k => V33_FIELD_LABEL[k] || k).join('、');
-  const reason = await promptReason(`即將變更：<b>${escapeHtml(fields)}</b>`);
+  const reason = await v2PromptReason(c, `即將變更：<b>${escapeHtml(fields)}</b>`);
   if (!reason) return;
   try {
     await api.cases.update(c.id, { ...patch, reason });
@@ -6920,7 +7019,7 @@ function renderHistory() {
     .some(v => (v||'').toLowerCase().includes(q));
 
   const list = window.V59_HISTORY.filter(c =>
-    (ENDED_STATUS_KEYS.has(c.status) || c.archived) &&
+    v2Ended(c) &&   // REPORTS-P2-D2: includes 未完成封存 (searchable history), labelled distinctly below
     (!dFilter || c.designer === dFilter) &&
     (!lFilter || c.level === lFilter) &&
     (!hFilter || c.hotel === hFilter) &&
@@ -6943,7 +7042,7 @@ function renderHistory() {
           <div class="title">${hl(c.name)}</div>
           <div class="sub">${hl(c.sub || '')}</div>
         </div>
-        <span class="chip status-${c.status}">${(STATUSES.find(s=>s.key===c.status)||{name:c.status}).name}</span>
+        <span class="chip status-${c.status}">${v2Outcome(c) === 'sealed_incomplete' ? '未完成封存' : (STATUSES.find(s=>s.key===c.status)||{name:c.status}).name}</span>
       </div>
       <div class="row2">
         <span class="chip level-${c.level}">${c.level}</span>
@@ -6963,7 +7062,7 @@ function v60FillHistoryDesigners(dSel) {
   if (!dSel) return;
   const cur = dSel.value;
   const names = [...new Set((window.V59_HISTORY || [])
-    .filter(c => ENDED_STATUS_KEYS.has(c.status) || c.archived) // 只看歷史案（已結案/封存）
+    .filter(c => v2Ended(c)) // 只看歷史案（已結案／取消／未完成封存）
     .map(c => c.designer).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'zh-TW'));
   dSel.innerHTML = '<option value="">所有設計師</option>' + names.map(n => {
@@ -7036,7 +7135,7 @@ function v36EnsureApprovalView() {
   if (container.querySelector('#v36-approval-list')) return;
   container.innerHTML = `
     <h2 style="margin:0 0 6px;">審核中心</h2>
-    <p style="color:var(--dk-muted,#8C8C8C);font-size:12px;margin:0 0 14px;line-height:1.6;">設計師確稿完成後，案件進入此清單等候審核。「通過」→ 自動結案並進入歷史；「退回」→ 狀態切回「進行中」由設計師修改後重提。</p>
+    <p style="color:var(--dk-muted,#8C8C8C);font-size:12px;margin:0 0 14px;line-height:1.6;">設計師確稿完成後，案件進入此清單等候審核。交付核可：「通過」→ 自動結案並進入歷史；「退回」→ 狀態切回「進行中」由設計師修改後重提。改期、未完成封存與復工申請另列，核准只套用申請內容，不會結案。</p>
     <div id="v36-approval-list"></div>
   `;
 }
@@ -7054,6 +7153,7 @@ async function renderApproval() {
       return;
     }
     v36UpdateApprovalBadge(rows.length);
+    if (window.caseWorkflowUi) window.caseWorkflowUi.noteQueueRows(rows);   // REPORTS-P1-C2
     wrap.innerHTML = rows.map(r => `
       <div class="card" style="margin-bottom:12px;">
         <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;">
@@ -7068,8 +7168,14 @@ async function renderApproval() {
               <span class="chip">${escapeHtml(r.designer?.name || '—')}</span>
               <span style="margin-left:auto;color:var(--dk-muted,#8C8C8C);">上線 ${r.goLiveDate ? new Date(r.goLiveDate).toISOString().slice(0,10) : '—'}</span>
             </div>
-            ${r.archivePath ? `<div style="margin-top:6px;font-size:11px;color:var(--dk-green,#1F8A4C);">✓ 歸檔路徑：${escapeHtml(r.archivePath)}</div>` : `<div style="margin-top:6px;font-size:11px;color:var(--dk-red,#C0392B);">⚠ 尚未填寫歸檔路徑（通過時必填）</div>`}
+            ${r.deliveryMode === 'records' ? `<div style="margin-top:6px;font-size:11px;color:var(--dk-muted,#8C8C8C);">審核依據為送審當下的歸檔與交付快照</div>` : r.archivePath ? `<div style="margin-top:6px;font-size:11px;color:var(--dk-green,#1F8A4C);">✓ 歸檔路徑：${escapeHtml(r.archivePath)}</div>` : `<div style="margin-top:6px;font-size:11px;color:var(--dk-red,#C0392B);">⚠ 尚未填寫歸檔路徑（通過時必填）</div>`}
           </div>
+          ${r.deliveryMode === 'records' ? `
+          <div class="cw-queue" data-c2-queue="${escapeHtml(r.id)}">
+            <span class="cw-badge is-records">◆ 交付明細制</span>
+            <button type="button" class="cw-btn cw-btn-primary" data-c2-review="${escapeHtml(r.id)}" aria-expanded="false">檢視送審依據並審核</button>
+            <button data-open-id="${escapeHtml(r.id)}" style="padding:5px;background:transparent;border:none;color:var(--dk-blue,#1F6FEB);font-size:11px;cursor:pointer;">查看詳情 →</button>
+          </div>` : `
           <div style="display:flex;flex-direction:column;gap:6px;">
             <textarea id="v36-cmt-${r.id}" placeholder="評語（可選）" rows="2" style="width:200px;padding:5px 8px;border:1px solid #D4D4D4;border-radius:4px;font-size:11px;resize:vertical;"></textarea>
             <div style="display:flex;gap:6px;">
@@ -7077,7 +7183,7 @@ async function renderApproval() {
               <button data-approve-id="${escapeHtml(r.id)}" data-decision="approve" style="flex:1;padding:6px 10px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">✓ 通過</button>
             </div>
             <button data-open-id="${escapeHtml(r.id)}" style="padding:5px;background:transparent;border:none;color:var(--dk-blue,#1F6FEB);font-size:11px;cursor:pointer;">查看詳情 →</button>
-          </div>
+          </div>`}
         </div>
       </div>
     `).join('');
@@ -7087,6 +7193,8 @@ async function renderApproval() {
 }
 
 async function v36ApprovalDecision(id, decision) {
+  // REPORTS-P1-C2: 明細制案件不能用 {decision, comment} 核可，改開同一份送審依據審核
+  if (window.caseWorkflowUi && window.caseWorkflowUi.handleLegacyDecision(id, decision)) return;
   const cmtEl = document.getElementById('v36-cmt-' + id);
   const comment = cmtEl ? cmtEl.value.trim() : '';
   const verb = decision === 'approve' ? '通過審核並結案' : '退回';
@@ -7683,16 +7791,20 @@ window.openDrawer = async function(c) {
     return;
   }
   // Inject reopen button at the top of the drawer-body
+  // REPORTS-P1-C2: 每次開啟都依「目前這一案＋真實登入者」重建；歷史案切到另一個歷史案時，
+  // 不可沿用上一案的文案、按鈕或綁定上一案的 onclick（例如 舊制已結案 → 明細制已核可）。
+  drawer.querySelector('#v37-reopen-wrap')?.remove();
   const body = drawer.querySelector('.drawer-body');
-  if (body && !document.getElementById('v37-reopen-wrap')) {
+  if (body) {
     const isAdmin = ME.role === 'admin';
     const isOriginalDesigner = c._designerId === ME.id || c.designer === ME_NAME();
-    const canReopen = isAdmin || isOriginalDesigner;
+    // REPORTS-P1-C2: 明細制已核可案件暫不提供重啟（clone 入口隱藏；舊制維持原樣）
+    const canReopen = (isAdmin || isOriginalDesigner) && c.deliveryMode !== 'records' && c.lifecycleMode !== 'managed';
     const wrap = document.createElement('div');
     wrap.id = 'v37-reopen-wrap';
     wrap.style.cssText = 'margin:0 0 12px;padding:10px 12px;background:#FFF8E6;border:1px solid #EDD79A;border-radius:5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
     wrap.innerHTML = `
-      <span style="font-size:12px;color:var(--dk-amber,#8C6A12);">📦 此案已結案／封存，僅可瀏覽。${canReopen ? '需要繼續推進？可開新案沿用內容。' : ''}</span>
+      <span style="font-size:12px;color:var(--dk-amber,#8C6A12);">📦 此案${v2Outcome(c) === 'sealed_incomplete' ? '已未完成封存' : v2Outcome(c) === 'cancelled' ? '已取消' : '已結案／封存'}，僅可瀏覽。${canReopen ? '需要繼續推進？可開新案沿用內容。' : v2Outcome(c) === 'sealed_incomplete' ? '此案為未完成封存；要繼續請在「時程與週期」申請復工（沿用同一案號）。' : c.deliveryMode === 'records' ? '交付明細制案件核可後暫不提供重啟。' : c.lifecycleMode === 'managed' ? '受控案件結案或取消後暫不提供重啟。' : ''}</span>
       ${canReopen ? `<button id="v37-reopen-btn" style="margin-left:auto;padding:6px 14px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">🔁 原案重啟</button>` : ''}
     `;
     body.insertBefore(wrap, body.firstChild);
@@ -10759,13 +10871,37 @@ function v51StageInfo(k) {
   return { key: k, name: k || '尚未製作', color: '#8C8C8C' };
 }
 
+// REPORTS-P2-D2: 受控案件的子案件屬於封存證據。封存／復工申請待決、未完成封存或已結束週期時不可修改；
+// 以抽屜「時程與週期」較新的讀取為準（版本不舊於案件快照時），否則用案件快照本身。每次渲染與每個修改入口都重新判斷。
+function v43LifecycleLock(c) {
+  if (!c || c.lifecycleMode !== 'managed') return '';
+  let st = c.lifecycleStatus, pending = c.pendingLifecycleRequestId;
+  try {
+    const s = window.caseLifecycleUi && typeof caseLifecycleUi.lifeSnapshot === 'function' ? caseLifecycleUi.lifeSnapshot(c.id) : null;
+    if (s && s.mode === 'managed' && (!Number.isFinite(c._contentVersion) || !Number.isFinite(s.contentVersion) || s.contentVersion >= c._contentVersion)) { st = s.lifecycleStatus; pending = s.pendingRequestId; }
+  } catch {}
+  if (st === 'sealed_incomplete') return '案件已未完成封存：子案件僅可瀏覽（復工申請核准後才能修改）。';
+  if (st === 'completed' || st === 'cancelled') return '受控案件已結案或取消：子案件僅可瀏覽。';
+  if (pending) return '封存／復工申請待主管決議：子案件暫停修改（撤回或決議後可編輯）。';
+  return '';
+}
+// 目前抽屜裡的子案件編輯器（一次只有一個）。工作流程動作會重開抽屜，送出前用它確認有沒有未儲存的子案件變更。
+let v43ActiveEditor = null;
+function v43ItemsDirty(caseId) { const e = v43ActiveEditor; return !!(e && e.caseId === caseId && e.panel.isConnected !== false && e.isDirty()); }
+function v43DiscardItems(caseId) { const e = v43ActiveEditor; if (e && e.caseId === caseId) e.discard(); }
+function v43Rerender(caseId) { const e = v43ActiveEditor; if (e && e.caseId === caseId && e.panel.isConnected !== false) e.refresh(); }
+
 function v43InjectSubItemsPanel(c, body) {
   if (!body) return;
   const isAdmin = ME.role === 'admin';
   const myName = ME_NAME();
   const isPrimary = v20IsPrimary(c, ME.id);   // 寫入權限一律以登入者本人判斷（不受 view-as 影響）
   const isCollab = v20IsCollab(c, ME.id);
-  const canWrite = isAdmin || isPrimary || isCollab;
+  // REPORTS-P1-C2: 明細制送審中／已核可時子案件是送審依據的一部分，面板本身就以唯讀渲染（重繪也不會恢復可編輯）
+  const v43EvidenceFrozen = c.deliveryMode === 'records' && ['review_done', 'done', 'closed'].includes(c.status);
+  const v43RoleCanWrite = (isAdmin || isPrimary || isCollab) && !v43EvidenceFrozen;
+  const writable = () => v43RoleCanWrite && !v43LifecycleLock(c);
+  let canWrite = writable();   // REPORTS-P2-D2: 每次 renderCards 重新判斷
 
   const panel = document.createElement('div');
   panel.className = 'v33-extra v43-items-panel';
@@ -10774,6 +10910,7 @@ function v43InjectSubItemsPanel(c, body) {
   const items = JSON.parse(JSON.stringify(c.items || []));
   let v43BaseVersion = c._updatedAt || null; // v10: 開啟編輯當下的版本；背景重載不得改變這次編輯的基準
   let v43BaseContentVersion = c._contentVersion ?? 0; // v10.1: CAS 專用版本，同樣在開啟時擷取
+  let v43BaseCycleId = c.lifecycleMode === 'managed' ? (c.currentCycleId ?? null) : undefined; // REPORTS-P2-D2: 同一快照的週期
   let v43sectionCollapsed = false; // C3: 子案件區塊收合狀態（本次開啟有效）
 
   // Helper: status pill HTML（D1：支援完整流程清單）
@@ -10785,7 +10922,39 @@ function v43InjectSubItemsPanel(c, body) {
   const inputStyle = 'width:100%;padding:6px 8px;border:1px solid var(--input-border,#D4D4D4);background:var(--input-bg,#fff);color:var(--fg,#1F1F1F);border-radius:4px;font-size:12px;box-sizing:border-box;';
   const labelStyle = 'display:block;font-size:10px;color:var(--fg-muted,#8C8C8C);margin-bottom:3px;font-weight:500;letter-spacing:0.2px;';
 
+  // 送出格式（儲存與「是否有未儲存變更」共用同一份正規化）
+  const cleanItems = list => list.map(it => ({
+    // REPORTS-P1-B: 保留伺服器核發的穩定 key（交付紀錄會引用）；新項目由伺服器產生
+    ...(typeof it.key === 'string' && it.key ? { key: it.key } : {}),
+    n: String(it.n || '').trim(),
+    type: it.type || '',
+    owner: it.owner || '',
+    // v20 F08: 保留 ID；舊 owner-only 若名字只對到一人則補上 ID
+    assigneeId: (it.assigneeId != null && it.assigneeId !== '' && Number.isFinite(Number(it.assigneeId))) ? Number(it.assigneeId)
+      : (() => { const m = (STAFF || []).filter(s => it.owner && s.name === it.owner); return m.length === 1 ? Number(m[0].id) : null; })(),
+    start: it.start || null,
+    end: it.end || null,
+    status: it.status || '尚未製作',
+    status2: it.status2 || null, // D1: 第二狀態
+    // F1: 子項目日誌（date 統一存 YYYY-MM-DD 字串）
+    logs: (it.logs || []).filter(l => l && l.note && l.note.trim()).map(l => ({
+      date: (l.date instanceof Date) ? ymdIso(l.date) : (l.date || ymdIso(TODAY)),
+      note: l.note.trim(),
+      by: l.by || '',
+    })),
+  }));
+  // REPORTS-P2-D2: 未儲存變更 = 目前編輯內容與這次編輯基準（開啟時或上次儲存成功時）不同
+  let v43Baseline = JSON.stringify(cleanItems(items));
+  const isDirty = () => JSON.stringify(cleanItems(items)) !== v43Baseline;
+  // 每個修改入口：權限與生命週期狀態在當下重新判斷；不能改就提示原因並以唯讀重繪
+  const gate = fn => function (...args) {
+    if (!writable()) { showToast(v43LifecycleLock(c) || '目前不能修改子案件', 'err'); renderCards(); return; }
+    return fn.apply(this, args);
+  };
+
   const renderCards = () => {
+    canWrite = writable();
+    const lockMsg = v43RoleCanWrite ? v43LifecycleLock(c) : '';
     const cards = items.length === 0
       ? `<div style="color:var(--fg-muted,#8C8C8C);font-size:12px;padding:14px;text-align:center;background:var(--dk-veil,rgba(255,255,255,0.5));border-radius:6px;border:1px dashed #BFE0CB;">尚無子案件${canWrite ? '，點下方「＋ 新增子案件」開始' : ''}</div>`
       : items.map((it, i) => {
@@ -10809,7 +10978,7 @@ function v43InjectSubItemsPanel(c, body) {
             </div>
 
             <!-- Row 2: type + assignee -->
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+            <div class="v43-row2">
               <div>
                 <label style="${labelStyle}">製作物</label>
                 <select data-i="${i}" data-k="type" ${canWrite?'':'disabled'} style="${inputStyle}">
@@ -10826,7 +10995,7 @@ function v43InjectSubItemsPanel(c, body) {
             </div>
 
             <!-- Row 3: start + end + status -->
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+            <div class="v43-row3">
               <div>
                 <label style="${labelStyle}">開始日</label>
                 <input type="date" data-i="${i}" data-k="start" value="${escapeHtml(it.start||'')}" ${canWrite?'':'disabled'} style="${inputStyle}">
@@ -10835,7 +11004,7 @@ function v43InjectSubItemsPanel(c, body) {
                 <label style="${labelStyle}">結束日</label>
                 <input type="date" data-i="${i}" data-k="end" value="${escapeHtml(it.end||'')}" ${canWrite?'':'disabled'} style="${inputStyle}">
               </div>
-              <div>
+              <div class="v43-status-cell">
                 <label style="${labelStyle}">狀態（可同時 2 個）</label>
                 <select data-i="${i}" data-k="status" ${canWrite?'':'disabled'} style="${inputStyle}">
                   ${V51_STAGES.map(s=>`<option value="${escapeHtml(s.key)}" ${(it.status||'尚未製作')===s.key?'selected':''}>${escapeHtml(s.key)}</option>`).join('')}
@@ -10863,7 +11032,7 @@ function v43InjectSubItemsPanel(c, body) {
                   ${canWrite?`<button data-act="ilogedit" data-i="${i}" data-li="${li}" title="編輯" style="width:20px;height:20px;flex-shrink:0;padding:0;border:1px solid var(--input-border,#D4D4D4);background:transparent;border-radius:4px;cursor:pointer;color:var(--fg-muted,#8C8C8C);font-size:10px;line-height:1;">✎</button><button data-act="ilogdel" data-i="${i}" data-li="${li}" title="刪除" style="width:20px;height:20px;flex-shrink:0;padding:0;border:1px solid var(--input-border,#D4D4D4);background:transparent;border-radius:4px;cursor:pointer;color:var(--dk-red,#9A2E2E);font-size:12px;line-height:1;">×</button>`:''}
                 </div>`).join('')}
               ${canWrite?`<div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;">
-                <input data-ilognew="${i}" placeholder="新增此子項目進度…" style="${inputStyle}flex:1;min-width:140px;">
+                <input class="v43-ilog-new" data-ilognew="${i}" placeholder="新增此子項目進度…" style="${inputStyle}">
                 <input type="date" data-ilogdate="${i}" value="${v20TaiwanToday()}" style="${inputStyle}width:auto;flex-shrink:0;" title="日誌日期">
                 <button data-act="ilogadd" data-i="${i}" style="flex-shrink:0;padding:0 12px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">＋ 記錄</button>
               </div>`:''}
@@ -10878,8 +11047,9 @@ function v43InjectSubItemsPanel(c, body) {
         <span style="padding:1px 8px;background:rgba(0,0,0,0.08);border-radius:10px;font-size:11px;color:var(--fg,#1F1F1F);">${items.length}</span>
         ${canWrite
           ? '<span style="margin-left:auto;font-size:11px;color:var(--dk-green,#1F8A4C);">✓ 可編輯 · 可拖曳排序</span>'
-          : '<span style="margin-left:auto;font-size:11px;color:var(--fg-muted,#8C8C8C);">僅可瀏覽</span>'}
+          : `<span style="margin-left:auto;font-size:11px;color:var(--fg-muted,#8C8C8C);">${lockMsg ? escapeHtml(lockMsg) : v43EvidenceFrozen ? (c.status === 'review_done' ? '送審中・暫停修改（撤回後可編輯）' : '已核可・僅可瀏覽') : '僅可瀏覽'}</span>`}
       </div>
+      ${!canWrite && isDirty() ? `<div class="v43-dirty-locked" role="alert" style="margin:0 0 10px;font-size:12px;color:var(--dk-red,#9A2E2E);">這裡有尚未儲存的子案件變更，但案件目前不能修改，無法儲存。<button type="button" data-act="v43-discard" style="margin-left:6px;font-size:12px;">放棄未儲存變更</button></div>` : ''}
       <div id="v43-collapsible" style="${v43sectionCollapsed ? 'display:none;' : ''}">
       <div id="v43-items-container">${cards}</div>
       ${canWrite ? `
@@ -10900,6 +11070,9 @@ function v43InjectSubItemsPanel(c, body) {
       collapseToggle.textContent = (v43sectionCollapsed ? '▶' : '▼') + ' 📋 子案件';
     };
 
+    const discardBtn = panel.querySelector('button[data-act="v43-discard"]');
+    if (discardBtn) discardBtn.onclick = () => { if (confirm('放棄子案件尚未儲存的變更？')) discard(); };
+
     if (canWrite) {
       // C4: 子案件拖曳排序（用拖曳把手，拖放後重排，按「儲存子案件」持久化）
       let dragFrom = null;
@@ -10915,7 +11088,7 @@ function v43InjectSubItemsPanel(c, body) {
       });
       panel.querySelectorAll('.v43-item-card').forEach(card => {
         card.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
-        card.addEventListener('drop', e => {
+        card.addEventListener('drop', gate(e => {
           e.preventDefault();
           const to = Number(card.dataset.idx);
           if (dragFrom === null || isNaN(to) || dragFrom === to) return;
@@ -10923,11 +11096,11 @@ function v43InjectSubItemsPanel(c, body) {
           items.splice(to, 0, moved);
           dragFrom = null;
           renderCards();
-        });
+        }));
       });
       // Wire field changes — in-place header updates only (no re-render, to preserve focus)
       panel.querySelectorAll('input[data-i], select[data-i]').forEach(el => {
-        const handler = (e) => {
+        const handler = gate((e) => {
           const i = Number(e.target.dataset.i);
           const k = e.target.dataset.k;
           let v = e.target.value;
@@ -10957,14 +11130,14 @@ function v43InjectSubItemsPanel(c, body) {
             const wrap = card.querySelector('.v43-pill-wrap');
             if (wrap) wrap.innerHTML = statusPill(items[i].status || '尚未製作') + (items[i].status2 ? statusPill(items[i].status2, 'v43-status-pill2') : '');
           }
-        };
+        });
         // 'input' for text/date typing; 'change' for selects
         if (el.tagName === 'SELECT') el.onchange = handler;
         else el.oninput = handler;
       });
       // Add button
       const addBtn = panel.querySelector('#v43-item-add');
-      if (addBtn) addBtn.onclick = () => {
+      if (addBtn) addBtn.onclick = gate(() => {
         items.push({ n: '', type: DELIVERABLES[0], owner: '', assigneeId: null, start: null, end: null, status: '尚未製作', status2: null });
         renderCards();
         // Scroll to and focus new card's name input
@@ -10973,27 +11146,27 @@ function v43InjectSubItemsPanel(c, body) {
           last?.scrollIntoView({block: 'center', behavior: 'smooth'});
           last?.querySelector('input[data-k="n"]')?.focus();
         }, 50);
-      };
+      });
       // Delete buttons
       panel.querySelectorAll('button[data-act="del"]').forEach(btn => {
-        btn.onclick = () => {
+        btn.onclick = gate(() => {
           const i = Number(btn.dataset.i);
           if (confirm(`刪除子案件「${items[i].n || '(未命名)'}」？`)) {
             items.splice(i, 1);
             renderCards();
           }
-        };
+        });
       });
       // D1: 第二狀態 加 / 移除
       panel.querySelectorAll('button[data-act="addstatus2"]').forEach(btn => {
-        btn.onclick = () => { const i = Number(btn.dataset.i); items[i].status2 = items[i].status === '製作中' ? '報價中' : '製作中'; renderCards(); };
+        btn.onclick = gate(() => { const i = Number(btn.dataset.i); items[i].status2 = items[i].status === '製作中' ? '報價中' : '製作中'; renderCards(); });
       });
       panel.querySelectorAll('button[data-act="rmstatus2"]').forEach(btn => {
-        btn.onclick = () => { const i = Number(btn.dataset.i); items[i].status2 = null; renderCards(); };
+        btn.onclick = gate(() => { const i = Number(btn.dataset.i); items[i].status2 = null; renderCards(); });
       });
       // F1: 子項目日誌 新增 / 編輯 / 刪除（暫存於 item.logs，按💾儲存子案件持久化）
       panel.querySelectorAll('button[data-act="ilogadd"]').forEach(btn => {
-        btn.onclick = () => {
+        btn.onclick = gate(() => {
           const i = Number(btn.dataset.i);
           const inp = panel.querySelector(`input[data-ilognew="${i}"]`);
           const dinp = panel.querySelector(`input[data-ilogdate="${i}"]`);
@@ -11001,28 +11174,28 @@ function v43InjectSubItemsPanel(c, body) {
           const ldate = (dinp && dinp.value) ? new Date(dinp.value) : new Date(TODAY); // H1
           (items[i].logs = items[i].logs || []).unshift({ date: ldate, note: txt, by: ME_NAME() });
           renderCards();
-        };
+        });
       });
       panel.querySelectorAll('button[data-act="ilogedit"]').forEach(btn => {
-        btn.onclick = () => {
+        btn.onclick = gate(() => {
           const i = Number(btn.dataset.i), li = Number(btn.dataset.li);
           const cur = items[i].logs && items[i].logs[li]; if (!cur) return;
           const nv = prompt('編輯子項目日誌：', cur.note);
           if (nv === null) return; const t = nv.trim(); if (!t) return;
           cur.note = t; renderCards();
-        };
+        });
       });
       panel.querySelectorAll('button[data-act="ilogdel"]').forEach(btn => {
-        btn.onclick = () => {
+        btn.onclick = gate(() => {
           const i = Number(btn.dataset.i), li = Number(btn.dataset.li);
           if (!items[i].logs || !items[i].logs[li]) return;
           if (!confirm('刪除這筆子項目日誌？')) return;
           items[i].logs.splice(li, 1); renderCards();
-        };
+        });
       });
       // Save button
       const saveBtn = panel.querySelector('#v43-items-save');
-      if (saveBtn) saveBtn.onclick = async () => {
+      if (saveBtn) saveBtn.onclick = gate(async () => {
         for (const it of items) {
           if (!it.n || !it.n.trim()) { showToast('每筆子案件都需要填名稱', 'err'); return; }
           if (it.start && it.end && it.end < it.start) { showToast(`「${it.n}」結束日不能早於開始日`, 'err'); return; }
@@ -11030,37 +11203,37 @@ function v43InjectSubItemsPanel(c, body) {
         const reason = prompt('輸入此次子案件變更的原因（會記錄在 ChangeLog）：', '子案件調整');
         if (reason === null) return;
         try {
-          const cleaned = items.map(it => ({
-            n: it.n.trim(),
-            type: it.type || '',
-            owner: it.owner || '',
-            // v20 F08: 保留 ID；舊 owner-only 若名字只對到一人則補上 ID
-            assigneeId: (it.assigneeId != null && it.assigneeId !== '' && Number.isFinite(Number(it.assigneeId))) ? Number(it.assigneeId)
-              : (() => { const m = (STAFF || []).filter(s => it.owner && s.name === it.owner); return m.length === 1 ? Number(m[0].id) : null; })(),
-            start: it.start || null,
-            end: it.end || null,
-            status: it.status || '尚未製作',
-            status2: it.status2 || null, // D1: 第二狀態
-            // F1: 子項目日誌（date 統一存 YYYY-MM-DD 字串）
-            logs: (it.logs || []).filter(l => l && l.note && l.note.trim()).map(l => ({
-              date: (l.date instanceof Date) ? ymdIso(l.date) : (l.date || ymdIso(TODAY)),
-              note: l.note.trim(),
-              by: l.by || '',
-            })),
-          }));
-          const raw = await api.cases.patchItems(c.id, { items: cleaned, reason, expectedUpdatedAt: v43BaseVersion, expectedContentVersion: v43BaseContentVersion }); // v10.1 樂觀鎖：用開啟時的版本
+          const sent = items.slice();   // REPORTS-P1-B: 送出當下的子案件物件（以物件身分回填 key，不依目前位置猜測）
+          const cleaned = cleanItems(items);
+          const raw = await api.cases.patchItems(c.id, { items: cleaned, reason, expectedUpdatedAt: v43BaseVersion, expectedContentVersion: v43BaseContentVersion, ...(v43BaseCycleId !== undefined ? { expectedCycleId: v43BaseCycleId } : {}) }); // v10.1 樂觀鎖：用開啟時的版本（D2：連同週期）
           v10SyncUpdatedAt(c, raw);
+          // REPORTS-P1-B: 伺服器依送出順序回傳權威 items；把 key 寫回「當時送出的那個物件」，
+          // 之後再存不會因缺 key 而被當成新項目，也不覆蓋使用者在等待期間的其他編輯。
+          if (raw && Array.isArray(raw.items) && raw.items.length === sent.length) {
+            sent.forEach((ref, i) => { const k = raw.items[i] && raw.items[i].key; if (ref && typeof k === 'string' && k) ref.key = k; });
+          }
           if (raw && raw.updatedAt) v43BaseVersion = raw.updatedAt;   // 成功後才推進這次編輯的基準
           if (raw && raw.contentVersion != null) v43BaseContentVersion = raw.contentVersion;
+          v43Baseline = JSON.stringify(cleanItems(sent));   // REPORTS-P2-D2: 已送出的內容不再算未儲存（等待期間的新編輯仍算）
           showToast('✓ 子案件已儲存');
           await reloadCase(c.id);
           v33RenderChangeLog(c);
         } catch (e) {
           showToast(v10ConflictMsg(e, '儲存失敗'), 'err'); // 409 不自動重試
         }
-      };
+      });
     }
   };
+
+  // REPORTS-P2-D2: 放棄未儲存變更 = 回到案件目前的快照與其版本（不把草稿套到伺服器的新內容上）
+  const discard = () => {
+    items.splice(0, items.length, ...JSON.parse(JSON.stringify(c.items || [])));
+    v43BaseVersion = c._updatedAt || null; v43BaseContentVersion = c._contentVersion ?? 0;
+    v43BaseCycleId = c.lifecycleMode === 'managed' ? (c.currentCycleId ?? null) : undefined;
+    v43Baseline = JSON.stringify(cleanItems(items));
+    renderCards();
+  };
+  v43ActiveEditor = { caseId: c.id, panel, isDirty, discard, refresh: () => { if (writable() !== canWrite) renderCards(); } };
 
   body.appendChild(panel);
   renderCards();
@@ -11716,7 +11889,7 @@ function v69Aggregate(cases) {
     if (!by[u]) by[u] = { unit: u, n: 0, open: 0, overdue: 0, urgent: 0, cycles: [], revise: 0, blocked: 0, scope: 0, odDesign: 0, odExternal: 0, odManager: 0 };
     const g = by[u];
     g.n++;
-    const isClosed = ENDED_STATUS_KEYS.has(c.status) || c.archived;
+    const isClosed = v2Ended(c);   // REPORTS-P2-D2: sealed is not open work (and not a completion)
     if (!isClosed) {
       g.open++;
       if (c.goLive && new Date(c.goLive) < TODAY) {
@@ -11805,7 +11978,7 @@ async function renderRequesterAnalytics() {
   const rvStat = v76ReviseStats(cases); // v7.6 判讀品質摘要（推定 vs 人工）
 
   // v7.0: 逾期案件依責任歸屬分組
-  const odCases = cases.filter(c => !(ENDED_STATUS_KEYS.has(c.status) || c.archived) && c.goLive && new Date(c.goLive) < TODAY);
+  const odCases = cases.filter(c => !v2Ended(c) && c.goLive && new Date(c.goLive) < TODAY);
   const blame = { design: [], external: [], manager: [] };
   odCases.forEach(c => blame[v70BlameOf(c)].push(c));
   Object.keys(blame).forEach(k => blame[k].sort((a, b) => new Date(a.goLive) - new Date(b.goLive)));
@@ -11952,7 +12125,7 @@ function v69ShowUnit(unit) {
       <button id="v69-close" style="margin-left:auto;background:transparent;border:0;font-size:22px;cursor:pointer;color:var(--dk-muted,#8C8C8C);">×</button>
     </div>
     ${items.map(c => {
-      const closed = ENDED_STATUS_KEYS.has(c.status) || c.archived;
+      const closed = v2Ended(c);
       const od = !closed && c.goLive && new Date(c.goLive) < TODAY;
       return `<div class="v69-crow" data-id="${escapeHtml(c.id)}" style="display:flex;gap:10px;align-items:center;padding:8px;border-bottom:1px solid var(--section-divider,#F0F0F0);font-size:12px;cursor:pointer;">
         <span style="flex-shrink:0;padding:2px 8px;border-radius:10px;font-size:10px;background:${od ? '#FCEBEB' : closed ? '#E4F3DD' : '#EEF2F6'};color:${od ? '#A32D2D' : closed ? '#3A6E2A' : '#2B4A66'};">${od ? '逾期' : closed ? '已結案' : '進行中'}</span>
@@ -12104,7 +12277,7 @@ const V81_CACHE_MS = 60 * 1000;
 function v81Invalidate() { v81AllCases = null; v81AllCasesAt = 0; }
 
 function v81InScope(c) {
-  const ended = ENDED_STATUS_KEYS.has(c.status) || c.archived;
+  const ended = v2Ended(c);
   if (v81Scope === 'open') return !ended;
   if (v81Scope === 'closed') return ended;
   return true;
@@ -12130,7 +12303,7 @@ function v81HotelRows() {
   const list = Object.values(byHotel);
   if (unassigned.cases.length) list.push(unassigned);
   return list.map(h => {
-    const open = h.cases.filter(c => !(ENDED_STATUS_KEYS.has(c.status) || c.archived));
+    const open = h.cases.filter(c => !v2Ended(c));
     return {
       ...h,
       total: h.cases.length,
@@ -12344,6 +12517,11 @@ window.switchView = function (v) {
 };
 
 </script>
-<script src="/workbench-features.js?v=a96798d93e76"></script>
+<script src="/workbench-features.js?v=b5ca7abdcf2b"></script>
+<script src="/case-deliveries.js?v=e1fbf6ed7572"></script>
+<script src="/case-workflow.js?v=2d038563a984"></script>
+<script src="/case-lifecycle.js?v=1206a4884b16"></script>
+<script src="/release-notice.js?v=67bba61e62bd"></script>
+<script src="/work-reports.js?v=4d04daca2c0b"></script>
 </body>
 </html>

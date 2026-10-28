@@ -164,7 +164,11 @@ try {
   });
   await test('expiry, purpose, scope, versions, algorithm and lifetime are strictly validated before model reads', async () => {
     const now = Math.floor(Date.now() / 1000);
-    const invalid = [signedFixture({ iat: now - 100, exp: now - 1 }), signedFixture({ purpose: 'login' }), signedFixture({ scope: 'all' }), signedFixture({ staffId: '1' }), signedFixture({ calendarVersion: -1 }), signedFixture({ sessionVersion: 1.5 }), signedFixture({ iat: now + 60, exp: now + 120 }), signedFixture({ exp: now + CALENDAR_TTL_SECONDS + 1 }), signedFixture({}, { algorithm: 'HS384' }), signedFixture({}, { noTimestamp: true })];
+    // iat is pinned to the same `now`: signedFixture's own clock read may cross a second, which would turn
+    // this over-TTL fixture into a valid exactly-TTL token.
+    const overLifetime = signedFixture({ iat: now, exp: now + CALENDAR_TTL_SECONDS + 1 });
+    const lifetime = jwt.decode(overLifetime); assert.equal(lifetime.exp - lifetime.iat, CALENDAR_TTL_SECONDS + 1);
+    const invalid = [signedFixture({ iat: now - 100, exp: now - 1 }), signedFixture({ purpose: 'login' }), signedFixture({ scope: 'all' }), signedFixture({ staffId: '1' }), signedFixture({ calendarVersion: -1 }), signedFixture({ sessionVersion: 1.5 }), signedFixture({ iat: now + 60, exp: now + 120 }), overLifetime, signedFixture({}, { algorithm: 'HS384' }), signedFixture({}, { noTimestamp: true })];
     for (const token of invalid) { const before = dbReads; assert.equal((await call(feed(token))).status, 403); assert.equal(dbReads, before); }
   });
   await test('inactive, unactivated or deleted subscriber fails before business reads', async () => {

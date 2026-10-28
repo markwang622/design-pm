@@ -45,3 +45,13 @@ SMTP 已內建，不需再安裝套件或修改 notify.js。設定 SMTP_HOST、S
 - 一般應用回滾使用上一個已驗證 image。Prisma5 相容的舊程式可讀取本次保留的關聯資料；deployment_identity 是附加表。
 - **不要回到含自動 db push／seed 的舊 CMD 操作已遷移資料庫。** 需要舊程式時使用已驗證的應用啟動指令 `node src/index.js`，不自動執行 schema 同步或播種。回滾不等於資料庫回復；真實資料損毀依維護文件在維護時段處理。
 - 不用 `migrate reset`、`db push --accept-data-loss` 或 Demo reset 回滾正式資料。
+
+## 自動工作報告排程（REPORTS-P3-E3）
+
+正式站為 Google Compute Engine 常駐 VM（人工部署），排程是同一個 Node 程序內的 worker，不需外部 queue／Cloud Scheduler 或額外付費服務。
+
+- 預設關閉。啟用需同時設定：`WORK_REPORT_SCHEDULER_ENABLED=true`、`WORK_REPORT_SCHEDULER_START_DATE=YYYY-MM-DD`（台北日期；計畫值 2026-10-28，以 root 最後核定為準）。值不合法時啟動前即停止（不印出值）。
+- 以 2026-10-28 為起始日時，第一批到期：月報 2026-10（台北 2026-11-01 00:05）、週報 2026-W44（2026-11-02 00:05）、季報 2026-Q4（2027-01-01 00:05）。不掃起始日以前的歷史；更早期間仍由管理員手動產生。
+- 先完成 0010 的新完整備份＋隔離還原驗證與 `db:deploy`，再設定旗標並重啟；以 `npm run reports:jobs -- status` 或工作報告頁的狀態列核對 `initialized`、`epoch`、下一次到期。
+- 多個程序同時啟用也安全（DB 租約＋唯一鍵），但一般只需正式站一個程序啟用；Demo、還原與測試環境保持關閉。
+- 停機後重啟會在一分鐘內補跑已到期的期間（每類每次最多 12 期、依時間排序）。異常與重試只在狀態列與 CLI 顯示，不寄信、不寫入成員公告。

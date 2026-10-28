@@ -365,6 +365,15 @@ router.post('/:id/departure', requireAdmin, async (req, res) => {
         }),
       ]);
 
+      // REPORTS-P2-D1b: a pending seal/resume request is decided against a fixed assignment snapshot; the departure
+      // must wait until it is approved, rejected or withdrawn (explicit order, nothing half-written). Sealed cases are
+      // archived and stay untouched; completed/cancelled lifecycle-managed cases are read-only and are not re-filed.
+      const pendingLifecycle = [...ownedDone, ...ownedOpen].filter(c => c.pendingLifecycleRequestId).map(c => c.id);
+      if (collabOn.length) {
+        const rows = await tx.case.findMany({ where: { id: { in: collabOn.map(c => c.id) }, NOT: { pendingLifecycleRequestId: null } }, select: { id: true } });
+        pendingLifecycle.push(...rows.map(r => r.id));
+      }
+      if (pendingLifecycle.length) reject(409, 'lifecycle_request_pending', { cases: pendingLifecycle, message: '這些案件有待主管決議的封存／復工申請，請先處理後再辦理離職移轉' });
       // Validate the full plan before the first write, using the same snapshot
       // as the transfers and departure. No case can be assigned to a disabled,
       // unactivated, read-only account or the departing person themselves.
@@ -384,6 +393,7 @@ router.post('/:id/departure', requireAdmin, async (req, res) => {
 
       const transferred = [], archived = [], removedCollab = [];
       for (const c of ownedDone) {
+        if (c.lifecycleMode === 'managed') continue;
         await tx.case.update({ where: { id: c.id }, data: { archived: true } });
         archived.push(c.id);
       }

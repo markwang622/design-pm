@@ -111,7 +111,7 @@ function restoreContext(role,owner){
   for(const [id,tag] of [['drawer-close','button'],['d-back','button'],['d-log-submit','button'],['edit-field','input']])d.seed(id,tag,body);
   d.seed('drawer-bg');const requests=[];
   const {c,messages}=browser(d,{ME:{id:1,name:'Designer',role},currentRole:role==='admin'?'admin':'designer',openDrawer:async()=>{},currentCase:null,v95DrawerSeq:{now:()=>1},ENDED_STATUS_KEYS:new Set(['done','closed','cancelled']),FINAL_STATUS_KEYS:new Set(['done','closed']),isCancelled:c=>c.status==='cancelled',STATUSES:[],confirm:()=>true,api:{cases:{async uncancel(id){requests.push(id);}}},reloadAllCases:async()=>{},refreshAll(){},v90MarkSelected(){},v90MountPanel(){}});
-  vm.runInContext(section('function v71CanCancel(c)','let v71Reason =')+section('const _v37OrigOpenDrawer =','async function v37ReopenCase(c)')+section('function v71InjectDrawerBtn(c)','// 關閉抽屜／切換頁面'),c);
+  vm.runInContext(section('function v2Outcome(c)','function ymdIso(dt)')+section('function v71CanCancel(c)','let v71Reason =')+section('const _v37OrigOpenDrawer =','async function v37ReopenCase(c)')+section('function v71InjectDrawerBtn(c)','// 關閉抽屜／切換頁面'),c);
   return {c,d,messages,requests,row:{id:'cancelled-fixture',name:'Cancelled project',status:'cancelled',archived:true,_designerId:owner?1:2,designer:owner?'Designer':'Other',_collaboratorIds:owner?[]:[1],collaborators:owner?[]:['Designer']}};
 }
 for(const [role,owner,allowed] of [['admin',false,true],['member',true,true],['member',false,false],['observer',true,false]])await test('F05 cancelled restore permission for '+role+(owner?' primary':' collaborator'),async()=>{

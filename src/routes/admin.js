@@ -67,6 +67,16 @@ router.post('/factory-reset', async (req, res) => {
     await prisma.$transaction(async (tx) => {
       // Cases-related (these all cascade-delete via Prisma onDelete: Cascade,
       // but be explicit so any future schema changes don't break this).
+      // REPORTS-P1-A: delivery evidence is append-only; an explicit full reset opens the
+      // transaction-local purge switch and removes it before cases (RESTRICT FK).
+      await tx.$queryRawUnsafe("SELECT set_config('design_pm.allow_delivery_purge', 'on', true)");
+      await tx.scheduleRequest.deleteMany({}); // REPORTS-P2-D1a：改期申請同屬只增歷史
+      // REPORTS-P2-D1b：封存／復工申請與工作週期同屬只增歷史；交付紀錄引用週期，週期須在交付之後刪除。
+      // 案件的目前週期／待決指標外鍵為 deferred NO ACTION，整張圖在同一交易內刪完即可提交。
+      await tx.lifecycleRequest.deleteMany({});
+      await tx.deliverySubmission.deleteMany({}); // REPORTS-P1-C1：送審依據同屬只增證據
+      await tx.deliveryRecord.deleteMany({});
+      await tx.caseCycle.deleteMany({}); // REPORTS-P2-D1b
       await tx.changeLog.deleteMany({});
       await tx.transferLog.deleteMany({});
       await tx.notification.deleteMany({});
@@ -95,6 +105,17 @@ router.post('/factory-reset', async (req, res) => {
       for (const h of baseline) {
         await tx.hotel.create({ data: h });
       }
+      // REPORTS-P3-E1a：報表來源版本只增；全站重置後舊歷史已無對應資料，在同一交易內清除後，對重置後的資料
+      // 重新建立 baseline 並重設 coverage（之前的期間一律為「來源資料不足」）。必須在所有刪除與重建之後。
+      // baseline 只在明確 purge 開啟且舊事件已清空時允許重建（失敗則整個重置回滾）。
+      await tx.$queryRawUnsafe("SELECT set_config('design_pm.allow_report_purge', 'on', true)");
+      // REPORTS-P3-E1b：報告快照先清（不可變，只在同一明確 purge 內刪除），再清來源事件與重建 baseline。
+      // REPORTS-P3-E3：自動初版 job 指向快照（外鍵 NO ACTION），須先清；排程狀態保留，coverage 改變後會自動暫停，待維運明確重新初始化。
+      await tx.$executeRawUnsafe('DELETE FROM "report_job_runs"');
+      await tx.$executeRawUnsafe('DELETE FROM "report_snapshots"');
+      await tx.$executeRawUnsafe('DELETE FROM "report_source_events"');
+      await tx.$executeRawUnsafe('SELECT "report_source_baseline"()');
+      await tx.$queryRawUnsafe("SELECT set_config('design_pm.allow_report_purge', 'off', true)");
     });
 
     res.json({

@@ -62,7 +62,26 @@ export function validateRuntimeConfig(env = process.env) {
   if (!/^\d+$/.test(rawPort) || !Number.isSafeInteger(port) || port < 1 || port > 65535) {
     fail('PORT', 'set an integer from 1 to 65535');
   }
-  return Object.freeze({ production, jwtSecret, databaseUrl, appBaseUrl, port });
+  const workReportScheduler = validateWorkReportScheduler(env);
+  return Object.freeze({ production, jwtSecret, databaseUrl, appBaseUrl, port, workReportScheduler });
+}
+
+// REPORTS-P3-E3: automatic initial work reports. Off unless exactly "true"; enabling requires an explicit real start date
+// (the first enabled run persists it as the lower bound; only periods due on/after it are scheduled).
+export function validateWorkReportScheduler(env = process.env) {
+  const flag = env.WORK_REPORT_SCHEDULER_ENABLED;
+  if (flag !== undefined && flag !== 'true' && flag !== 'false') fail('WORK_REPORT_SCHEDULER_ENABLED', 'use true or false (unset means false)');
+  const raw = env.WORK_REPORT_SCHEDULER_START_DATE;
+  let startDate = null;
+  if (raw !== undefined && raw !== '') {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    const t = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
+    if (!m || +m[1] < 2000 || +m[1] > 2100 || t.getUTCMonth() !== +m[2] - 1 || t.getUTCDate() !== +m[3]) fail('WORK_REPORT_SCHEDULER_START_DATE', 'use a real Asia/Taipei calendar date YYYY-MM-DD');
+    startDate = raw;
+  }
+  const enabled = flag === 'true';
+  if (enabled && !startDate) fail('WORK_REPORT_SCHEDULER_START_DATE', 'set the first scheduled date explicitly before enabling the scheduler');
+  return Object.freeze({ enabled, startDate });
 }
 
 export function validateOperatorPassword(value, field = 'SEED_ADMIN_PASSWORD') {

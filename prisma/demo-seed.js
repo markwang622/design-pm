@@ -9,7 +9,10 @@ import { DatabaseIdentityError, validateDemoResetConfig, assertDemoDatabase } fr
 import { taipeiCalendarDay } from '../src/services/analytics.js';
 
 async function wipe(tx) {
-  for (const model of ['meetingAttendee', 'meeting', 'businessTrip', 'vacation', 'shoot', 'changeLog', 'transferLog', 'notification', 'case', 'staff', 'hotel', 'requestUnit']) {
+  // REPORTS-P1-A: delivery evidence is append-only; this explicit Demo reset opens the
+  // transaction-local purge switch so it can be removed before cases (RESTRICT FK).
+  await tx.$queryRawUnsafe("SELECT set_config('design_pm.allow_delivery_purge', 'on', true)");
+  for (const model of ['meetingAttendee', 'meeting', 'businessTrip', 'vacation', 'shoot', 'scheduleRequest', 'lifecycleRequest', 'deliverySubmission', 'deliveryRecord', 'caseCycle', 'changeLog', 'transferLog', 'notification', 'case', 'staff', 'hotel', 'requestUnit']) {
     await tx[model].deleteMany({});
   }
   // deploymentIdentity is intentionally excluded and is never modified.
