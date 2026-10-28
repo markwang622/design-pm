@@ -96,7 +96,10 @@
     const metric = (label, m) => { const t = countText(m); out.push(csvRow([label, t.state === 'total' ? raw(t.value) : '', m?.knownSubtotal != null ? raw(String(m.knownSubtotal)) : '', t.state === 'total' ? '' : t.note])); };
     metric('列入案件', sum.caseCount); metric('期間在辦', sum.activeCaseCount); metric('本期完成', sum.completedInPeriod);
     for (const g of (sum.deliveries?.period || [])) out.push(csvRow([`本期交付 ${kindLabel(g.kind, g.unit)}`, g.total != null ? raw(String(g.total)) : '', raw(String(g.knownSubtotal)), g.total != null ? '' : '已知部分']));
-    if (sc.status === 'insufficient') out.push(csvRow(['說明', '期末來源資料不足：沒有可重建的明細，數字為未知，不代表沒有工作']));
+    if (sc.status === 'insufficient') {
+      out.push(csvRow(['說明', '期末來源資料不足：沒有可重建的明細，數字為未知，不代表沒有工作']));
+      out.push(csvRow(['說明', '歷史追蹤起點（來源版本起點）晚於本期期末；原案件資料仍保留；修訂版無法還原當時沒有記錄的期末狀態']));
+    }
     out.push('');
     // 種類×單位各自一欄；不同單位不合併
     const pairs = [], seen = new Set();
@@ -173,7 +176,38 @@
   }
   function shapeError() { const e = new Error('回應格式異常'); e.wrShape = true; return e; }
 
-  window.WorkReportsUI = Object.freeze({ countText, safeText, csvCell, buildCsv, fileName, buildDisplay, orderedRows });
+  // REPORTS-P3-E3a 可用性：已產生的期間依「最新版本」保存的 sourceCompleteness；缺值或未知值誠實標「完整性待確認」。
+  // 尚未產生的期間依目前的歷史追蹤起點（periods.coverage.coverageStart）預估：C < 起點＝只會資料不足（不提供產生）；
+  // S < 起點 ≤ C＝部分可重建；起點 ≤ S 只代表時間上涵蓋（期間內刪除的案件仍可能使報告只有部分）。
+  // 舊伺服器沒有 coverage 欄位時不預判、不擋產生，維持原行為。
+  const AVAIL = { complete: '可檢視', partial: '部分可重建', insufficient: '資料不足' };
+  function versionAvailability(v) {
+    const st = v && Object.prototype.hasOwnProperty.call(AVAIL, v.sourceCompleteness) ? v.sourceCompleteness : null;
+    return { state: st || 'unconfirmed', text: st ? AVAIL[st] : '完整性待確認' };
+  }
+  const US_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;   // 同格式才能直接比大小
+  function preAvailability(period, coverage) {
+    if (!period) return null;
+    if (!period.ended) return { state: 'not_ended', block: true, text: `期間尚未結束（${period.endDateExclusive} 起才能產生）。` };
+    if (!coverage || typeof coverage !== 'object' || !('coverageStart' in coverage)) return { state: 'unknown', block: false, text: '' };
+    const cov = coverage.coverageStart, S0 = period.startInstant, C = period.cutoffInstant;
+    if (cov == null) return { state: 'no_coverage', block: true, text: '系統尚未建立歷史追蹤起點，目前無法產生報告。' };
+    if (!US_ISO.test(String(cov)) || !US_ISO.test(String(S0)) || !US_ISO.test(String(C))) return { state: 'unknown', block: false, text: '' };
+    if (C < cov) return { state: 'insufficient', block: true, cov,
+      text: `本期期末（${showTime(C)}）早於歷史追蹤起點（${showTime(cov)}，台北時間），產生的報告只會是「資料不足」，所以這裡不提供產生。原案件資料仍保留，這不代表本期沒有工作。` };
+    if (S0 < cov) return { state: 'partial', block: false, cov,
+      text: `歷史追蹤起點（${showTime(cov)}，台北時間）落在本期之中：產生後只會有起點之後可證明的「已知部分」，不是完整總數。` };
+    return { state: 'covered', block: false, cov, text: '歷史追蹤起點早於本期開始，時間上涵蓋整期；若期間內有案件被刪除，仍可能只有部分可重建。' };
+  }
+  const PRE_TAG = { insufficient: '尚未產生・預計資料不足', partial: '尚未產生・預計部分可重建', covered: '尚未產生', no_coverage: '尚未產生・無追蹤起點', unknown: '尚未產生' };
+  function periodTag(period, coverage) {
+    const latest = latestVersion(period?.versions);
+    if (latest) return '已產生・' + versionAvailability(latest).text;
+    if (!period?.ended) return '';
+    return PRE_TAG[preAvailability(period, coverage).state] || '';
+  }
+
+  window.WorkReportsUI = Object.freeze({ countText, safeText, csvCell, buildCsv, fileName, buildDisplay, orderedRows, versionAvailability, preAvailability, periodTag });
 
   // ── 權限、狀態與世代 ─────────────────────────────────────────────────────────────────────────────
   const me = () => (typeof ME !== 'undefined' && ME) || {};
@@ -185,7 +219,7 @@
     return !!m.id && m.role === 'admin' && role() === 'admin' && !viewingAs() && !document.body?.classList?.contains('observer-mode');
   }
   const actorKey = () => `${me().id || 0}|${me().role || ''}`;
-  const fresh = () => ({ actor: actorKey(), gen: 0, kind: 'week', anchor: null, periods: null, start: null, versions: [], selectedId: null,
+  const fresh = () => ({ actor: actorKey(), gen: 0, kind: 'week', anchor: null, periods: null, coverage: null, start: null, versions: [], selectedId: null,
     filter: { hotel: '', staffId: '' }, sched: null, schedGen: 0, base: new Map(), display: null, displayKey: null, phase: 'idle', message: '', errorRetry: null,
     op: null, busy: false, needsReload: false, reviseOpen: false, reviseDraft: '', opMessage: '', sort: { key: 'id', dir: 'ascending' }, page: 1, expanded: new Set(), caseNote: '' });
   let S = fresh();
@@ -210,7 +244,7 @@
   function teardown() {
     bump();
     const keepOp = S.actor === actorKey() ? S.op : null;
-    S.base = new Map(); S.display = null; S.displayKey = null; S.periods = null; S.versions = []; S.phase = 'idle'; S.expanded = new Set(); S.caseNote = '';
+    S.base = new Map(); S.display = null; S.displayKey = null; S.periods = null; S.coverage = null; S.versions = []; S.phase = 'idle'; S.expanded = new Set(); S.caseNote = '';
     S.schedGen++; S.sched = null;
     S.op = keepOp; if (!keepOp) S.busy = false;
     const v = rootEl(); if (v) v.innerHTML = '';
@@ -269,13 +303,14 @@
   }
   async function loadPeriods() {
     bump(); const t = token();
-    S.periods = null; S.display = null; S.displayKey = null; S.phase = 'loading'; S.message = '載入期間中…'; S.errorRetry = null; render();
+    S.periods = null; S.coverage = null; S.display = null; S.displayKey = null; S.phase = 'loading'; S.message = '載入期間中…'; S.errorRetry = null; render();
     const to = S.anchor, from = shiftDate(to, S.kind, -(SPAN[S.kind] - 1));
     try {
       const data = await getJson(`${API}/periods?kind=${encodeURIComponent(S.kind)}&from=${from}&to=${to}`);
       if (!valid(t)) return;
       if (!data || !Array.isArray(data.periods)) throw shapeError();
       S.periods = data.periods;
+      S.coverage = data.coverage && typeof data.coverage === 'object' ? data.coverage : null;   // 舊 API 沒有此欄位 → null（不預判）
       const keep = S.start && S.periods.find(p => p.startDate === S.start);
       const ended = S.periods.filter(p => p.ended);
       const chosen = keep || ended.at(-1) || S.periods.at(-1) || null;
@@ -350,7 +385,7 @@
   }
   function startGenerate() {
     const p = currentPeriod();
-    if (!p || !p.ended || S.busy || S.op || S.versions.length) return;
+    if (!p || !p.ended || S.busy || S.op || S.versions.length || preAvailability(p, S.coverage)?.block) return;
     send({ action: 'generate', url: `${API}/generate`, body: { periodKind: S.kind, startDate: p.startDate, idempotencyKey: newKey() }, ctx: { kind: S.kind, start: p.startDate } });
   }
   function submitRevision() {
@@ -503,7 +538,12 @@
   }
   function statusLine() {
     if (S.phase === 'loading') return S.message;
-    if (S.phase === 'ready' && S.display) { const s = S.display.snapshot; return `已載入 ${s.label} ${s.revision === 1 ? '初版' : '修訂版 ' + s.revision}${S.display.filter ? '（篩選檢視）' : ''}`; }
+    // REPORTS-P3-E3a：選取期間／版本的可用性寫在選單外（窄螢幕的原生 select 會截斷 option 尾端）。
+    if (S.phase === 'ready' && S.display) {
+      const s = S.display.snapshot, a = versionAvailability({ sourceCompleteness: S.display.payload?.sourceCompleteness?.status || s.sourceCompleteness });
+      return `已載入 ${s.label} ${s.revision === 1 ? '初版' : '修訂版 ' + s.revision}${S.display.filter ? '（篩選檢視）' : ''} · 可用性：${a.text}`;
+    }
+    if (S.phase === 'no-report') { const p = currentPeriod(); if (p) return `${p.label} · ${p.ended ? periodTag(p, S.coverage) || '尚未產生' : '期間尚未結束'}`; }
     return '';
   }
   function head() {
@@ -537,9 +577,9 @@
     const p = currentPeriod(), list = S.periods || [], i = list.findIndex(x => x.startDate === S.start);
     const loading = S.phase === 'loading';
     const kinds = Object.entries(KIND_LABEL).map(([k, l]) => `<button type="button" class="wb-button" data-act="kind" data-kind="${k}" data-focus="kind-${k}" aria-pressed="${S.kind === k}">${l}</button>`).join('');
-    const periodOpts = list.map(x => `<option value="${esc(x.startDate)}" ${x.startDate === S.start ? 'selected' : ''}>${esc(x.label)}（${esc(x.startDate)}${x.ended ? '' : '，進行中'}）${x.versions?.length ? ' · 已有報告' : ''}</option>`).join('');
+    const periodOpts = list.map(x => `<option value="${esc(x.startDate)}" ${x.startDate === S.start ? 'selected' : ''}>${esc(x.label)}（${esc(x.startDate)}${x.ended ? '' : '，進行中'}）${periodTag(x, S.coverage) ? ' · ' + esc(periodTag(x, S.coverage)) : ''}</option>`).join('');
     const versions = S.versions.slice().sort((a, b) => a.revision - b.revision || (a.generatedAt < b.generatedAt ? -1 : 1));
-    const verOpts = versions.map(v => `<option value="${esc(v.id)}" ${v.id === S.selectedId ? 'selected' : ''}>${v.revision === 1 ? '初版' : '修訂版 ' + v.revision} · ${esc(showTime(v.generatedAt))}${v.revisionReason ? ' · ' + esc(v.revisionReason) : ''}${v.trigger === 'scheduled' ? ' · 系統自動彙整' : ''}</option>`).join('');
+    const verOpts = versions.map(v => `<option value="${esc(v.id)}" ${v.id === S.selectedId ? 'selected' : ''}>${v.revision === 1 ? '初版' : '修訂版 ' + v.revision} · ${esc(showTime(v.generatedAt))}${v.revisionReason ? ' · ' + esc(v.revisionReason) : ''}${v.trigger === 'scheduled' ? ' · 系統自動彙整' : ''} · ${esc(versionAvailability(v).text)}</option>`).join('');
     const base = S.selectedId ? S.base.get(S.selectedId) : null, bp = base?.payload;
     const hotelOpts = bp ? bp.hotelOrder.map(h => `<option value="${esc(h.key)}" ${S.filter.hotel === h.key ? 'selected' : ''}>${esc(h.name || hotelGroupFallback(h.key))}${h.active === false ? '（停用）' : ''}${h.key.startsWith('unmatched:') ? '（未對應館名）' : ''}</option>`).join('') : '';
     const staffOpts = bp ? bp.staff.map(s => `<option value="${s.id}" ${String(S.filter.staffId) === String(s.id) ? 'selected' : ''}>${esc(s.name || '#' + s.id)}${s.active === false ? '（已停用）' : ''}${s.asOf === 'knowledge_cutoff' ? '（期後資料）' : ''}</option>`).join('') : '';
@@ -547,7 +587,12 @@
     const latest = latestVersion(S.versions);
     let primary;
     if (!p) primary = '';
-    else if (!S.versions.length) primary = `<button type="button" class="wb-button wr-primary" data-act="generate" data-focus="generate" ${!p.ended || S.busy || S.op || loading ? 'disabled' : ''}>${icon('plus')}產生本期報告</button>${p.ended ? '' : `<span class="wb-help wr-why">期間尚未結束（${esc(p.endDateExclusive)} 起才能產生）</span>`}`;
+    else if (!S.versions.length) {
+      const pre = preAvailability(p, S.coverage);
+      const why = !p.ended ? `期間尚未結束（${esc(p.endDateExclusive)} 起才能產生）` : pre.state === 'insufficient' ? '本期早於歷史追蹤起點，產生只會是資料不足'
+        : pre.state === 'no_coverage' ? '尚未建立歷史追蹤起點' : pre.state === 'partial' ? '預計部分可重建（只有已知部分）' : '';
+      primary = `<button type="button" class="wb-button wr-primary" data-act="generate" data-focus="generate" ${pre.block || S.busy || S.op || loading ? 'disabled' : ''}>${icon('plus')}產生本期報告</button>${why ? `<span class="wb-help wr-why">${why}</span>` : ''}`;
+    }
     else primary = `<button type="button" class="wb-button wr-primary" data-act="revise-open" data-focus="revise-open" ${S.busy || S.op || loading || S.reviseOpen ? 'disabled' : ''}>${icon('plus')}建立修訂版</button>`;
     const csvReady = S.phase === 'ready' && S.display && S.displayKey === selectionKey();
     return `<section class="wb-surface wr-controls" aria-label="選擇報告">
@@ -570,6 +615,8 @@
     if (S.reviseOpen && latest && !S.op) {
       parts.push(`<div class="wr-revise"><label class="wr-field wr-grow"><span>修訂原因（必填，請寫出具體原因）</span><textarea data-field="reason" data-focus="reason" rows="2" maxlength="500">${esc(S.reviseDraft)}</textarea></label>
         <p class="wb-help">將以目前最新版本（${latest.revision === 1 ? '初版' : '修訂版 ' + latest.revision}）為基礎建立新版本；舊版本內容與雜湊不會改變。</p>
+        ${latest.sourceCompleteness === 'insufficient' ? `<p class="wb-help wr-avail-note">${icon('alert')}這份報告資料不足，是因為本期期末早於歷史追蹤起點；建立修訂版不會還原當時沒有記錄的期末狀態。</p>`
+          : latest.sourceCompleteness === 'partial' ? `<p class="wb-help wr-avail-note">${icon('alert')}這份報告只有部分可重建；建立修訂版不會補回歷史追蹤起點之前沒有記錄的資料。</p>` : ''}
         <div class="wr-row"><button type="button" class="wb-button wr-primary" data-act="revise-submit" data-focus="revise-submit" ${S.busy ? 'disabled' : ''}>送出修訂</button><button type="button" class="wb-button" data-act="revise-cancel" data-focus="revise-cancel" ${S.busy ? 'disabled' : ''}>取消</button></div></div>`);
     }
     if (S.op && S.op.state === 'unknown') parts.push(`<div class="wr-row"><button type="button" class="wb-button wr-primary" data-act="op-retry" data-focus="op-retry">${icon('refresh')}以同一請求重試</button><button type="button" class="wb-button" data-act="op-abandon" data-focus="op-abandon">重新載入版本</button></div>`);
@@ -584,7 +631,10 @@
     if (S.phase === 'empty') return `<div class="wb-surface wr-state">${icon('info')}${esc(S.message)}</div>`;
     if (S.phase === 'no-report') {
       const p = currentPeriod();
-      return `<div class="wb-surface wr-state">${icon('info')}${p && p.ended ? '這個期間尚未產生報告。按「產生本期報告」建立初版。' : '這個期間尚未結束，結束後才能產生報告。'}</div>`;
+      if (!p || !p.ended) return `<div class="wb-surface wr-state">${icon('info')}這個期間尚未結束，結束後才能產生報告。</div>`;
+      const pre = preAvailability(p, S.coverage);
+      if (pre.block) return `<div class="wb-surface wr-state wr-avail wr-avail-${esc(pre.state)}">${icon('alert')}這個期間尚未產生報告。${esc(pre.text)}</div>`;
+      return `<div class="wb-surface wr-state wr-avail wr-avail-${esc(pre.state)}">${icon('info')}這個期間尚未產生報告。按「產生本期報告」建立初版。${pre.text ? `<p class="wb-help">${esc(pre.text)}</p>` : ''}</div>`;
     }
     if (S.phase !== 'ready' || !S.display) return '';
     const d = S.display, p = d.payload;
@@ -595,7 +645,7 @@
     const insufficient = sc.status === 'insufficient';
     const status = `<div class="wr-complete wr-complete-${esc(sc.status)}">${icon(sc.status === 'complete' ? 'check' : 'alert')}<div><strong>${esc(COMPLETENESS[sc.status] || sc.status)}</strong>
       ${(sc.reasons || []).length ? `<ul>${sc.reasons.map(r => `<li>${esc(REASONS[r] || r)}</li>`).join('')}</ul>` : ''}
-      ${insufficient ? '<p>期末來源資料不足：沒有可重建的明細，所有數字為未知，<b>不代表這期沒有工作</b>。</p>' : sc.status === 'partial' ? '<p>只顯示可證明的「已知部分」，不是完整總數。</p>' : '<p>來源版本涵蓋整個期間；舊制案件的數量仍可能是未知。</p>'}
+      ${insufficient ? '<p>期末來源資料不足：沒有可重建的明細，所有數字為未知，<b>不代表這期沒有工作</b>。</p>' + insufficientNote(s, sc) : sc.status === 'partial' ? '<p>只顯示可證明的「已知部分」，不是完整總數。</p>' : '<p>來源版本涵蓋整個期間；舊制案件的數量仍可能是未知。</p>'}
       ${(sc.deletedCaseIds || []).length ? `<p>期間內被刪除的案件：${esc(sc.deletedCaseIds.join('、'))}</p>` : ''}</div></div>`;
     const meta = `<dl class="wr-meta">
       <div><dt>期間</dt><dd>${esc(s.label)}（${esc(s.startDate)} 至 ${esc(s.endDateExclusive)} 前）</dd></div>
@@ -610,6 +660,12 @@
     const cards = `<div class="wr-cards">${card('列入案件', sum.caseCount)}${card('本期完成', sum.completedInPeriod)}${deliveries}
       ${!insufficient && !(sum.deliveries?.period || []).length ? `<div class="wr-card"><small>本期交付</small><strong>${sum.deliveries?.status === 'complete' ? '0' : '—'}</strong><span class="wr-note">${sum.deliveries?.status === 'complete' ? '沒有交付紀錄' : '沒有已知紀錄（另有未知）'}</span></div>` : ''}</div>`;
     return `<section class="wb-surface wr-overview" aria-label="報告摘要">${status}${meta}${cards}</section>`;
+  }
+  function insufficientNote(s, sc) {
+    const cov = sc.coverageStart || s.coverageStart;
+    const when = cov ? `歷史追蹤起點是 ${esc(showTime(cov))}（台北時間），晚於本期期末 ${esc(showTime(s.cutoffInstant))}。` : '歷史追蹤起點晚於本期期末。';
+    return `<p>${when}系統從起點之後才逐筆記錄案件的變化，所以無法還原本期期末當時的狀態。</p>
+      <p>原案件資料仍保留在系統中，沒有遺失。這份報告與 CSV 照原樣保留供追溯；之後再建立修訂版，也無法還原當時沒有記錄的期末狀態。</p>`;
   }
   function bars(items, caption, emptyText) {
     if (!items.length) return `<figure class="wr-chart"><figcaption>${esc(caption)}</figcaption><p class="wb-help">${esc(emptyText)}</p></figure>`;

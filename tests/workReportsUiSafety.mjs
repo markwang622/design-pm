@@ -419,4 +419,89 @@ await test('REPORTS-P3-E3 scheduled versions read 系統自動彙整 with no per
   assert.equal(m.scheds().length, 0);
 });
 
+// REPORTS-P3-E3a availability: period/version labels follow the latest stored sourceCompleteness; before generating, the
+// current coverage start (periods.coverage) predicts insufficient (C < coverage, generation withheld), partial
+// (S < coverage ≤ C) or time-covered (coverage ≤ S). An old server without the field keeps the previous behaviour.
+const COV = '2026-10-28T06:19:40.766679Z';   // production: Taipei 2026-10-28 14:19:40.766679
+const per = (start, versions = [], ended = true) => { const x = RP.periodFromStart('week', start); return { ...x, ...RP.periodInstants(x), ended, versions }; };
+const optTexts = (pg, f) => [...(pg.q(`[data-field="${f}"]`)?.querySelectorAll('option') || [])].map(o => o.textContent);   // inert DOM: read each option
+const covResp = (coverage, periods) => ({ kind: 'week', rulesVersion: P.RULES_VERSION, ...(coverage === undefined ? {} : { coverage }), periods });
+
+await test('E3a pure availability: three stored states, unknown metadata, latest revision wins; pre-generation boundaries, not ended, no coverage, old API', async () => {
+  const p = page({ routes: baseRoutes() }), U = p.c.WorkReportsUI;
+  for (const [v, state, text] of [[{ sourceCompleteness: 'insufficient' }, 'insufficient', '資料不足'], [{ sourceCompleteness: 'partial' }, 'partial', '部分可重建'],
+    [{ sourceCompleteness: 'complete' }, 'complete', '可檢視'], [{}, 'unconfirmed', '完整性待確認'], [{ sourceCompleteness: 'mystery' }, 'unconfirmed', '完整性待確認'], [null, 'unconfirmed', '完整性待確認']]) {
+    const a = U.versionAvailability(v); assert.equal(a.state, state); assert.equal(a.text, text);
+  }
+  const older = { ...V2, generatedAt: '2026-10-26T00:00:00.000000Z' }, newer = { ...VI, generatedAt: '2026-10-27T00:00:00.000000Z', revision: 2 };
+  assert.equal(U.periodTag({ ended: true, versions: [older, newer] }, { coverageStart: COV }), '已產生・資料不足', 'the latest revision decides, not "has versions"');
+  assert.equal(U.periodTag({ ended: true, versions: [newer, { ...older, generatedAt: '2026-10-28T00:00:00.000000Z' }] }, null), '已產生・可檢視');
+  assert.equal(U.periodTag({ ended: true, versions: [{ ...V2, sourceCompleteness: undefined }] }, null), '已產生・完整性待確認');
+  const w = per('2026-10-05'), at = (cov) => U.preAvailability(w, { coverageStart: cov });
+  assert.equal(at('2026-10-11T16:00:00.000001Z').state, 'insufficient', 'C < coverage'); assert.equal(at('2026-10-11T16:00:00.000001Z').block, true);
+  assert.equal(at(w.cutoffInstant).state, 'partial', 'coverage = C is covered at C (backend: coverage ≤ C)'); assert.equal(at(w.cutoffInstant).block, false);
+  assert.equal(at('2026-10-04T16:00:00.000001Z').state, 'partial', 'S < coverage');
+  assert.equal(at(w.startInstant).state, 'covered', 'coverage = S covers the whole period in time'); assert.match(at(w.startInstant).text, /仍可能只有部分/);
+  assert.equal(U.preAvailability(w, { coverageStart: null }).state, 'no_coverage'); assert.equal(U.preAvailability(w, { coverageStart: null }).block, true);
+  for (const old of [null, undefined, {}, 'x']) { const a = U.preAvailability(w, old); assert.equal(a.state, 'unknown'); assert.equal(a.block, false, 'old API: no prediction, no new block'); }
+  assert.equal(U.preAvailability({ ...w, cutoffInstant: '2026-10-11T16:00:00Z' }, { coverageStart: COV }).state, 'unknown', 'an unexpected time format is never guessed');
+  const open = U.preAvailability(per('2026-10-26', [], false), { coverageStart: COV }); assert.equal(open.state, 'not_ended'); assert.equal(open.block, true);
+  assert.equal(U.periodTag(per('2026-10-26', [], false), { coverageStart: COV }), '', 'an unfinished period gets no availability tag');
+});
+
+await test('E3a page: labels by latest version, insufficient explained in plain words, pre-coverage period cannot be generated, partial/covered can', async () => {
+  const W40 = per('2026-09-28'), W42 = { ...per('2026-10-12'), versions: [VI] }, W43 = { ...per('2026-10-19'), versions: [V1, V2] }, W44 = per('2026-10-26', [], false);
+  const p = page({ routes: baseRoutes(call => (call.url.startsWith('/api/work-reports/periods?') ? covResp({ coverageStart: COV, observedAt: '2026-10-28T07:00:00.000000Z' }, [W40, W42, W43, W44].map(x => ({ ...x, versions: [...x.versions] }))) : undefined)) });
+  await p.go();
+  assert.deepEqual(optTexts(p, 'period'), ['2026-W40（2026-09-28） · 尚未產生・預計資料不足', '2026-W42（2026-10-12） · 已產生・資料不足', '2026-W43（2026-10-19） · 已產生・可檢視',
+    '2026-W44（2026-10-26，進行中）'], 'labels follow the latest version; unfinished has no tag; no bare "has a report"');
+  const status = () => p.q('.wr-status').textContent;
+  assert.equal(status(), '已載入 2026-W43 修訂版 2 · 可用性：可檢視', 'availability is written outside the select (390px truncates options)');
+  p.field('version', V1.id); await flush(); assert.equal(status(), '已載入 2026-W43 初版 · 可用性：部分可重建', 'the selected version, not only the latest');
+  p.act('revise-open').click(); await flush(); assert(!p.text().includes('建立修訂版不會'), 'latest version is complete: no availability note on the revision form');
+  p.act('revise-cancel').click(); await flush();
+  const vers = optTexts(p, 'version'); assert.equal(vers.length, 2); assert(vers[0].endsWith(' · 部分可重建') && vers[1].endsWith(' · 可檢視'), 'version options name their availability: ' + vers);
+  // W40: predicted insufficient — disabled, explained, and the handler refuses even if the button were enabled
+  p.field('period', '2026-09-28'); await flush();
+  const gen = p.act('generate'); assert(gen.disabled);
+  const tx = () => p.text().replace(/[\u00a0\u2000-\u200b\u202f]/g, ' ');   // Intl may separate date and time with a thin space
+  for (const s of ['早於歷史追蹤起點', '2026/10/28 14:19', '不提供產生', '原案件資料仍保留', '不代表本期沒有工作']) assert(tx().includes(s), s);
+  assert.equal(status(), '2026-W40 · 尚未產生・預計資料不足');
+  gen.disabled = false; gen.click(); await flush(); assert.equal(p.posts().length, 0, 'no empty report is created');
+  // W42: stored insufficient report — kept readable, CSV available, plain explanation, revision cannot restore
+  p.field('period', '2026-10-12'); await flush();
+  for (const s of ['期末來源資料不足', '歷史追蹤起點是 2026/10/27 08:00', '晚於本期期末', '原案件資料仍保留在系統中，沒有遺失', '也無法還原當時沒有記錄的期末狀態']) assert(tx().includes(s), s);
+  assert(optTexts(p, 'version')[0].endsWith(' · 資料不足')); assert.equal(status(), '已載入 2026-W42 初版 · 可用性：資料不足'); assert(!p.act('csv').disabled, 'the insufficient version stays exportable');
+  const csv = parseCsv(p.c.WorkReportsUI.buildCsv(p.c.WorkReportsUI.buildDisplay(envOf(VI.id), VI.id)).replace(/^﻿/, ''));
+  assert(csv.some(r => r[0] === '說明' && r[1].includes('原案件資料仍保留') && r[1].includes('修訂版無法還原')));
+  p.act('revise-open').click(); await flush(); assert(p.text().includes('建立修訂版不會還原當時沒有記錄的期末狀態'));
+  // W44 unfinished stays unavailable
+  p.act('revise-cancel').click(); p.field('period', '2026-10-26'); await flush(); assert(p.act('generate').disabled); assert(p.text().includes('期間尚未結束'));
+  assert.equal(status(), '2026-W44 · 期間尚未結束');
+  // a partial latest version: the revision form says revising cannot bring back what was never recorded
+  const pp = page({ routes: baseRoutes(call => (call.url.startsWith('/api/work-reports/periods?') ? covResp({ coverageStart: COV }, [{ ...W43, versions: [V1] }]) : undefined)) });
+  await pp.go(); assert.equal(pp.q('.wr-status').textContent, '已載入 2026-W43 初版 · 可用性：部分可重建');
+  pp.act('revise-open').click(); await flush(); assert(pp.text().includes('建立修訂版不會補回歷史追蹤起點之前沒有記錄的資料'));
+  // partial (S < coverage ≤ C) and time-covered (coverage ≤ S): generation offered with an honest expectation
+  const W41 = per('2026-10-05');
+  for (const [cov, want, tag] of [['2026-10-07T00:00:00.000000Z', '已知部分', '尚未產生・預計部分可重建'], ['2026-09-01T00:00:00.000000Z', '時間上涵蓋整期', '尚未產生']]) {
+    const q = page({ routes: baseRoutes(call => {
+      if (call.url.startsWith('/api/work-reports/periods?')) return covResp({ coverageStart: cov }, [{ ...W41, versions: [] }]);
+      if (call.method === 'POST') return Promise.reject(httpError(409, 'report_exists', 'exists'));
+    }) });
+    await q.go();
+    assert.deepEqual(optTexts(q, 'period'), ['2026-W41（2026-10-05） · ' + tag]);
+    assert(!q.act('generate').disabled, want); assert(q.text().includes(want), want);
+    q.act('generate').click(); await flush(); assert.equal(q.posts().length, 1); assert.equal(q.posts()[0].body.startDate, '2026-10-05');
+  }
+  // no coverage row: disabled with the reason
+  const n = page({ routes: baseRoutes(call => (call.url.startsWith('/api/work-reports/periods?') ? covResp({ coverageStart: null }, [{ ...W41, versions: [] }]) : undefined)) });
+  await n.go(); assert(n.act('generate').disabled); assert(n.text().includes('尚未建立歷史追蹤起點'));
+  n.act('generate').disabled = false; n.act('generate').click(); await flush(); assert.equal(n.posts().length, 0);
+  // old API (no coverage field, periods without instants): previous behaviour — generation offered, no prediction claimed
+  const o = page({ routes: baseRoutes(call => (call.url.startsWith('/api/work-reports/periods?') ? covResp(undefined, [{ kind: 'week', startDate: '2026-10-05', endDateExclusive: '2026-10-12', label: '2026-W41', ended: true, versions: [] }]) : undefined)) });
+  await o.go(); assert(!o.act('generate').disabled); assert(o.text().includes('按「產生本期報告」建立初版'));
+  assert(!o.text().includes('預計') && !o.text().includes('不提供產生')); assert.deepEqual(optTexts(o, 'period'), ['2026-W41（2026-10-05） · 尚未產生']);
+});
+
 console.log(JSON.stringify({ workReportsUiTests: passed }));

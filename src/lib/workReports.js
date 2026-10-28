@@ -262,12 +262,16 @@ export function createWorkReportService({ db = prisma, readSources = readReportS
     },
 
     // Read-only: periods (≤ 60) with the meta of existing versions.
+    // REPORTS-P3-E3a: plus the current source coverage start (the same clock read, SELECT only; no snapshot, no write) so the
+    // UI can say before generating whether a period's report could only be insufficient (C < coverage), partial
+    // (S < coverage ≤ C) or covered in time (coverage ≤ S). Additive: existing fields are unchanged; null = no coverage row.
     async periods(kind, from, to) {
       const list = listPeriods(kind, from, to);
-      const [clock] = await db.$queryRawUnsafe(`SELECT ${ts('clock_timestamp()')} AS "now"`);
+      const [clock] = await db.$queryRawUnsafe(`SELECT ${ts('clock_timestamp()')} AS "now",
+        (SELECT ${ts('"coverageStart"')} FROM "report_source_coverage" WHERE "id" = 1) AS "coverageStart"`);
       const rows = await db.$queryRawUnsafe(`SELECT ${META} FROM "report_snapshots" WHERE "periodKind" = $1 AND "startDate" = ANY($2::text[]::date[])
         ORDER BY "startDate", "rulesVersion", "revision"`, kind, list.map(p => p.startDate));
-      return { kind, rulesVersion: RULES_VERSION, periods: list.map(p => {
+      return { kind, rulesVersion: RULES_VERSION, coverage: { coverageStart: clock.coverageStart ?? null, observedAt: clock.now }, periods: list.map(p => {
         const { startInstant, cutoffInstant } = periodInstants(p);
         return { ...p, startInstant, cutoffInstant, ended: cutoffInstant <= clock.now, versions: rows.filter(r => r.startDate === p.startDate).map(serializeMeta) };
       }) };

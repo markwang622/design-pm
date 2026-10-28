@@ -322,6 +322,18 @@ score(case, role) = LEVEL_WEIGHT[level]
 ### `GET /api/work-reports/periods?kind=&from=&to=`
 最多 60 期；每期含 `startInstant`、`cutoffInstant`、`ended` 與已有版本的 meta。
 
+另附唯讀的 `coverage: { coverageStart, observedAt }`（REPORTS-P3-E3a，附加欄位，既有欄位不變）。它與 DB 時鐘在同一個查詢中讀取，只 SELECT `report_source_coverage` 的 id 1，不建立快照、不寫入。`coverageStart` 為 null 表示尚未建立歷史追蹤起點。
+
+畫面用它在產生前預估可用性：
+
+| 條件 | 預估 | 畫面行為 |
+|---|---|---|
+| C < coverageStart | 只會資料不足 | 不提供產生 |
+| S < coverageStart ≤ C | 部分可重建 | 可產生 |
+| coverageStart ≤ S | 時間上涵蓋整期 | 可產生；期間內刪除的案件仍可能使報告只有部分 |
+
+舊伺服器沒有這個欄位時，畫面不預估，也不阻擋。發布規則與排程契約都不變。
+
 ### `GET /api/work-reports?kind=&start=`
 該期間所有版本的 meta（依規則版本、revision 排序）。
 

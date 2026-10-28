@@ -51,6 +51,9 @@
 .view[data-view="work-reports"] .wr-complete p{padding-left:0}
 .view[data-view="work-reports"] .wr-complete-complete>.wr-ico{color:var(--dk-green,#2f6f47)}
 .view[data-view="work-reports"] .wr-complete-partial>.wr-ico{color:var(--dk-amber,#8a5a00)}
+/* REPORTS-P3-E3a 可用性：生成前預估與資料不足說明（沿用既有色票） */
+.view[data-view="work-reports"] .wr-avail p{flex-basis:100%;margin:2px 0 0}
+.view[data-view="work-reports"] .wr-avail-insufficient>.wr-ico,.view[data-view="work-reports"] .wr-avail-no_coverage>.wr-ico,.view[data-view="work-reports"] .wr-avail-note .wr-ico{color:var(--dk-amber,#8a5a00)}
 .view[data-view="work-reports"] .wr-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:6px 16px;margin:12px 0;font-size:13px}
 .view[data-view="work-reports"] .wr-meta>div{min-width:0}
 .view[data-view="work-reports"] .wr-meta dt{color:var(--hf-muted,#526983);font-size:12px}

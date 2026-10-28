@@ -304,4 +304,26 @@ await test('early service review ②: a full reset between revise\'s target read
   assert(!calls.some(c => /INSERT/.test(c)));
 });
 
+await test('E3a periods: additive read-only coverage metadata (real DB clock + report_source_coverage id 1); existing fields unchanged; no coverage row = null; never writes', async () => {
+  const { createWorkReportService } = await import(root + '/src/lib/workReports.js');
+  for (const coverageStart of ['2026-10-28T06:19:40.766679Z', null]) {
+    const sqls = [];
+    const fakeDb = { async $queryRawUnsafe(sql, ...params) {
+      sqls.push(sql);
+      if (/clock_timestamp\(\)/.test(sql)) return [{ now: '2026-10-28T07:00:00.000001Z', coverageStart }];
+      if (/FROM "report_snapshots"/.test(sql)) return [];
+      throw Error('unexpected query: ' + sql);
+    }, $transaction() { throw Error('must not open a transaction'); }, $executeRawUnsafe() { throw Error('must not write'); } };
+    const svc = createWorkReportService({ db: fakeDb, readSources: () => { throw Error('must not read sources'); } });
+    const r = await svc.periods('week', '2026-10-12', '2026-10-26');
+    assert.deepEqual(Object.keys(r), ['kind', 'rulesVersion', 'coverage', 'periods'], 'one additive top-level field');
+    assert.deepEqual(r.coverage, { coverageStart, observedAt: '2026-10-28T07:00:00.000001Z' });
+    assert.deepEqual(r.periods.map(p => [p.startDate, p.startInstant, p.cutoffInstant, p.ended, p.versions.length]),
+      [['2026-10-12', '2026-10-11T16:00:00.000000Z', '2026-10-18T16:00:00.000000Z', true, 0], ['2026-10-19', '2026-10-18T16:00:00.000000Z', '2026-10-25T16:00:00.000000Z', true, 0],
+        ['2026-10-26', '2026-10-25T16:00:00.000000Z', '2026-11-01T16:00:00.000000Z', false, 0]], 'period fields and ended keep their meaning');
+    assert.equal(sqls.length, 2, 'no extra query: coverage rides on the clock read');
+    assert(/FROM "report_source_coverage" WHERE "id" = 1/.test(sqls[0]) && sqls.every(s => /^\s*SELECT/i.test(s) && !/INSERT|UPDATE|DELETE|nextval|pg_advisory/i.test(s)), 'SELECT only');
+  }
+});
+
 console.log(JSON.stringify({ workReportPureTests: passed }));
