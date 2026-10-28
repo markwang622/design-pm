@@ -207,7 +207,127 @@
     return PRE_TAG[preAvailability(period, coverage).state] || '';
   }
 
-  window.WorkReportsUI = Object.freeze({ countText, safeText, csvCell, buildCsv, fileName, buildDisplay, orderedRows, versionAvailability, preAvailability, periodTag });
+  // ── REPORTS-P4-E4 歷史工作回顧（依現有資料）：純函式（篩選、摘要、排序、CSV）。與後端 src/lib/workHistory.js 同一演算法，
+  // 篩選只作用在同一次讀取的結果上，不重新取資料。這不是正式報告：沒有快照 ID、C／K、雜湊或發布者。
+  const H_STATUS = { todo: '尚未開始', wait: '等待資料／協調中', doing: '設計製作中', review: '待需求單位確認', review_done: '待主管核可', print: '製作／送印中',
+    closed: '已結案', done: '已結案', cancelled: '已取消' };
+  const H_EVIDENCE = { case_log: '主案進度', item_log: '子項目進度', delivery: '交付紀錄', status_change: '狀態變更紀錄', cycle_overlap: '工作週期', cycle_completed: '完成的工作週期', closed_on: '結案日' };
+  const H_INFERRED = { dates_open_ended: '日期區間推估（派發日起，尚未結束）', dates_until_closed: '日期區間推估（派發日至結案日）',
+    dates_until_cancelled: '日期區間推估（派發日至取消日）', dates_before_lifecycle_adoption: '日期區間推估（導入工作週期管理前）' };
+  const H_UNRESOLVED = { closed_without_end_date: '已結案但沒有結案日', cancelled_without_end_date: '已取消但沒有取消日', archived_without_end_date: '已收起但沒有結束日期',
+    end_before_start: '結束日早於開始日', start_date_missing: '缺開始日期' };
+  const H_CLOSURE = { cycle_completed: '完成的工作週期', status_change: '狀態轉為結案的紀錄', closed_on: '目前登載的結案日' };
+  const H_DELIVERY = { recorded: '已記錄（明細制涵蓋整期）', partial: '已記錄部分（另可能有未記錄）', none_recorded: '本期無交付紀錄（明細制涵蓋整期）', unknown: '未知（沒有可證明的紀錄）' };
+  const H_LIMITS = { undated_logs: '有日期無效或缺日期的日誌（未計入本期）', logs_without_id: '部分日誌沒有識別碼，無法穩定去重', progress_truncated: '進度只預覽部分筆數（總數仍完整計算）',
+    future_dated_logs: '有日期晚於查閱日的日誌（視為計畫，未計入）', future_dated_deliveries: '有交付日期晚於查閱日的紀錄（尚未發生，未計入）', closed_on_after_observation: '登載的結案日晚於查閱日（尚未發生，不算結案紀錄）', delivery_recorded_after_period: '有期後才登錄的交付', delivery_cycle_attribution_unknown: '部分交付的工作週期歸屬不明',
+    records_adopted_during_or_after_period: '本期內或之後才導入交付明細，之前的產出未知', legacy_delivery_mode: '舊制（未採交付明細），產出可能未記錄',
+    legacy_counts_period_unknown: '有舊制需求／產出總數（期間不明，未計入本期）', inferred_from_dates: '只依日期區間推估，不是實際工作證明' };
+  const H_ZERO = { approved: '主管已核可', not_approved: '主管未核可', pending: '待主管核可', not_submitted: '尚未送審' };
+  const statusText = c => `${H_STATUS[c.status] || c.status || '—'}${c.lifecycleStatus === 'sealed_incomplete' ? '（未完成封存）' : ''}${c.archived ? '（已收起）' : ''}`;
+  function historyGroups(records) {
+    const m = new Map();
+    for (const r of records) { const k = r.kind + '\u0000' + r.unit, g = m.get(k) || { kind: r.kind, unit: r.unit, quantity: 0, records: 0 }; g.quantity += r.quantity; g.records += 1; m.set(k, g); }
+    const order = ['main', 'extension', 'support'], rank = k => { const i = order.indexOf(k); return i < 0 ? order.length : i; };
+    return [...m.values()].sort((a, b) => rank(a.kind) - rank(b.kind) || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0) || (a.unit < b.unit ? -1 : a.unit > b.unit ? 1 : 0));
+  }
+  function summarizeHistory(rows, unresolved) {
+    const seen = new Set(), records = [];
+    for (const r of rows) for (const d of r.deliveries.records) if (!seen.has(d.id)) { seen.add(d.id); records.push(d); }
+    const complete = !unresolved.length && rows.every(r => r.deliveries.status === 'recorded' || r.deliveries.status === 'none_recorded');
+    const closed = rows.filter(r => r.closure.length);
+    const basisCount = b => closed.filter(r => r.closure.some(x => x.basis === b)).length;
+    const statusCounts = {}; for (const r of rows) statusCounts[r.current.status] = (statusCounts[r.current.status] || 0) + 1;
+    return {
+      cases: { evidence: rows.filter(r => r.inclusion === 'evidence').length, inferred: rows.filter(r => r.inclusion === 'inferred').length, unresolved: unresolved.length },
+      closure: { caseCount: closed.length, cycleCompleted: basisCount('cycle_completed'), statusChange: basisCount('status_change'), closedOn: basisCount('closed_on') },
+      deliveries: { status: complete ? 'complete' : 'partial', groups: historyGroups(records).map(g => ({ ...g, knownSubtotal: g.quantity, total: complete ? g.quantity : null })) },
+      progress: { entries: rows.reduce((n, r) => n + r.progressCount, 0), cases: rows.filter(r => r.progressCount > 0).length },
+      currentStatus: statusCounts,
+    };
+  }
+  // 篩選：目前館別／目前主責或協作（同案不因多人重複）。
+  function historyView(payload, filter = {}) {
+    if (!payload || payload.mode !== 'retrospective' || !Array.isArray(payload.rows) || !Array.isArray(payload.unresolved)) throw shapeError();
+    const hotel = filter.hotel || '', staffId = filter.staffId === '' || filter.staffId == null ? null : Number(filter.staffId);
+    const keep = r => (!hotel || r.hotel?.groupKey === hotel) && (staffId == null || r.current?.designer?.id === staffId || (r.current?.collaborators || []).some(s => s.id === staffId));
+    const rows = payload.rows.filter(keep), unresolved = payload.unresolved.filter(keep);
+    return { payload, rows, unresolved, summary: summarizeHistory(rows, unresolved), filter: hotel || staffId != null ? { hotel: hotel || null, staffId } : null };
+  }
+  // 依目前館序分組；組內：最近紀錄新→舊／舊→新（沒有紀錄日期的排最後，不用排程日冒充）或案號。
+  function historySort(payload, rows, key = 'recent_desc') {
+    const rank = new Map((payload.hotelOrder || []).map((h, i) => [h.key, i]));
+    const g = r => (rank.has(r.hotel?.groupKey) ? rank.get(r.hotel.groupKey) : 1e9);
+    return rows.map((r, i) => ({ r, i })).sort((a, b) => {
+      if (g(a.r) !== g(b.r)) return g(a.r) - g(b.r);
+      if (key !== 'id') {
+        const da = a.r.lastActivityDate, db = b.r.lastActivityDate;
+        if (da && !db) return -1; if (!da && db) return 1;
+        if (da && db && da !== db) return (da < db ? -1 : 1) * (key === 'recent_asc' ? 1 : -1);
+      }
+      return a.r.id < b.r.id ? -1 : a.r.id > b.r.id ? 1 : a.i - b.i;
+    }).map(x => x.r);
+  }
+  function historyFilterText(v) {
+    if (!v.filter) return '';
+    const parts = [];
+    if (v.filter.hotel) { const h = (v.payload.hotelOrder || []).find(x => x.key === v.filter.hotel); parts.push('目前館別：' + (h ? (h.name || hotelGroupFallback(h.key)) : v.filter.hotel)); }
+    if (v.filter.staffId != null) { const s = (v.payload.staff || []).find(x => x.id === v.filter.staffId); parts.push('目前主責或協作：' + (s ? s.name || '#' + s.id : '#' + v.filter.staffId)); }
+    return parts.join('；');
+  }
+  const historyFileName = v => `work-history_${String(v.payload.period?.label || 'period').replace(/[^A-Za-z0-9_-]/g, '_')}${v.filter ? '_filtered' : ''}.csv`;
+  const sourceText = e => (e.source === 'item' ? `子項目${e.itemName ? '「' + e.itemName + '」' : ''}` : '主案');
+  // 匯出目前篩選的全部列（不只當頁）。未知不寫 0；只有明細制涵蓋整期的案件，缺的種類才是 0。
+  function buildHistoryCsv(v) {
+    const p = v.payload, per = p.period || {}, sum = v.summary, out = [];
+    const meta = [['報告', '歷史回顧・依目前資料（非正式期末報告）'], ['說明', '依查閱時仍保存的資料整理，非當時期末狀態；之後補登或更正會改變結果；已刪除的資料無法還原'],
+      ['期間類型', KIND_LABEL[per.kind] || per.kind || ''], ['期間', raw(`${per.label}（${per.startDate} 至 ${per.endDateExclusive} 前）`)], ['期間狀態', p.inProgress ? '進行中（只整理到查閱時間）' : '已結束'],
+      ['查閱時間 observedAt', raw(p.observedAt)], ['目前值欄位', '館別、主責、協作、案件狀態皆為查閱當下的目前值，不是期末值'],
+      ['列入依據', '有紀錄＝期間內有日期的進度、交付、狀態變更、工作週期或結案日；日期區間推估＝只依派發日至結束日推估，不是實際工作證明；待確認＝日期不足，無法判斷'],
+      ['結案紀錄', '每案只計一次，不是完成總數或達成率；取消、未完成封存、收起都不算完成'],
+      ['篩選', v.filter ? historyFilterText(v) : '無（全部）'], ['匯出範圍', '目前篩選的全部結果（不只畫面當頁）']];
+    for (const [k, val] of meta) out.push(csvRow([k, val]));
+    out.push('');
+    out.push(csvRow(['指標', '總數', '已記錄部分', '說明']));
+    out.push(csvRow(['有紀錄的案件', '', raw(String(sum.cases.evidence)), '期間內有可查證紀錄']));
+    out.push(csvRow(['日期區間推估的案件', '', raw(String(sum.cases.inferred)), '不是實際工作證明']));
+    out.push(csvRow(['待確認的案件', '', raw(String(sum.cases.unresolved)), '日期不足，無法判斷']));
+    out.push(csvRow(['期間有結案日期／事件紀錄的案件', '', raw(String(sum.closure.caseCount)), '每案一次，不是完成總數']));
+    for (const g of sum.deliveries.groups) out.push(csvRow([`本期已記錄 ${kindLabel(g.kind, g.unit)}`, g.total != null ? raw(String(g.total)) : '', raw(String(g.knownSubtotal)), g.total != null ? '' : '已記錄部分，總數未知']));
+    if (!sum.deliveries.groups.length) out.push(csvRow(['本期已記錄交付', sum.deliveries.status === 'complete' ? raw('0') : '', '', sum.deliveries.status === 'complete' ? '明細制涵蓋整期，沒有交付紀錄' : '沒有已知紀錄（另有未知）']));
+    out.push('');
+    const pairs = historyGroups(v.rows.flatMap(r => r.deliveries.records)).map(g => [g.kind, g.unit]);
+    out.push(csvRow(['館別（目前）', '館別對應', '案號', '標題', '列入依據', '證據類型', '推估區間', '目前主責', '目前協作', '目前狀態', '本期進度筆數', '本期進度', '進度預覽截斷',
+      '交付狀態', ...pairs.map(([k, u]) => `本期已記錄 ${kindLabel(k, u)}`), '作廢（未計入）', '期後登錄', '支援0說明', '結案紀錄', '狀態變更紀錄', '工作週期',
+      '舊制需求數（期間不明）', '舊制產出數（期間不明）', '最近紀錄日', '限制']));
+    const name = hotelNamer(p);
+    for (const r of historySort(p, v.rows, 'id')) {
+      const d = r.deliveries, zeroOk = d.status === 'recorded' || d.status === 'none_recorded';
+      const qty = (k, u) => { const t = d.totals.find(x => x.kind === k && x.unit === u); return t ? raw(String(t.quantity)) : zeroOk ? raw('0') : '未知'; };
+      out.push(csvRow([name(r.hotel), hotelMatch(r.hotel), r.id, r.title || '', r.inclusion === 'evidence' ? '有紀錄' : '日期區間推估',
+        r.evidenceKinds.map(k => H_EVIDENCE[k] || k).join('；'), r.inferred ? `${H_INFERRED[r.inferred.basis] || r.inferred.basis}：${r.inferred.from} 至 ${r.inferred.to || '未結束'}` : '',
+        personNames(r.current.designer ? [r.current.designer] : []), personNames(r.current.collaborators), statusText(r.current), raw(String(r.progressCount)),
+        r.progress.map(e => `${e.date} ［${sourceText(e)}］${e.note ?? ''}${e.noteTruncated ? '（已截斷）' : ''}${e.by ? ' — ' + e.by : ''}`).join('\n'),
+        r.progressTruncated ? `是（僅列前 ${r.progress.length} 筆，共 ${r.progressCount} 筆）` : '',
+        H_DELIVERY[d.status] || d.status, ...pairs.map(([k, u]) => qty(k, u)),
+        d.voided.map(x => `${x.id} ${OUTPUT_KIND[x.kind] || x.kind} ${x.quantity} ${x.unit}${x.voidReason ? '：' + x.voidReason : ''}`).join('；'),
+        d.records.filter(x => x.recordedAfterPeriod).map(x => x.id).join('；'),
+        d.records.filter(x => x.zeroSupport).map(x => `${x.itemName || x.id}：${x.zeroSupport.note || '（未填原因）'}（${H_ZERO[x.zeroSupport.status] || x.zeroSupport.status}）`).join('；'),
+        r.closure.map(x => `${x.date} ${H_CLOSURE[x.basis] || x.basis}`).join('；'), r.statusChanges.map(x => `${x.date} ${H_STATUS[x.from] || x.from || '—'} → ${H_STATUS[x.to] || x.to || '—'}`).join('；'),
+        r.cycles.map(y => `第 ${y.sequence} 段 ${y.outcome === 'completed' ? '已完成' : y.outcome === 'sealed_incomplete' ? '未完成封存' : y.outcome === 'cancelled' ? '已取消' : '進行中'}`).join('；'),
+        r.legacyCounts ? (r.legacyCounts.requestCount != null ? raw(String(r.legacyCounts.requestCount)) : '未知') : '', r.legacyCounts ? (r.legacyCounts.outputCount != null ? raw(String(r.legacyCounts.outputCount)) : '未知') : '',
+        r.lastActivityDate ? raw(r.lastActivityDate) : '', r.limitations.map(x => H_LIMITS[x] || x).join('；')]));
+    }
+    if (v.unresolved.length) {
+      out.push('');
+      out.push(csvRow(['待確認的案件（日期不足，無法判斷是否在本期；未列入上方明細）']));
+      out.push(csvRow(['館別（目前）', '案號', '標題', '目前主責', '目前狀態', '原因']));
+      for (const u of historySort(p, v.unresolved, 'id')) out.push(csvRow([name(u.hotel), u.id, u.title || '', personNames(u.current.designer ? [u.current.designer] : []), statusText(u.current), H_UNRESOLVED[u.reason] || u.reason]));
+    }
+    return '﻿' + out.join('\r\n') + '\r\n';
+  }
+
+  window.WorkReportsUI = Object.freeze({ countText, safeText, csvCell, buildCsv, fileName, buildDisplay, orderedRows, versionAvailability, preAvailability, periodTag,
+    historyView, historySort, summarizeHistory, buildHistoryCsv, historyFileName });
 
   // ── 權限、狀態與世代 ─────────────────────────────────────────────────────────────────────────────
   const me = () => (typeof ME !== 'undefined' && ME) || {};
@@ -219,7 +339,7 @@
     return !!m.id && m.role === 'admin' && role() === 'admin' && !viewingAs() && !document.body?.classList?.contains('observer-mode');
   }
   const actorKey = () => `${me().id || 0}|${me().role || ''}`;
-  const fresh = () => ({ actor: actorKey(), gen: 0, kind: 'week', anchor: null, periods: null, coverage: null, start: null, versions: [], selectedId: null,
+  const fresh = () => ({ actor: actorKey(), gen: 0, mode: 'formal', history: null, hSort: 'recent_desc', kind: 'week', anchor: null, periods: null, coverage: null, start: null, versions: [], selectedId: null,
     filter: { hotel: '', staffId: '' }, sched: null, schedGen: 0, base: new Map(), display: null, displayKey: null, phase: 'idle', message: '', errorRetry: null,
     op: null, busy: false, needsReload: false, reviseOpen: false, reviseDraft: '', opMessage: '', sort: { key: 'id', dir: 'ascending' }, page: 1, expanded: new Set(), caseNote: '' });
   let S = fresh();
@@ -227,7 +347,8 @@
   const token = () => ({ gen: S.gen, actor: actorKey() });
   const valid = t => t.gen === S.gen && t.actor === actorKey() && S.actor === t.actor && viewNow() === VIEW && allowed() && !!rootEl()?.isConnected;
   const bump = () => ++S.gen;
-  const selectionKey = () => `${S.kind}|${S.start}|${S.selectedId}|${S.filter.hotel}|${S.filter.staffId}`;
+  const selectionKey = () => `${S.mode}|${S.kind}|${S.start}|${S.selectedId}|${S.filter.hotel}|${S.filter.staffId}`;
+  const historyKey = () => `${S.kind}|${S.start}`;
 
   function rootEl() { return document.querySelector(`div.view[data-view="${VIEW}"]`); }
   function ensureView() {
@@ -244,7 +365,7 @@
   function teardown() {
     bump();
     const keepOp = S.actor === actorKey() ? S.op : null;
-    S.base = new Map(); S.display = null; S.displayKey = null; S.periods = null; S.coverage = null; S.versions = []; S.phase = 'idle'; S.expanded = new Set(); S.caseNote = '';
+    S.base = new Map(); S.display = null; S.displayKey = null; S.periods = null; S.coverage = null; S.versions = []; S.history = null; S.phase = 'idle'; S.expanded = new Set(); S.caseNote = '';
     S.schedGen++; S.sched = null;
     S.op = keepOp; if (!keepOp) S.busy = false;
     const v = rootEl(); if (v) v.innerHTML = '';
@@ -332,7 +453,7 @@
     S.versions = p ? (p.versions || []) : [];
     const keepId = keepFilter && S.selectedId && S.versions.some(v => v.id === S.selectedId) ? S.selectedId : null;
     S.selectedId = keepId || latestVersion(S.versions)?.id || null;
-    loadReport();
+    if (S.mode === 'history') loadHistory(); else loadReport();
   }
   async function loadReport() {
     bump(); const t = token();
@@ -365,6 +486,32 @@
       fail(e, () => loadReport());
     }
   }
+  // REPORTS-P4-E4：歷史回顧一次讀取；篩選與排序只在這份結果上做（不重新取不同時刻的資料）。換模式／期間／人會 bump 世代，晚到回應丟棄。
+  async function loadHistory() {
+    bump(); const t = token();
+    S.display = null; S.displayKey = null; S.errorRetry = null; S.caseNote = ''; S.history = null;
+    const p = currentPeriod();
+    if (!p) { S.phase = 'empty'; S.message = '這段時間沒有可選的期間。'; return render(); }
+    S.phase = 'loading'; S.message = '整理歷史回顧中…'; render();
+    const key = historyKey();
+    try {
+      const data = await getJson(`${API}/history?kind=${encodeURIComponent(S.kind)}&start=${encodeURIComponent(p.startDate)}`);
+      if (!valid(t) || S.mode !== 'history' || historyKey() !== key) return;
+      if (!data || data.mode !== 'retrospective' || !data.period || data.period.startDate !== p.startDate || data.period.kind !== S.kind || !data.summary) throw shapeError();
+      historyView(data);   // 形狀檢查
+      S.history = { key, data }; S.phase = 'ready'; S.message = ''; render();
+    } catch (e) {
+      if (!valid(t) || S.mode !== 'history') return;
+      fail(e, () => loadHistory());
+    }
+  }
+  function setMode(mode) {
+    if (mode !== 'formal' && mode !== 'history') return;
+    if (S.mode === mode) return;
+    S.mode = mode; S.filter = { hotel: '', staffId: '' }; S.page = 1; S.expanded = new Set(); S.reviseOpen = false; S.caseNote = ''; S.history = null; S.display = null; S.displayKey = null;
+    if (!S.periods) return loadPeriods();
+    selectPeriod(S.start, { keepFilter: false });
+  }
   function fail(e, retry) {
     if (e?.authExpired || e?.status === 401) { teardown(); S.phase = 'auth'; S.message = '登入已過期，請重新登入。'; return render(); }
     if (e?.status === 403) { teardown(); S.phase = 'denied'; S.message = '沒有權限查看工作報告（僅限管理員）。'; return render(); }
@@ -385,12 +532,12 @@
   }
   function startGenerate() {
     const p = currentPeriod();
-    if (!p || !p.ended || S.busy || S.op || S.versions.length || preAvailability(p, S.coverage)?.block) return;
+    if (S.mode !== 'formal' || !p || !p.ended || S.busy || S.op || S.versions.length || preAvailability(p, S.coverage)?.block) return;
     send({ action: 'generate', url: `${API}/generate`, body: { periodKind: S.kind, startDate: p.startDate, idempotencyKey: newKey() }, ctx: { kind: S.kind, start: p.startDate } });
   }
   function submitRevision() {
     const target = latestVersion(S.versions);
-    if (!target || S.busy || S.op) return;
+    if (S.mode !== 'formal' || !target || S.busy || S.op) return;
     const reason = String(S.reviseDraft || '').trim();
     if (reason.length < 2) { S.opMessage = '請寫出具體的修訂原因（至少 2 個字）。'; return render(); }
     send({ action: 'revise', url: `${API}/${encodeURIComponent(target.id)}/revisions`, body: { reason, expectedLatestRevision: target.revision, idempotencyKey: newKey() },
@@ -481,6 +628,8 @@
     else if (act === 'prev' || act === 'next') stepPeriod(act === 'prev' ? -1 : 1);
     else if (act === 'refresh') { S.base = new Map(); loadPeriods(); loadSched(); }
     else if (act === 'retry-load') { const fn = S.errorRetry; if (typeof fn === 'function') fn(); }
+    else if (act === 'mode') setMode(el.dataset.mode);
+    else if (act === 'history-open') setMode('history');
     else if (act === 'generate') startGenerate();
     else if (act === 'revise-open') { S.reviseOpen = true; S.opMessage = ''; render(); }
     else if (act === 'revise-cancel') { S.reviseOpen = false; S.opMessage = ''; render(); }
@@ -499,8 +648,9 @@
     const f = el.dataset.field;
     if (f === 'period') { if (el.value && el.value !== S.start) selectPeriod(el.value); }
     else if (f === 'version') { if (el.value && el.value !== S.selectedId) { S.selectedId = el.value; S.page = 1; S.expanded = new Set(); S.reviseOpen = false; loadReport(); } }
-    else if (f === 'hotel') { S.filter = { ...S.filter, hotel: el.value }; S.page = 1; loadReport(); }
-    else if (f === 'staff') { S.filter = { ...S.filter, staffId: el.value }; S.page = 1; loadReport(); }
+    else if (f === 'hotel') { S.filter = { ...S.filter, hotel: el.value }; S.page = 1; if (S.mode === 'history') render(); else loadReport(); }
+    else if (f === 'staff') { S.filter = { ...S.filter, staffId: el.value }; S.page = 1; if (S.mode === 'history') render(); else loadReport(); }
+    else if (f === 'hsort') { if (['recent_desc', 'recent_asc', 'id'].includes(el.value)) { S.hSort = el.value; S.page = 1; render(); } }
     else if (f === 'jump') { if (/^\d{4}-\d{2}-\d{2}$/.test(el.value)) { S.anchor = el.value; S.start = null; S.selectedId = null; loadPeriods(); } }
   }
   function onInput(ev) { const el = ev.target; if (el?.dataset?.field === 'reason') { if (!guard()) return; S.reviseDraft = el.value; } }
@@ -519,8 +669,14 @@
     openDrawer(c);   // 開啟的是「目前案件」，不會改寫報告內容
   }
   function exportCsv() {
-    if (S.phase !== 'ready' || !S.display || S.displayKey !== selectionKey()) return;
-    const text = buildCsv(S.display), name = fileName(S.display);
+    let text, name;
+    if (S.mode === 'history') {   // 只匯出目前模式、目前期間的同一份讀取結果
+      if (S.phase !== 'ready' || !S.history || S.history.key !== historyKey()) return;
+      const v = historyView(S.history.data, S.filter); text = buildHistoryCsv(v); name = historyFileName(v);
+    } else {
+      if (S.phase !== 'ready' || !S.display || S.displayKey !== selectionKey()) return;
+      text = buildCsv(S.display); name = fileName(S.display);
+    }
     try {
       const blob = new Blob([text], { type: 'text/csv;charset=utf-8' }), url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
@@ -533,11 +689,16 @@
     const view = rootEl();
     if (!view || viewNow() !== VIEW || !allowed()) return;
     const focusKey = document.activeElement && view.contains?.(document.activeElement) ? document.activeElement.dataset?.focus : null;
-    view.innerHTML = head() + schedLine() + controls() + `<div class="wr-status" role="status" aria-live="polite">${esc(statusLine())}</div>` + content();
+    view.innerHTML = head() + schedLine() + modeSwitch() + (S.mode === 'history' ? historyControls() : controls()) + `<div class="wr-status" role="status" aria-live="polite">${esc(statusLine())}</div>` + content();
     if (focusKey) view.querySelector(`[data-focus="${focusKey}"]`)?.focus?.();
   }
   function statusLine() {
     if (S.phase === 'loading') return S.message;
+    if (S.mode === 'history') {
+      if (S.phase !== 'ready' || !S.history) return '';
+      const d = S.history.data;
+      return `已載入 ${d.period.label} 歷史工作回顧 · 依目前資料（查閱時間 ${showTime(d.observedAt)}）${d.inProgress ? ' · 期間進行中' : ''}${S.filter.hotel || S.filter.staffId ? '（篩選檢視）' : ''} · 不是正式期末報告`;
+    }
     // REPORTS-P3-E3a：選取期間／版本的可用性寫在選單外（窄螢幕的原生 select 會截斷 option 尾端）。
     if (S.phase === 'ready' && S.display) {
       const s = S.display.snapshot, a = versionAvailability({ sourceCompleteness: S.display.payload?.sourceCompleteness?.status || s.sourceCompleteness });
@@ -625,6 +786,7 @@
     return `<div class="wr-op" role="status" aria-live="polite">${msg}${parts.join('')}</div>`;
   }
   function content() {
+    if (S.mode === 'history' && S.phase === 'ready') return S.history && S.history.key === historyKey() ? historyContent(historyView(S.history.data, S.filter)) : '';
     if (S.phase === 'loading' || S.phase === 'idle') return `<div class="wb-surface wr-state">${icon('clock')}${esc(S.message || '載入中…')}</div>`;
     if (S.phase === 'error') return `<div class="wb-surface wr-state wr-error" role="alert">${icon('alert')}${esc(S.message)} <button type="button" class="wb-button" data-act="retry-load" data-focus="retry-load">重試</button></div>`;
     if (S.phase === 'auth' || S.phase === 'denied') return `<div class="wb-surface wr-state wr-error" role="alert">${icon('alert')}${esc(S.message)}</div>`;
@@ -633,7 +795,7 @@
       const p = currentPeriod();
       if (!p || !p.ended) return `<div class="wb-surface wr-state">${icon('info')}這個期間尚未結束，結束後才能產生報告。</div>`;
       const pre = preAvailability(p, S.coverage);
-      if (pre.block) return `<div class="wb-surface wr-state wr-avail wr-avail-${esc(pre.state)}">${icon('alert')}這個期間尚未產生報告。${esc(pre.text)}</div>`;
+      if (pre.block) return `<div class="wb-surface wr-state wr-avail wr-avail-${esc(pre.state)}">${icon('alert')}這個期間尚未產生報告。${esc(pre.text)}${historyButton()}</div>`;
       return `<div class="wb-surface wr-state wr-avail wr-avail-${esc(pre.state)}">${icon('info')}這個期間尚未產生報告。按「產生本期報告」建立初版。${pre.text ? `<p class="wb-help">${esc(pre.text)}</p>` : ''}</div>`;
     }
     if (S.phase !== 'ready' || !S.display) return '';
@@ -645,7 +807,7 @@
     const insufficient = sc.status === 'insufficient';
     const status = `<div class="wr-complete wr-complete-${esc(sc.status)}">${icon(sc.status === 'complete' ? 'check' : 'alert')}<div><strong>${esc(COMPLETENESS[sc.status] || sc.status)}</strong>
       ${(sc.reasons || []).length ? `<ul>${sc.reasons.map(r => `<li>${esc(REASONS[r] || r)}</li>`).join('')}</ul>` : ''}
-      ${insufficient ? '<p>期末來源資料不足：沒有可重建的明細，所有數字為未知，<b>不代表這期沒有工作</b>。</p>' + insufficientNote(s, sc) : sc.status === 'partial' ? '<p>只顯示可證明的「已知部分」，不是完整總數。</p>' : '<p>來源版本涵蓋整個期間；舊制案件的數量仍可能是未知。</p>'}
+      ${insufficient ? '<p>期末來源資料不足：沒有可重建的明細，所有數字為未知，<b>不代表這期沒有工作</b>。</p>' + insufficientNote(s, sc) + historyButton() : sc.status === 'partial' ? '<p>只顯示可證明的「已知部分」，不是完整總數。</p>' : '<p>來源版本涵蓋整個期間；舊制案件的數量仍可能是未知。</p>'}
       ${(sc.deletedCaseIds || []).length ? `<p>期間內被刪除的案件：${esc(sc.deletedCaseIds.join('、'))}</p>` : ''}</div></div>`;
     const meta = `<dl class="wr-meta">
       <div><dt>期間</dt><dd>${esc(s.label)}（${esc(s.startDate)} 至 ${esc(s.endDateExclusive)} 前）</dd></div>
@@ -742,6 +904,100 @@
     if ((r.limitations || []).length) out.push(`<h3>限制</h3><ul>${r.limitations.map(x => `<li>${esc(LIMITS[x] || x)}</li>`).join('')}</ul>`);
     out.push(`<button type="button" class="wb-button" data-act="open-case" data-id="${esc(r.id)}" data-focus="open-${esc(r.id)}">查看目前案件<span class="wr-sr">：${esc(r.id)}（開啟目前資料，不會改變這份報告）</span></button>`);
     return `<div class="wr-detail-body">${out.join('')}</div>`;
+  }
+  // ── REPORTS-P4-E4 歷史工作回顧畫面 ──────────────────────────────────────────────────────────────
+  function modeSwitch() {
+    const b = (m, label) => `<button type="button" class="wb-button" data-act="mode" data-mode="${m}" data-focus="mode-${m}" aria-pressed="${S.mode === m}">${label}</button>`;   // switchable while loading: late replies are dropped by generation
+    return `<div class="wr-modes" role="group" aria-label="檢視方式">${b('formal', icon('report') + '正式報告（期末快照）')}${b('history', icon('clock') + '歷史工作回顧（依現有資料）')}</div>`;
+  }
+  const historyButton = () => `<p><button type="button" class="wb-button" data-act="history-open" data-focus="history-open">${icon('clock')}查看同期間歷史回顧</button></p>`;
+  function historyControls() {
+    const list = S.periods || [], i = list.findIndex(x => x.startDate === S.start), loading = S.phase === 'loading';
+    const kinds = Object.entries(KIND_LABEL).map(([k, l]) => `<button type="button" class="wb-button" data-act="kind" data-kind="${k}" data-focus="kind-${k}" aria-pressed="${S.kind === k}">${l}</button>`).join('');
+    const periodOpts = list.map(x => `<option value="${esc(x.startDate)}" ${x.startDate === S.start ? 'selected' : ''}>${esc(x.label)}（${esc(x.startDate)}${x.ended ? '' : '，進行中'}）</option>`).join('');
+    const d = S.history && S.history.key === historyKey() ? S.history.data : null, ready = S.phase === 'ready' && !!d;
+    const hotelOpts = d ? d.hotelOrder.map(h => `<option value="${esc(h.key)}" ${S.filter.hotel === h.key ? 'selected' : ''}>${esc(h.name || hotelGroupFallback(h.key))}${h.active === false ? '（停用）' : ''}${h.unmatched ? '（未對應館名）' : ''}</option>`).join('') : '';
+    const staffOpts = d ? d.staff.map(s => `<option value="${s.id}" ${String(S.filter.staffId) === String(s.id) ? 'selected' : ''}>${esc(s.name || '#' + s.id)}${s.active === false ? '（已停用）' : ''}</option>`).join('') : '';
+    const sortOpts = [['recent_desc', '最近紀錄：新→舊'], ['recent_asc', '最近紀錄：舊→新'], ['id', '案號']].map(([k, l]) => `<option value="${k}" ${S.hSort === k ? 'selected' : ''}>${l}</option>`).join('');
+    return `<section class="wb-surface wr-controls" aria-label="選擇回顧期間">
+      <div class="wr-row"><div class="wr-kinds" role="group" aria-label="期間類型">${kinds}</div>
+        <div class="wr-period"><button type="button" class="wb-button" data-act="prev" data-focus="prev" aria-label="上一期" ${loading || i < 0 ? 'disabled' : ''}>‹</button>
+        <label class="wr-field"><span>期間</span><select data-field="period" data-focus="period" ${loading || !list.length ? 'disabled' : ''}>${periodOpts || '<option value="">（載入中）</option>'}</select></label>
+        <button type="button" class="wb-button" data-act="next" data-focus="next" aria-label="下一期" ${loading || i < 0 || i >= list.length - 1 ? 'disabled' : ''}>›</button>
+        <label class="wr-field"><span>跳至日期</span><input type="date" data-field="jump" data-focus="jump" value="${esc(S.anchor || '')}" ${loading ? 'disabled' : ''}></label></div></div>
+      <div class="wr-row"><label class="wr-field"><span>${icon('filter')}目前館別</span><select data-field="hotel" data-focus="hotel" ${ready ? '' : 'disabled'}><option value="">全部館別</option>${hotelOpts}</select></label>
+        <label class="wr-field"><span>${icon('filter')}目前主責或協作</span><select data-field="staff" data-focus="staff" ${ready ? '' : 'disabled'}><option value="">全部人員</option>${staffOpts}</select></label>
+        <label class="wr-field"><span>排序</span><select data-field="hsort" data-focus="hsort" ${ready ? '' : 'disabled'}>${sortOpts}</select></label></div>
+      <div class="wr-row wr-actions"><button type="button" class="wb-button" data-act="refresh" data-focus="refresh" ${loading ? 'disabled' : ''}>${icon('refresh')}重新整理</button>
+        <button type="button" class="wb-button" data-act="csv" data-focus="csv" ${ready ? '' : 'disabled'} title="匯出歷史回顧目前篩選的全部結果">${icon('download')}匯出歷史回顧 CSV（全部篩選結果）</button></div>
+    </section>`;
+  }
+  function historyContent(v) {
+    const p = v.payload, sum = v.summary;
+    const note = `<section class="wb-surface wr-history-note" aria-label="歷史回顧說明"><div class="wr-complete wr-complete-partial">${icon('info')}<div><strong>歷史工作回顧（依現有資料）· 不是正式報告</strong>
+      <p>依 ${esc(showTime(p.observedAt))} 查閱時仍保存的資料整理，<b>不是當時的期末狀態</b>；之後補登或更正會改變結果，已刪除的資料無法還原。</p>
+      <p>館別、主責／協作與案件狀態都是<b>目前值</b>。數字是「已記錄、可查證的部分」，未知不以 0 表示。</p>
+      ${p.inProgress ? '<p>本期尚未結束：只整理到查閱時間為止。</p>' : ''}${v.filter ? `<p>篩選：${esc(historyFilterText(v))}</p>` : ''}</div></div></section>`;
+    const card = (label, value, sub) => `<div class="wr-card"><small>${esc(label)}</small><strong>${esc(String(value))}</strong>${sub ? `<span class="wr-note">${esc(sub)}</span>` : ''}</div>`;
+    const groups = sum.deliveries.groups;
+    const cards = `<section class="wb-surface wr-overview" aria-label="回顧摘要"><div class="wr-cards">${card('有紀錄的案件', sum.cases.evidence, '期間內有可查證紀錄')}${card('日期區間推估', sum.cases.inferred, '不是實際工作證明')}
+      ${card('待確認', sum.cases.unresolved, '日期不足，無法判斷')}${card('期間有結案日期／事件紀錄', sum.closure.caseCount, '每案一次，不是完成總數')}
+      ${groups.map(g => card(`本期已記錄 ${kindLabel(g.kind, g.unit)}`, g.total ?? g.knownSubtotal, g.total != null ? '' : '已記錄部分')).join('')}
+      ${groups.length ? '' : card('本期已記錄交付', sum.deliveries.status === 'complete' ? '0' : '—', sum.deliveries.status === 'complete' ? '明細制涵蓋整期，沒有交付紀錄' : '沒有已知紀錄（另有未知）')}</div></section>`;
+    const dItems = groups.filter(g => g.knownSubtotal > 0).map(g => ({ label: kindLabel(g.kind, g.unit), value: g.knownSubtotal, note: g.total == null ? '已記錄部分' : '', tone: g.kind === 'main' ? 'a' : g.kind === 'extension' ? 'b' : 'c' }));
+    const sItems = Object.entries(sum.currentStatus).map(([k, n]) => ({ label: H_STATUS[k] || k, value: n, tone: k === 'done' || k === 'closed' ? 'a' : k === 'cancelled' ? 'c' : 'b' }));
+    const charts = `<section class="wb-surface wr-charts" aria-label="圖表">${bars(dItems, '本期已記錄交付（依種類與單位，不跨單位相加）', '沒有已記錄的交付數量（不代表沒有產出）。')}
+      ${bars(sItems, '列入案件的目前狀態（查閱當下，不是期末）', '沒有列入的案件。')}</section>`;
+    return note + cards + charts + historyTable(v) + historyUnresolved(v);
+  }
+  function historyTable(v) {
+    const p = v.payload, name = hotelNamer(p), rows = historySort(p, v.rows, S.hSort);
+    const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE)); if (S.page > pages) S.page = pages;
+    const pageRows = rows.slice((S.page - 1) * PAGE_SIZE, S.page * PAGE_SIZE);
+    let body = '', group = null;
+    for (const r of pageRows) {
+      if (r.hotel?.groupKey !== group) {
+        group = r.hotel?.groupKey;
+        const h = (p.hotelOrder || []).find(x => x.key === group), n = rows.filter(x => x.hotel?.groupKey === group).length;
+        body += `<tr class="wr-group"><th scope="colgroup" colspan="7">${esc(name(r.hotel))}${h?.active === false ? ' <small>（停用館別）</small>' : ''}${r.hotel?.match === 'unmatched' ? ' <small>（未對應館名，保留原值）</small>' : ''} <small>· ${n} 件（目前館別）</small></th></tr>`;
+      }
+      const c = r.current, d = r.deliveries, last = r.progress.at(-1);
+      const outputs = d.totals.length ? totalsText(d.totals) + (d.status === 'partial' ? '（已記錄部分）' : '') : H_DELIVERY[d.status];
+      body += `<tr class="wr-row-case"><td><span class="wr-id">${esc(r.id)}</span><span class="wr-title">${esc(r.title || '')}</span></td>
+        <td>${c.designer ? esc(c.designer.name || '#' + c.designer.id) + (c.designer.active === false ? '<small>（已停用）</small>' : '') : '—'}${c.collaborators.length ? `<small>協作：${esc(personNames(c.collaborators))}</small>` : ''}</td>
+        <td>${r.progressCount ? `${r.progressCount} 筆${last?.note ? `<small>${esc(String(last.note).slice(0, 60))}</small>` : ''}` : '—'}${r.lastActivityDate ? `<small>最近紀錄 ${esc(r.lastActivityDate)}</small>` : ''}</td>
+        <td>${esc(statusText(c))}<small>目前</small></td><td>${esc(outputs)}</td>
+        <td>${r.inclusion === 'evidence' ? esc(r.evidenceKinds.map(k => H_EVIDENCE[k] || k).join('、')) : `<span class="wr-badge">日期區間推估</span>`}${r.closure.length ? '<small>有結案紀錄（非期末完成）</small>' : ''}</td>
+        <td><button type="button" class="wb-button wr-expand" data-act="expand" data-id="${esc(r.id)}" data-focus="expand-${esc(r.id)}" aria-expanded="${S.expanded.has(r.id)}" aria-controls="wr-detail-${esc(r.id)}">${icon('chevron')}詳情<span class="wr-sr">：${esc(r.id)}</span></button></td></tr>`;
+      if (S.expanded.has(r.id)) body += `<tr class="wr-detail" id="wr-detail-${esc(r.id)}"><td colspan="7">${historyDetail(r)}</td></tr>`;
+    }
+    const pager = pages > 1 ? `<nav class="wb-pager" aria-label="明細分頁"><button type="button" class="wb-button" data-act="page" data-page="${S.page - 1}" data-focus="page-prev" ${S.page <= 1 ? 'disabled' : ''}>‹ 上一頁</button><span class="wb-page-now" aria-current="page">第 ${S.page} / ${pages} 頁（共 ${rows.length} 件）</span><button type="button" class="wb-button" data-act="page" data-page="${S.page + 1}" data-focus="page-next" ${S.page >= pages ? 'disabled' : ''}>下一頁 ›</button></nav>` : '';
+    return `<section class="wb-surface wr-ledger" aria-label="回顧明細"><h2>案件回顧（依目前館別）</h2>
+      ${rows.length ? `<div class="wr-table-wrap" role="region" aria-label="回顧明細表（可左右捲動）" tabindex="0"><table class="wr-table"><thead><tr><th scope="col">案件</th><th scope="col">目前主責／協作</th><th scope="col">期間進度</th><th scope="col">目前狀態</th><th scope="col">已記錄交付</th><th scope="col">列入依據</th><th scope="col"><span class="wr-sr">詳情</span></th></tr></thead><tbody>${body}</tbody></table></div>${pager}`
+        : `<p class="wb-help">${icon('info')}這個期間沒有可查證紀錄或日期推估的案件${v.unresolved.length ? '；另有待確認的案件列在下方' : ''}（不代表沒有工作）。</p>`}</section>`;
+  }
+  function historyDetail(r) {
+    const d = r.deliveries, c = r.current, out = [];
+    out.push(`<p class="wb-help">目前日期：開單 ${esc(c.dates.openDate || '—')}、派發 ${esc(c.dates.dispatchDate || '—')}、結案 ${esc(c.dates.closedOn || '—')}、取消 ${esc(c.dates.cancelledOn || '—')}（目前值）</p>`);
+    if (r.inferred) out.push(`<p class="wr-op-msg">${icon('info')}${esc(H_INFERRED[r.inferred.basis] || r.inferred.basis)}：${esc(r.inferred.from)} 至 ${esc(r.inferred.to || '未結束')}。這只是依日期推估，不是實際工作證明。</p>`);
+    if (r.progress.length) out.push(`<h3>期間進度（目前保存的日誌）</h3><ul>${r.progress.map(e => `<li>${esc(e.date)} ［${esc(sourceText(e))}］${esc(e.note ?? '')}${e.noteTruncated ? ' <small>（已截斷）</small>' : ''}${e.by ? ` — ${esc(e.by)}` : ''}${e.id ? '' : ' <small>（無識別碼）</small>'}</li>`).join('')}</ul>`
+      + (r.progressTruncated ? `<p class="wb-help">僅顯示前 ${r.progress.length} 筆，共 ${r.progressCount} 筆（摘要與數量依全部筆數）。</p>` : ''));
+    if (r.undatedLogCount) out.push(`<p class="wb-help">另有 ${r.undatedLogCount} 筆日期無效或缺日期的日誌，未計入本期。</p>`);
+    out.push(`<h3>已記錄交付</h3>${d.records.length ? `<ul>${d.records.map(x => `<li>${esc(OUTPUT_KIND[x.kind] || x.kind)} ${esc(String(x.quantity))} ${esc(x.unit)} · ${esc(x.itemName || '')} · ${esc(x.deliveredOn)}${x.recordedAfterPeriod ? ' <small>（期後登錄）</small>' : ''}${x.cycleAttribution === 'unknown' ? ' <small>（週期歸屬不明）</small>' : ''}${x.zeroSupport ? `<br><small>支援 0：${esc(x.zeroSupport.note || '（未填原因）')}；${esc(H_ZERO[x.zeroSupport.status] || x.zeroSupport.status)}</small>` : ''}</li>`).join('')}</ul>` : `<p class="wb-help">${esc(H_DELIVERY[d.status])}</p>`}`);
+    if (d.voided.length) out.push(`<h3>作廢的交付（未計入）</h3><ul>${d.voided.map(x => `<li>${esc(x.id)} ${esc(OUTPUT_KIND[x.kind] || x.kind)} ${esc(String(x.quantity))} ${esc(x.unit)}${x.voidReason ? '：' + esc(x.voidReason) : ''}</li>`).join('')}</ul>`);
+    if (r.closure.length) out.push(`<h3>結案紀錄（非期末完成）</h3><ul>${r.closure.map(x => `<li>${esc(x.date)} ${esc(H_CLOSURE[x.basis] || x.basis)}</li>`).join('')}</ul>`);
+    if (r.statusChanges.length) out.push(`<h3>狀態變更紀錄（可能不完整）</h3><ul>${r.statusChanges.map(x => `<li>${esc(x.date)} ${esc(H_STATUS[x.from] || x.from || '—')} → ${esc(H_STATUS[x.to] || x.to || '—')}</li>`).join('')}</ul>`);
+    if (r.cycles.length) out.push(`<h3>工作週期</h3><ul>${r.cycles.map(y => `<li>第 ${esc(String(y.sequence))} 段 · ${esc(showTime(y.startedAt))} 至 ${esc(y.endedAt ? showTime(y.endedAt) : '進行中')}${y.outcome ? ` · ${esc(y.outcome === 'completed' ? '已完成' : y.outcome === 'sealed_incomplete' ? '未完成封存' : y.outcome === 'cancelled' ? '已取消' : y.outcome)}` : ''}</li>`).join('')}</ul>`);
+    if (r.legacyCounts) out.push(`<p class="wb-help">舊制總數（期間不明，未計入本期）：需求數 ${esc(String(r.legacyCounts.requestCount ?? '未知'))}、產出數 ${esc(String(r.legacyCounts.outputCount ?? '未知'))}</p>`);
+    if (r.limitations.length) out.push(`<h3>限制</h3><ul>${r.limitations.map(x => `<li>${esc(H_LIMITS[x] || x)}</li>`).join('')}</ul>`);
+    out.push(`<button type="button" class="wb-button" data-act="open-case" data-id="${esc(r.id)}" data-focus="open-${esc(r.id)}">查看目前案件<span class="wr-sr">：${esc(r.id)}</span></button>`);
+    return `<div class="wr-detail-body">${out.join('')}</div>`;
+  }
+  function historyUnresolved(v) {
+    if (!v.unresolved.length) return '';
+    const name = hotelNamer(v.payload);
+    return `<section class="wb-surface wr-unresolved" aria-label="待確認的案件"><h2>${icon('alert')}待確認（${v.unresolved.length} 件，日期不足，無法判斷是否在本期；不計為 0，也不隱藏）</h2>
+      <ul>${historySort(v.payload, v.unresolved, 'id').map(u => `<li><span class="wr-id">${esc(u.id)}</span> ${esc(u.title || '')} · ${esc(name(u.hotel))} · 目前${esc(statusText(u.current))} · ${esc(H_UNRESOLVED[u.reason] || u.reason)}</li>`).join('')}</ul></section>`;
   }
   function unresolved(p) {
     const list = orderedRows(p, p.unresolved || []);

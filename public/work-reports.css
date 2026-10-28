@@ -110,3 +110,7 @@
   .view[data-view="work-reports"] .wr-bars li{grid-template-columns:minmax(0,1fr) auto;row-gap:2px}
   .view[data-view="work-reports"] .wr-bar-track{grid-column:1/-1;grid-row:2}
 }
+/* REPORTS-P4-E4 歷史工作回顧：模式切換與說明（沿用既有按鈕、色票與卡片） */
+.view[data-view="work-reports"] .wr-modes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.view[data-view="work-reports"] .wr-modes .wb-button{white-space:normal;text-align:left}
+.view[data-view="work-reports"] .wr-history-note .wr-complete{margin:0}

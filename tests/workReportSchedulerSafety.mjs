@@ -143,7 +143,7 @@ await test('HTTP surface: only GET /scheduler/status is added (admin router); no
   const routes = await import(root + '/src/routes/workReports.js');
   const router = routes.createWorkReportsRouter({}, { schedulerStatus: async () => ({}) });
   const list = router.stack.filter(l => l.route).map(l => Object.keys(l.route.methods).map(m => m.toUpperCase() + ' ' + l.route.path)).flat();
-  assert.deepEqual(list.sort(), ['GET /', 'GET /:id', 'GET /periods', 'GET /scheduler/status', 'POST /:id/revisions', 'POST /generate'].sort());
+  assert.deepEqual(list.sort(), ['GET /', 'GET /:id', 'GET /history', 'GET /periods', 'GET /scheduler/status', 'POST /:id/revisions', 'POST /generate'].sort());   // E4: read-only history review
   assert(router.stack.filter(l => !l.route).length >= 2, 'requireAuth + requireAdmin run before every route');
   const src = fs.readFileSync(root + '/src/routes/workReports.js', 'utf8');
   assert(!/generateScheduled|system\s*:|trigger/.test(src.replace(/\/\/.*$/gm, '')), 'no scheduled entry, system flag or trigger reachable from the API');

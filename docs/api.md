@@ -334,6 +334,24 @@ score(case, role) = LEVEL_WEIGHT[level]
 
 舊伺服器沒有這個欄位時，畫面不預估，也不阻擋。發布規則與排程契約都不變。
 
+### `GET /api/work-reports/history?kind=&start=`（REPORTS-P4-E4）
+唯讀的「歷史工作回顧（依現有資料）」，不是正式報告。同一管理員守門；query 為 strict；回應帶 `Cache-Control: no-store`。
+
+- **讀取方式**：在一個 RepeatableRead `READ ONLY` 交易裡讀目前仍保存的資料，observedAt 取 DB 時鐘。不建立快照或版本，不寫入，不碰 coverage 或排程。
+- **結果性質**：不是當時的期末狀態；之後補登或更正會改變結果；已刪除的資料無法還原。館別、主責／協作、狀態都是目前值。
+- **列入依據**：
+  - `evidence`：期間內有有效日期的主案或子項目日誌、未作廢交付、狀態變更紀錄、工作週期重疊、完成的週期，或目前結案且 closedOn 落在期間內；
+  - `inferred`：只有日期區間推估；
+  - `unresolved`：日期不足，另列，不計 0。
+- **結案紀錄**：每案只計一次，不是完成總數。
+- **交付**：依 kind×unit 的已記錄小計。只有在全部列入案件都是明細制、涵蓋整期，且沒有待確認案件時，才給 total。
+- **上限**：
+  - 載入 JSON 前，先以 SQL 預檢候選案件數（≤ 5000）與 logs/items 原始 JSON 位元組（≤ 8 MB）；
+  - 回應本身 ≤ 8 MB；
+  - 超過任一上限回 422 `history_too_large`。
+  - 每案進度只預覽 200 筆、每則 500 字，都帶截斷旗標；總筆數、摘要與最近紀錄日都依全部筆數計算。
+- **錯誤**：期間尚未開始回 422 `period_not_started`。
+
 ### `GET /api/work-reports?kind=&start=`
 該期間所有版本的 meta（依規則版本、revision 排序）。
 

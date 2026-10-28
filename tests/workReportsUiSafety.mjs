@@ -366,7 +366,7 @@ await test('index wiring, cache-bust hashes and CSS scope', () => {
   // round3: the two texts on the bare page background use the main ink pair (cards keep muted)
   assert(/\.wr-head \.wb-help\{color:var\(--hf-ink,#233b56\)\}/.test(css) && /\.wr-status\{font-size:12px;color:var\(--hf-ink,#233b56\)/.test(css), 'bare-background text uses --hf-ink');
   assert(/\.view\[data-view="work-reports"\] \.wb-help\{color:var\(--hf-muted,#526983\)/.test(css), 'in-card help text keeps muted');
-  const sr = plugin.match(/class="wr-sr"/g).length; assert.equal(sr, 3, 'all hidden texts sit inside the table region (th, row button, detail button)');
+  const sr = plugin.match(/class="wr-sr"/g).length; assert.equal(sr, 6, 'all hidden texts sit inside the table regions (th, row button, detail button) — formal + E4 history table');
   assert(!/overflow-x:hidden|overflow:hidden;?\s*\}/.test(css.replace(/\.wr-sr\{[^}]*\}/, '').replace(/\.wr-bar-track\{[^}]*\}/, '')), 'no page-wide overflow masking');
   assert(!/https?:\/\//.test(plugin) && !/<script/i.test(plugin.replace(/<script/gi, m => m)), 'no CDN / remote asset');
 });
@@ -503,5 +503,107 @@ await test('E3a page: labels by latest version, insufficient explained in plain 
   await o.go(); assert(!o.act('generate').disabled); assert(o.text().includes('按「產生本期報告」建立初版'));
   assert(!o.text().includes('預計') && !o.text().includes('不提供產生')); assert.deepEqual(optTexts(o, 'period'), ['2026-W41（2026-10-05） · 尚未產生']);
 });
+
+// ── REPORTS-P4-E4 history review (payloads from the real backend builder over synthetic current rows) ─────────────
+process.env.DATABASE_URL ||= 'postgresql://unused:unused@127.0.0.1:1/never_connect';   // the builder module imports the db client; nothing connects
+const WH = await import(root + '/src/lib/workHistory.js');
+const HP = RP.periodFromStart('week', '2026-10-12');
+const hk = (id, extra = {}) => ({ id, title: 'Case ' + id, hotel: '集團本部', status: 'doing', archived: false, openDate: '2026-10-01', dispatchDate: '2026-10-02', closedOn: null, cancelledOn: null,
+  designerId: 1, deliveryMode: 'legacy', deliveryModeSince: null, lifecycleMode: 'legacy', lifecycleStatus: null, requestCount: null, outputCount: null, items: null, logs: null, ...extra });
+const histSrc = () => ({ observedAt: '2026-10-28T06:30:00.000000Z', hotels: [{ id: 1, name: '集團本部', sortOrder: 10, active: true }, { id: 3, name: '新竹館', sortOrder: 20, active: true }],
+  staff: [{ id: 1, name: '王一', active: true }, { id: 2, name: '陳二', active: false }],
+  cases: [hk('H1', { title: '<img src=x onerror=alert(1)>', logs: [{ id: 'a', date: '2026-10-13', note: '=HYPERLINK("http://x","y")' }] }),
+    hk('H2', { hotel: '新竹館', designerId: 2, status: 'done', closedOn: '2026-10-15', archived: true }), hk('H3', { dispatchDate: '2026-10-05' }),
+    hk('H4', { status: 'done', closedOn: null, dispatchDate: '2026-09-01' }), hk('H5', { deliveryMode: 'records', deliveryModeSince: '2026-01-01T00:00:00.000000Z', logs: [{ id: 'b', date: '2026-10-16' }] })],
+  collaborators: [{ caseId: 'H1', staffId: 2 }],
+  deliveries: [{ id: 'Q1', caseId: 'H1', itemKey: null, itemName: '海報', kind: 'main', quantity: 2, unit: '張', deliveredOn: '2026-10-13', createdAt: '2026-10-13T03:00:00.000000Z', voidedAt: null, voidReason: null, cycleId: null, note: null }],
+  cycles: [], statusChanges: [], submissions: [] });
+const HIST = WH.buildWorkHistory({ period: HP, ...histSrc() });
+const HIST_URL = '/api/work-reports/history?kind=week&start=2026-10-12';
+const same = (a, b, m) => assert.equal(JSON.stringify(a), JSON.stringify(b), m);   // cross-realm deep compare
+
+await test('E4 pure: UI filter/summary match the backend algorithm; sorting by latest record (none last); CSV is a separate retrospective file with no snapshot identity', async () => {
+  const p = page({ routes: baseRoutes() }), U = p.c.WorkReportsUI;
+  same(U.historyView(HIST, {}).summary, HIST.summary, 'unfiltered summary = backend');
+  for (const f of [{ hotel: 'hotel:3' }, { staffId: '2' }, { hotel: 'hotel:1', staffId: '2' }]) {
+    const ui = U.historyView(HIST, f), be = WH.filterHistory(HIST, { hotel: f.hotel, staffId: f.staffId ? Number(f.staffId) : undefined });
+    same(ui.summary, be.summary, JSON.stringify(f)); same(ui.rows.map(r => r.id), be.rows.map(r => r.id)); same(ui.unresolved.map(r => r.id), be.unresolved.map(r => r.id));
+  }
+  same(U.historyView(HIST, { staffId: '2' }).rows.map(r => r.id), ['H1', 'H2'], 'current owner or collaborator, once per case (inactive staff included)');
+  same(U.historySort(HIST, HIST.rows, 'recent_desc').map(r => r.id), ['H5', 'H1', 'H3', 'H2'], 'hotel group first; within it newest record first, no-record (inferred) last');
+  same(U.historySort(HIST, HIST.rows, 'recent_asc').map(r => r.id), ['H1', 'H5', 'H3', 'H2']);
+  same(U.historySort(HIST, HIST.rows, 'id').map(r => r.id), ['H1', 'H3', 'H5', 'H2']);
+  const v = U.historyView(HIST, {}), csv = parseCsv(U.buildHistoryCsv(v).replace(/^﻿/, ''));
+  same(csv[0], ['報告', '歷史回顧・依目前資料（非正式期末報告）']); assert.equal(U.historyFileName(v), 'work-history_2026-W42.csv');
+  assert.equal(U.historyFileName(U.historyView(HIST, { hotel: 'hotel:1' })), 'work-history_2026-W42_filtered.csv');
+  for (const k of ['查閱時間 observedAt', '目前值欄位', '列入依據', '結案紀錄', '篩選', '匯出範圍']) assert(csv.some(r => r[0] === k), k);
+  for (const k of ['報告ID', '期末截止 C', '知識截止 K', '原版本雜湊 payloadSha256', '產生者']) assert(!csv.some(r => r[0] === k), 'no formal identity: ' + k);
+  const head = csv.find(r => r[0] === '館別（目前）' && r.includes('列入依據')), at = k => head.indexOf(k);
+  const h1 = csv.find(r => r[2] === 'H1'), h5 = csv.find(r => r[2] === 'H5'), h3 = csv.find(r => r[2] === 'H3');
+  assert.equal(h1[at('本期進度')], '2026-10-13 ［主案］=HYPERLINK("http://x","y")', 'note text kept inside the cell (the cell does not start with a formula)');
+  assert.equal(h1[at('本期已記錄 主設計（張）')], '2', 'kind × unit column (張, not only 件)');
+  assert.equal(h5[at('本期已記錄 主設計（張）')], '0', 'records mode for the whole period: a real 0'); assert.equal(h3[at('本期已記錄 主設計（張）')], '未知', 'legacy / inferred: unknown, never 0');
+  assert.equal(h3[at('列入依據')], '日期區間推估'); assert(csv.some(r => r[1] === 'H4' && r[5] === '已結案但沒有結案日'), 'unresolved listed with its reason');
+  assert(csv.find(r => r[2] === 'H2')[at('結案紀錄')].includes('目前登載的結案日'), 'archived done keeps its closing date');
+  assert.equal(csv.filter(r => /^H\d$/.test(r[2] || '')).length, HIST.rows.length, 'every row, not one page');
+  const inj = U.buildHistoryCsv(U.historyView({ ...HIST, rows: [{ ...HIST.rows[0], title: '=cmd|calc' }] }, {}));
+  assert(inj.includes(",'=cmd|calc,"), 'formula injection guarded in titles');
+});
+
+await test('E4 page: insufficient card opens the same period history; one read, client-side filters (no re-read), current-value notice, escaped text, mode-aware CSV', async () => {
+  const p = page({ routes: baseRoutes(call => (call.url === HIST_URL ? structuredClone(HIST) : undefined)) });
+  await p.go(); p.field('period', '2026-10-12'); await flush();
+  assert(p.text().includes('期末來源資料不足')); assert.equal(p.act('mode', '[data-mode="formal"]').getAttribute('aria-pressed'), 'true');
+  p.act('history-open').click(); await flush();
+  assert.equal(p.gets().filter(c => c.url === HIST_URL).length, 1); assert.equal(p.act('mode', '[data-mode="history"]').getAttribute('aria-pressed'), 'true');
+  const tx = () => p.text().replace(/[  -​ ]/g, ' ');
+  for (const s of ['歷史工作回顧（依現有資料）· 不是正式報告', '不是當時的期末狀態', '已刪除的資料無法還原', '目前值', '有紀錄的案件', '日期區間推估', '待確認', '期間有結案日期／事件紀錄',
+    '本期已記錄 主設計（張）', '列入案件的目前狀態（查閱當下，不是期末）', '已結案但沒有結案日', '有結案紀錄（非期末完成）']) assert(tx().includes(s), s);
+  assert(p.q('.wr-status').textContent.includes('2026-W42 歷史工作回顧') && p.q('.wr-status').textContent.includes('不是正式期末報告'), 'status line outside the selects');
+  assert(!p.q('img'), 'titles are escaped'); assert(p.text().includes('<img src=x onerror=alert(1)>'));
+  assert(!p.act('generate') && !p.act('revise-open') && !p.q('[data-field="version"]'), 'no formal controls in history mode');
+  const n = p.gets().length;
+  p.field('hotel', 'hotel:3'); await flush(); assert.equal(p.gets().length, n, 'filtering never re-reads');
+  assert(p.text().includes('Case H2') && !p.text().includes('Case H3')); assert(p.q('.wr-status').textContent.includes('篩選檢視'));
+  p.field('hotel', ''); p.field('staff', '2'); await flush(); assert.equal(p.gets().length, n); assert(p.text().includes('Case H2') && !p.text().includes('Case H5'));
+  p.act('csv').click(); const csv = p.downloads.at(-1).parts[0];
+  assert(csv.startsWith('﻿報告,歷史回顧・依目前資料')); assert(csv.includes('目前主責或協作：陳二')); assert(!csv.includes('原版本雜湊'));
+  p.act('expand', '[data-id="H2"]').click(); await flush(); assert(p.text().includes('結案紀錄（非期末完成）') && p.text().includes('目前登載的結案日'));
+  // back to the formal page: its own CSV, no history leftovers
+  p.act('mode', '[data-mode="formal"]').click(); await flush();
+  assert(!p.text().includes('歷史工作回顧（依現有資料）· 不是正式報告')); p.act('csv').click(); assert(p.downloads.at(-1).parts[0].includes('原版本雜湊'), 'formal CSV after switching back');
+  // the predicted-insufficient (not generated) state offers the history too
+  const W40 = per('2026-09-28');
+  const q = page({ routes: baseRoutes(call => (call.url.startsWith('/api/work-reports/periods?') ? covResp({ coverageStart: COV }, [{ ...W40, versions: [] }]) : undefined)) });
+  await q.go(); assert(q.act('generate').disabled); assert(q.act('history-open'), 'history offered when a formal report cannot be generated');
+});
+
+await test('E4 late replies and guards: a late history success / failure after switching mode or period never overwrites; role switch clears and blocks', async () => {
+  const gate = deferred();
+  const p = page({ routes: baseRoutes(call => (call.url.startsWith('/api/work-reports/history?') ? gate.promise : undefined)) });
+  await p.go(); p.act('mode', '[data-mode="history"]').click(); await flush();
+  assert(p.text().includes('整理歷史回顧中'));
+  p.act('mode', '[data-mode="formal"]').click(); await flush(); assert(p.text().includes('2026-W43'), 'formal report shown');
+  gate.resolve(structuredClone(HIST)); await flush();
+  assert(!p.text().includes('不是正式報告'), 'late history success dropped'); assert.equal(p.act('mode', '[data-mode="formal"]').getAttribute('aria-pressed'), 'true');
+  // per-request deferreds: the W43 history fails late after the user already moved to W42
+  const pend = new Map();
+  const s2 = page({ routes: baseRoutes(call => { if (call.url.startsWith('/api/work-reports/history?')) { const d = deferred(); pend.set(call.url, d); return d.promise; } }) });
+  await s2.go(); s2.act('mode', '[data-mode="history"]').click(); await flush(); s2.field('period', '2026-10-12'); await flush();
+  assert.deepEqual([...pend.keys()], ['/api/work-reports/history?kind=week&start=2026-10-19', HIST_URL]);
+  pend.get('/api/work-reports/history?kind=week&start=2026-10-19').reject(httpError(500, 'server_error')); await flush();
+  assert(!s2.text().includes('HTTP 500') && s2.text().includes('整理歷史回顧中'), 'the late failure of the previous period is dropped');
+  pend.get(HIST_URL).resolve(structuredClone(HIST)); await flush();
+  assert(s2.q('.wr-status').textContent.includes('2026-W42 歷史工作回顧'), 'the newer period renders');
+  // 422 explicit too-large message is shown, never a silent empty page
+  const big = page({ routes: baseRoutes(call => (call.url.startsWith('/api/work-reports/history?') ? Promise.reject(httpError(422, 'history_too_large', '這個期間相關的資料量超過單次回顧的上限，請改看較短的期間（週或月）。')) : undefined)) });
+  await big.go(); big.act('mode', '[data-mode="history"]').click(); await flush(); assert(big.text().includes('超過單次回顧的上限'));
+  // a role switch: no request, data cleared
+  const r = page({ routes: baseRoutes(call => (call.url === HIST_URL || call.url.startsWith('/api/work-reports/history?') ? structuredClone(HIST) : undefined)) });
+  await r.go(); r.act('mode', '[data-mode="history"]').click(); await flush(); const n = r.calls.length;
+  r.c.currentRole = 'observer'; r.act('mode', '[data-mode="formal"]').click(); await flush();
+  assert.equal(r.calls.length, n); assert.equal(r.view().textContent, '', 'history data cleared on a preview switch');
+});
+
 
 console.log(JSON.stringify({ workReportsUiTests: passed }));

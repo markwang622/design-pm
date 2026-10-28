@@ -3,12 +3,15 @@
 // Inputs are normalised and bounded; unknown keys (e.g. a forged role or actor) are rejected, never trusted.
 // REPORTS-P3-E3: GET /scheduler/status is read-only (same admin guard). There is no route that runs or publishes a
 // scheduled report; keys with the reserved 'sched-' prefix are refused.
+// REPORTS-P4-E4: GET /history is the read-only work history review from current retained data (src/lib/workHistory.js):
+// same admin guard, strict query, no snapshot/version/write; never a formal report.
 import { z } from 'zod';
 import { safeRouter } from '../lib/safeRouter.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { PERIOD_KINDS, PeriodError } from '../lib/reportPeriods.js';
 import { reasonProblem } from '../lib/scheduleWorkflow.js';
 import { workReports, WorkReportError } from '../lib/workReports.js';
+import { workHistory } from '../lib/workHistory.js';
 import { validateWorkReportScheduler } from '../lib/runtimeConfig.js';
 import { readSchedulerStatus } from '../services/workReportScheduler.js';
 import { prisma } from '../lib/db.js';
@@ -25,9 +28,10 @@ const generateBody = z.object({ periodKind: kind, startDate: day, idempotencyKey
 const revisionBody = z.object({ reason, expectedLatestRevision: z.number().int().min(1).max(100000), idempotencyKey: key }).strict();
 const periodsQuery = z.object({ kind, from: day, to: day }).strict();
 const versionsQuery = z.object({ kind, start: day }).strict();
+const historyQuery = z.object({ kind, start: day }).strict();
 const viewQuery = z.object({ hotel: z.string().min(1).max(300).optional(), staffId: z.string().regex(/^[1-9][0-9]{0,9}$/).transform(Number).optional() }).strict();
 
-export function createWorkReportsRouter(service = workReports, { schedulerStatus = () => readSchedulerStatus(prisma, validateWorkReportScheduler(process.env)) } = {}) {
+export function createWorkReportsRouter(service = workReports, { schedulerStatus = () => readSchedulerStatus(prisma, validateWorkReportScheduler(process.env)), history = workHistory } = {}) {
   const router = safeRouter();
   router.use(requireAuth, requireAdmin);
   const parse = (schema, value, res, error) => {
@@ -49,6 +53,13 @@ export function createWorkReportsRouter(service = workReports, { schedulerStatus
   router.get('/periods', (req, res) => run(res, async () => {
     const q = parse(periodsQuery, req.query, res, 'invalid_query'); if (!q) return;
     res.json(await service.periods(q.kind, q.from, q.to));
+  }));
+  // Declared before '/:id' so 'history' is never read as a snapshot id.
+  router.get('/history', (req, res) => run(res, async () => {
+    const q = parse(historyQuery, req.query, res, 'invalid_query'); if (!q) return;
+    const payload = await history.read(q.kind, q.start);
+    res.set('Cache-Control', 'no-store');
+    res.json(payload);
   }));
   router.get('/', (req, res) => run(res, async () => {
     const q = parse(versionsQuery, req.query, res, 'invalid_query'); if (!q) return;
