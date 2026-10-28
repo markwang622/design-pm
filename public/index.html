@@ -1077,6 +1077,20 @@ body.observer-mode .v61-case-mt { pointer-events: none !important; }
   .v33-edit-grid > label.v33-wide { grid-column: 1 / -1; }
   .v33-edit-grid input, .v33-edit-grid select { min-height: 34px; }
 }
+
+/* 子案件卡片：依卡片實際寬度（不是 viewport）重排。我的任務右側窄詳情只剩約 268px，
+   原本固定三欄會讓原生 date 的 min-content 把狀態欄擠成直排。
+   欄數由 auto-fit 依容器寬度決定：寬時三欄，窄時日期兩欄、狀態獨占下一列，最窄時全部單欄。 */
+.v43-item-card { container: v43card / inline-size; }
+.v43-item-card input, .v43-item-card select { min-width: 0; max-width: 100%; }
+.v43-row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); gap: 8px; margin-bottom: 10px; }
+.v43-row3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr)); gap: 8px; }
+.v43-row2 > div, .v43-row3 > div { min-width: 0; }
+@container v43card (max-width: 399px) {
+  .v43-row3 > .v43-status-cell { grid-column: 1 / -1; }
+}
+.v43-name-preview { min-width: 0; overflow-wrap: anywhere; }
+.v43-ilog-new { flex: 1 1 140px; }
 /* 抽屜整體：避免任何子元素撐破容器寬度 */
 @media (max-width: 560px) {
   .drawer, .drawer-body { min-width: 0; }
@@ -10964,7 +10978,7 @@ function v43InjectSubItemsPanel(c, body) {
             </div>
 
             <!-- Row 2: type + assignee -->
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+            <div class="v43-row2">
               <div>
                 <label style="${labelStyle}">製作物</label>
                 <select data-i="${i}" data-k="type" ${canWrite?'':'disabled'} style="${inputStyle}">
@@ -10981,7 +10995,7 @@ function v43InjectSubItemsPanel(c, body) {
             </div>
 
             <!-- Row 3: start + end + status -->
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+            <div class="v43-row3">
               <div>
                 <label style="${labelStyle}">開始日</label>
                 <input type="date" data-i="${i}" data-k="start" value="${escapeHtml(it.start||'')}" ${canWrite?'':'disabled'} style="${inputStyle}">
@@ -10990,7 +11004,7 @@ function v43InjectSubItemsPanel(c, body) {
                 <label style="${labelStyle}">結束日</label>
                 <input type="date" data-i="${i}" data-k="end" value="${escapeHtml(it.end||'')}" ${canWrite?'':'disabled'} style="${inputStyle}">
               </div>
-              <div>
+              <div class="v43-status-cell">
                 <label style="${labelStyle}">狀態（可同時 2 個）</label>
                 <select data-i="${i}" data-k="status" ${canWrite?'':'disabled'} style="${inputStyle}">
                   ${V51_STAGES.map(s=>`<option value="${escapeHtml(s.key)}" ${(it.status||'尚未製作')===s.key?'selected':''}>${escapeHtml(s.key)}</option>`).join('')}
@@ -11018,7 +11032,7 @@ function v43InjectSubItemsPanel(c, body) {
                   ${canWrite?`<button data-act="ilogedit" data-i="${i}" data-li="${li}" title="編輯" style="width:20px;height:20px;flex-shrink:0;padding:0;border:1px solid var(--input-border,#D4D4D4);background:transparent;border-radius:4px;cursor:pointer;color:var(--fg-muted,#8C8C8C);font-size:10px;line-height:1;">✎</button><button data-act="ilogdel" data-i="${i}" data-li="${li}" title="刪除" style="width:20px;height:20px;flex-shrink:0;padding:0;border:1px solid var(--input-border,#D4D4D4);background:transparent;border-radius:4px;cursor:pointer;color:var(--dk-red,#9A2E2E);font-size:12px;line-height:1;">×</button>`:''}
                 </div>`).join('')}
               ${canWrite?`<div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;">
-                <input data-ilognew="${i}" placeholder="新增此子項目進度…" style="${inputStyle}flex:1;min-width:140px;">
+                <input class="v43-ilog-new" data-ilognew="${i}" placeholder="新增此子項目進度…" style="${inputStyle}">
                 <input type="date" data-ilogdate="${i}" value="${v20TaiwanToday()}" style="${inputStyle}width:auto;flex-shrink:0;" title="日誌日期">
                 <button data-act="ilogadd" data-i="${i}" style="flex-shrink:0;padding:0 12px;background:#1F8A4C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">＋ 記錄</button>
               </div>`:''}
