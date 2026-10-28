@@ -1,0 +1,109 @@
+/* REPORTS-P3-E2 工作報告頁：只作用於 .view[data-view="work-reports"]，沿用霧藍 tokens（--hf-*／--input-*／--dk-*），不改全站。 */
+.view[data-view="work-reports"]{min-width:0;max-width:100%;color:var(--hf-ink,#233b56)}
+.view[data-view="work-reports"] .wr-head{margin:0 0 12px}
+.view[data-view="work-reports"] .wr-head>div{min-width:0}
+.view[data-view="work-reports"] .wr-head h1{font-size:24px;line-height:1.3;margin:0 0 4px;display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}
+.view[data-view="work-reports"] .wb-help{color:var(--hf-muted,#526983);font-size:13px}
+/* round3：頁首說明直接在頁面漸層背景上（無卡片底），改用主文字色以達 4.5:1；卡片內 .wb-help 維持 muted */
+.view[data-view="work-reports"] .wr-head .wb-help{color:var(--hf-ink,#233b56)}
+.view[data-view="work-reports"] .wr-ico{width:16px;height:16px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px;margin-right:4px}
+.view[data-view="work-reports"] .wr-head h1 .wr-ico{width:22px;height:22px;margin:0;color:var(--hf-accent,#315ea8)}
+.view[data-view="work-reports"] .wb-surface{padding:16px;margin:0 0 12px;min-width:0;background:var(--hf-surface,rgba(255,255,255,.72));border:1px solid var(--hf-line,#d6e1ef)}
+.view[data-view="work-reports"] h2{font-size:16px;margin:0 0 10px;color:var(--hf-ink,#233b56);display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.view[data-view="work-reports"] h3{font-size:13px;margin:12px 0 4px;color:var(--hf-ink,#233b56)}
+.view[data-view="work-reports"] .wb-button{color:var(--hf-ink,#233b56);background:var(--hf-paper,#fff);border-color:var(--hf-line,#cad7e6);min-width:0;font-size:13px;white-space:nowrap;display:inline-flex;align-items:center;gap:2px}
+.view[data-view="work-reports"] .wb-button[aria-pressed=true],.view[data-view="work-reports"] .wr-primary:not(:disabled){background:var(--hf-accent,#315ea8);color:var(--hf-accent-ink,#fff);border-color:var(--hf-accent,#315ea8)}
+.view[data-view="work-reports"] .wb-button:hover:not(:disabled){background:var(--hf-tint,#eaf1ff);color:var(--hf-ink,#233b56)}
+.view[data-view="work-reports"] .wr-primary:hover:not(:disabled){background:var(--hf-accent,#315ea8);color:var(--hf-accent-ink,#fff);filter:brightness(1.06)}
+/* 觸控目標：本頁按鈕／選單／輸入至少 44px（只在本頁，窄螢幕仍換行） */
+.view[data-view="work-reports"] :is(.wb-button,select,input){min-height:44px}
+.view[data-view="work-reports"] .wb-button{min-width:44px;justify-content:center}
+.view[data-view="work-reports"] .wr-sort{min-height:44px;min-width:44px;display:inline-flex;align-items:center}
+.view[data-view="work-reports"] .wr-alt summary{min-height:44px;display:flex;align-items:center}
+.view[data-view="work-reports"] :is(button,select,input,textarea,[tabindex]):focus-visible{outline:2px solid var(--hf-accent,#315ea8);outline-offset:2px}
+.view[data-view="work-reports"] .wr-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 12px;min-width:0;margin:0 0 10px}
+.view[data-view="work-reports"] .wr-row:last-child{margin-bottom:0}
+.view[data-view="work-reports"] .wr-kinds,.view[data-view="work-reports"] .wr-period{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px;min-width:0}
+.view[data-view="work-reports"] .wr-field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--hf-muted,#526983);min-width:0;max-width:100%}
+.view[data-view="work-reports"] .wr-field>span{display:flex;align-items:center}
+.view[data-view="work-reports"] .wr-grow{flex:1 1 240px}
+.view[data-view="work-reports"] :is(select,input,textarea){color:var(--input-fg,#233b56);background:var(--input-bg,#fff);border:1px solid var(--input-border,#cad7e6);border-radius:8px;padding:7px 8px;min-height:44px;font:inherit;font-size:13px;max-width:100%;min-width:0}
+.view[data-view="work-reports"] select{max-width:min(320px,100%)}
+.view[data-view="work-reports"] textarea{width:100%;resize:vertical}
+.view[data-view="work-reports"] :is(select,input,textarea,button):disabled{opacity:.55;cursor:not-allowed}
+.view[data-view="work-reports"] .wr-why{margin:0;align-self:center}
+.view[data-view="work-reports"] .wr-op:empty{display:none}
+.view[data-view="work-reports"] .wr-op{margin-top:10px}
+.view[data-view="work-reports"] .wr-revise{border-top:1px solid var(--section-divider,#e5ecf4);padding-top:10px}
+.view[data-view="work-reports"] .wr-op-msg{display:flex;gap:4px;align-items:flex-start;font-size:13px;margin:6px 0;color:var(--hf-ink,#233b56);overflow-wrap:anywhere}
+/* REPORTS-P3-E3：自動彙整狀態（卡片內一行，異常另列） */
+.view[data-view="work-reports"] .wr-sched{padding:10px 14px;margin:0 0 12px;font-size:13px;line-height:1.6;color:var(--hf-ink,#233b56)}
+.view[data-view="work-reports"] .wr-sched p{margin:0;overflow-wrap:anywhere}
+.view[data-view="work-reports"] .wr-sched .wr-ico{width:14px;height:14px;margin:0 4px 0 0;vertical-align:-2px}
+.view[data-view="work-reports"] .wr-sched-warn{margin:6px 0 0;padding:0;list-style:none;font-weight:600}
+.view[data-view="work-reports"] .wr-status{font-size:12px;color:var(--hf-ink,#233b56);min-height:1em;margin:0 0 8px}
+.view[data-view="work-reports"] .wr-state{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:14px}
+.view[data-view="work-reports"] .wr-error{border-color:var(--dk-red,#c9554a);color:var(--hf-ink,#233b56)}
+.view[data-view="work-reports"] .wr-error .wr-ico,.view[data-view="work-reports"] .wr-complete-insufficient>.wr-ico{color:var(--dk-red,#b23c31)}
+.view[data-view="work-reports"] .wr-complete{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:10px;background:var(--hf-soft,#f4f8ff);border:1px solid var(--hf-line,#d6e1ef);font-size:13px;line-height:1.6}
+.view[data-view="work-reports"] .wr-complete>div{min-width:0}
+.view[data-view="work-reports"] .wr-complete p,.view[data-view="work-reports"] .wr-complete ul{margin:2px 0;padding-left:18px}
+.view[data-view="work-reports"] .wr-complete p{padding-left:0}
+.view[data-view="work-reports"] .wr-complete-complete>.wr-ico{color:var(--dk-green,#2f6f47)}
+.view[data-view="work-reports"] .wr-complete-partial>.wr-ico{color:var(--dk-amber,#8a5a00)}
+.view[data-view="work-reports"] .wr-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:6px 16px;margin:12px 0;font-size:13px}
+.view[data-view="work-reports"] .wr-meta>div{min-width:0}
+.view[data-view="work-reports"] .wr-meta dt{color:var(--hf-muted,#526983);font-size:12px}
+.view[data-view="work-reports"] .wr-meta dd{margin:2px 0 0;overflow-wrap:anywhere}
+.view[data-view="work-reports"] .wr-hash{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.view[data-view="work-reports"] .wr-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:8px}
+.view[data-view="work-reports"] .wr-card{padding:10px 12px;border-radius:10px;background:var(--hf-paper,#fff);border:1px solid var(--hf-line,#d6e1ef);min-width:0}
+.view[data-view="work-reports"] .wr-card small{display:block;color:var(--hf-muted,#526983);font-size:12px;overflow-wrap:anywhere}
+.view[data-view="work-reports"] .wr-card strong{display:block;font-size:22px;line-height:1.25;margin-top:2px}
+.view[data-view="work-reports"] .wr-note{display:inline-block;font-size:12px;color:var(--hf-ink,#233b56);background:var(--hf-tint,#eaf1ff);border-radius:6px;padding:1px 6px;margin-top:2px}
+.view[data-view="work-reports"] .wr-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:12px 20px}
+.view[data-view="work-reports"] .wr-chart{margin:0;min-width:0}
+.view[data-view="work-reports"] .wr-chart figcaption{font-size:14px;font-weight:600;margin:0 0 8px;overflow-wrap:anywhere}
+.view[data-view="work-reports"] .wr-bars{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.view[data-view="work-reports"] .wr-bars li{display:grid;grid-template-columns:minmax(0,9em) minmax(0,1fr) auto;gap:8px;align-items:center;font-size:13px}
+.view[data-view="work-reports"] .wr-bar-label{overflow-wrap:anywhere}
+.view[data-view="work-reports"] .wr-bar-track{height:12px;border-radius:6px;background:var(--hf-soft,#f4f8ff);border:1px solid var(--hf-line,#d6e1ef);overflow:hidden}
+.view[data-view="work-reports"] .wr-bar{display:block;height:100%;min-width:4px;background:var(--hf-accent,#315ea8)}
+.view[data-view="work-reports"] .wr-bar-b{background:repeating-linear-gradient(135deg,var(--hf-accent,#315ea8) 0 4px,color-mix(in srgb,var(--hf-accent,#315ea8) 55%,transparent) 4px 7px)}
+.view[data-view="work-reports"] .wr-bar-c{background:radial-gradient(circle,var(--hf-accent,#315ea8) 1.3px,transparent 1.6px) 0 0/5px 5px,color-mix(in srgb,var(--hf-accent,#315ea8) 35%,transparent)}
+.view[data-view="work-reports"] .wr-bar-value{font-variant-numeric:tabular-nums;white-space:nowrap}
+.view[data-view="work-reports"] .wr-bar-value small{margin-left:4px;color:var(--hf-muted,#526983)}
+.view[data-view="work-reports"] .wr-alt{margin-top:8px;font-size:12px}
+.view[data-view="work-reports"] .wr-alt summary{cursor:pointer;color:var(--hf-accent,#315ea8)}
+.view[data-view="work-reports"] .wr-alt table{border-collapse:collapse;margin-top:6px}
+.view[data-view="work-reports"] .wr-alt :is(th,td){border-bottom:1px solid var(--section-divider,#e5ecf4);padding:4px 8px;text-align:left}
+/* round2：明細區是隱藏報讀文字的 containing block，橫捲只發生在這個有標籤的 region 內，不撐寬頁根 */
+.view[data-view="work-reports"] .wr-table-wrap{position:relative;overflow-x:auto;max-width:100%;min-width:0;border-radius:10px}
+.view[data-view="work-reports"] .wr-table{width:100%;min-width:860px;border-collapse:collapse;font-size:13px}
+.view[data-view="work-reports"] .wr-table thead th{position:sticky;top:0;background:var(--hf-soft,#f4f8ff);color:var(--hf-muted,#526983);font-size:12px;font-weight:600;text-align:left;padding:8px;border-bottom:1px solid var(--hf-line,#d6e1ef)}
+.view[data-view="work-reports"] .wr-sort{border:0;background:transparent;color:inherit;font:inherit;font-weight:600;padding:0;cursor:pointer}
+.view[data-view="work-reports"] .wr-table td{padding:10px 8px;border-bottom:1px solid var(--section-divider,#e5ecf4);vertical-align:top;overflow-wrap:anywhere}
+.view[data-view="work-reports"] .wr-table td small{display:block;color:var(--hf-muted,#526983);font-size:12px;margin-top:2px}
+.view[data-view="work-reports"] .wr-group th{text-align:left;padding:10px 8px 6px;font-size:13px;background:var(--hf-tint,#eaf1ff);color:var(--hf-ink,#233b56)}
+.view[data-view="work-reports"] .wr-group small{color:var(--hf-muted,#526983);font-weight:400}
+.view[data-view="work-reports"] .wr-id{display:block;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--hf-muted,#526983)}
+.view[data-view="work-reports"] .wr-title{display:block;font-weight:600}
+.view[data-view="work-reports"] .wr-badge,.view[data-view="work-reports"] .wr-k{display:inline-block;font-size:11px;border:1px solid var(--hf-line,#d6e1ef);border-radius:6px;padding:0 5px;color:var(--hf-ink,#233b56);background:var(--hf-paper,#fff)}
+.view[data-view="work-reports"] .wr-late{color:var(--hf-ink,#233b56)!important}
+.view[data-view="work-reports"] .wr-detail td{background:var(--hf-soft,#f4f8ff)}
+.view[data-view="work-reports"] .wr-detail-body{font-size:13px;line-height:1.6;min-width:0}
+.view[data-view="work-reports"] .wr-detail-body ul{margin:2px 0 6px;padding-left:18px}
+.view[data-view="work-reports"] .wr-expand .wr-ico{transition:transform .15s}
+.view[data-view="work-reports"] .wr-expand[aria-expanded=true] .wr-ico{transform:rotate(90deg)}
+.view[data-view="work-reports"] .wr-unresolved ul{margin:0;padding-left:18px;font-size:13px}
+.view[data-view="work-reports"] .wr-sr{position:absolute;top:0;left:0;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+@media (prefers-reduced-motion:reduce){.view[data-view="work-reports"] *{transition:none!important;animation:none!important}}
+@media (max-width:620px){
+  .view[data-view="work-reports"] .wb-surface{padding:12px}
+  .view[data-view="work-reports"] .wr-head h1{font-size:22px}
+  .view[data-view="work-reports"] .wr-row>*{max-width:100%}
+  .view[data-view="work-reports"] .wr-field,.view[data-view="work-reports"] .wr-grow{flex:1 1 100%}
+  .view[data-view="work-reports"] select{max-width:100%;width:100%}
+  .view[data-view="work-reports"] .wr-bars li{grid-template-columns:minmax(0,1fr) auto;row-gap:2px}
+  .view[data-view="work-reports"] .wr-bar-track{grid-column:1/-1;grid-row:2}
+}

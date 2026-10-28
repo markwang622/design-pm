@@ -27,8 +27,11 @@ import shootsRouter from './routes/shoots.js'; // G2
 import meetingsRouter from './routes/meetings.js'; // v6.0
 import icalRouter from './routes/ical.js'; // J2
 import adminRouter from './routes/admin.js';
+import noticesRouter from './routes/notices.js';
+import workReportsRouter from './routes/workReports.js'; // REPORTS-P3-E1b：主管工作報告快照
 import demoDataRouter from './routes/demoData.js'; // v9.4 暫用：正式→Demo 資料複製（僅 demo 站啟用）
 import { startMeetingReminderLoop } from './services/meetingReminders.js'; // M3
+import { startWorkReportScheduler } from './services/workReportScheduler.js'; // REPORTS-P3-E3：自動初版（預設關閉）
 
 // Validate before opening a listener or starting any background database work.
 const runtimeConfig = validateRuntimeConfig();
@@ -130,6 +133,8 @@ import jwtGuard from 'jsonwebtoken';
 app.use('/api', (req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
   if (req.path.startsWith('/auth')) return next(); // 登入/登出/改密碼/me
+  // REPORTS-P2-D2: dismissing one's own release notice is not a business write (observers may close it too).
+  if (req.method === 'POST' && /^\/notices\/[A-Za-z0-9_-]{4,80}\/dismiss$/.test(req.path)) return next();
   const token = req.cookies?.designpm_token;
   if (token) {
     try {
@@ -154,6 +159,8 @@ app.use('/api/business-trips', businessTripsRouter);
 app.use('/api/shoots', shootsRouter); // G2
 app.use('/api/meetings', meetingsRouter); // v6.0
 app.use('/api/ical', icalRouter); // J2（免登入，?key= 驗證）
+app.use('/api/notices', noticesRouter); // REPORTS-P2-D2：成員更新通知
+app.use('/api/work-reports', workReportsRouter); // REPORTS-P3-E1b：快照／修訂（僅管理員）
 app.use('/api/admin', adminRouter);
 app.use('/api/admin/demo-data', demoDataRouter); // APP_BASE_URL !== demo 站時整組 404
 
@@ -242,5 +249,10 @@ app.use((err, req, res, next) => {
 const PORT = runtimeConfig.port;
 app.listen(PORT, () => {
   console.log(`[design-pm] listening on :${PORT}`);
-  startMeetingReminderLoop(); // M3: 會前提醒排程
+  if (process.env.MEETING_REMINDERS_ENABLED !== 'false') {
+    startMeetingReminderLoop(); // M3: 會前提醒排程
+  } else {
+    console.log('[meeting-reminder] disabled for migration rehearsal');
+  }
+  startWorkReportScheduler(runtimeConfig.workReportScheduler); // REPORTS-P3-E3：只有 WORK_REPORT_SCHEDULER_ENABLED=true 才啟動；錯誤只記錄，不中止網站
 });

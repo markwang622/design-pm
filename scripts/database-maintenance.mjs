@@ -83,7 +83,7 @@ async function backup(db,destination) {
 }
 async function restoreCheck(db,manifestPath) {
   const c=connection();
-  if(!['localhost','127.0.0.1','[::1]'].includes(c.url.hostname)||!/^design_pm_(?:phase3|restore)_/.test(c.database))fail('Restore checks require a named isolated loopback database');
+  if(!['localhost','127.0.0.1','[::1]'].includes(c.url.hostname)||!/^design_pm_(?:phase3|restore|delivery_[a-z])_/.test(c.database))fail('Restore checks require a named isolated loopback database'); // REPORTS-P1-C1: per-batch delivery drill namespace (loopback + empty target still required)
   const target=await snapshot(db);if(Object.keys(target.tables).length)fail('Restore target must be empty; no data will be overwritten');
   const {manifest,archive}=await loadBackup(manifestPath);
   const fd=fs.openSync(archive,'r');let result;

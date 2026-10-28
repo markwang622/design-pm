@@ -131,6 +131,32 @@ async function analyze(p, db = prisma) {
   const dupUnits = dupOf(p.units.map((u) => u.name));
   if (dupUnits.length) errors.push({ code: 'duplicate_unit_name', names: dupUnits });
 
+  // REPORTS-P1-C1：交付明細制或含任何交付／送審證據的來源，這一版不支援複製（不剝除後偽裝成舊制）。
+  // 來源必須帶著 deliveryMode 與 _count 標記（由相同版本的 GET /api/cases 匯出），缺標記無法判定即拒絕。
+  const unmarked = [], recordsCases = [], scheduleUnmarked = [], scheduleCases = [], lifecycleUnmarked = [], lifecycleCases = [];
+  for (const c of p.cases) {
+    const count = c._count && typeof c._count === 'object' ? c._count : null;
+    if (typeof c.deliveryMode !== 'string' || !count || !Number.isInteger(count.deliveries) || !Number.isInteger(count.deliverySubmissions)) { unmarked.push(c.id); continue; }
+    const hasEvidence = c.deliveryMode !== 'legacy' || count.deliveries > 0 || count.deliverySubmissions > 0
+      || c.pendingDeliverySubmissionId != null || c.deliveryModeRequestId != null
+      || Array.isArray(c.deliveries) || Array.isArray(c.deliverySubmissions);
+    if (hasEvidence) recordsCases.push(c.id);
+    // REPORTS-P2-D1a：時程受控或含改期申請紀錄的來源同樣不支援（不剝除歷史後偽裝成舊制）；缺標記即拒絕。
+    if (typeof c.scheduleMode !== 'string' || !Number.isInteger(count.scheduleRequests)) { scheduleUnmarked.push(c.id); continue; }
+    if (c.scheduleMode !== 'legacy' || count.scheduleRequests > 0 || c.pendingScheduleRequestId != null || c.scheduleModeRequestId != null
+      || c.scheduleBaseline != null || Array.isArray(c.scheduleRequests)) scheduleCases.push(c.id);
+    // REPORTS-P2-D1b：生命週期受控或含週期／封存復工紀錄的來源同樣不支援；缺標記即拒絕。
+    if (typeof c.lifecycleMode !== 'string' || !Number.isInteger(count.cycles) || !Number.isInteger(count.lifecycleRequests)) { lifecycleUnmarked.push(c.id); continue; }
+    if (c.lifecycleMode !== 'legacy' || count.cycles > 0 || count.lifecycleRequests > 0 || c.currentCycleId != null || c.pendingLifecycleRequestId != null
+      || c.lifecycleStatus != null || c.lifecycleModeRequestId != null || Array.isArray(c.cycles) || Array.isArray(c.lifecycleRequests)) lifecycleCases.push(c.id);
+  }
+  if (unmarked.length) errors.push({ code: 'delivery_markers_missing', cases: unmarked.slice(0, 50), message: '來源案件缺少交付模式標記，無法確認是否含交付明細；請以相同版本的系統重新匯出後再複製' });
+  if (lifecycleUnmarked.length) errors.push({ code: 'lifecycle_markers_missing', cases: lifecycleUnmarked.slice(0, 50), message: '來源案件缺少生命週期標記，無法確認是否含工作週期或封存／復工紀錄；請以相同版本的系統重新匯出後再複製' });
+  if (lifecycleCases.length) errors.push({ code: 'lifecycle_history_not_supported', cases: lifecycleCases.slice(0, 50), message: '來源含生命週期受控案件或週期／封存復工紀錄，這一版的 Demo 複製不支援；請改用合成資料驗收，或移除這些案件後再複製' });
+  if (scheduleUnmarked.length) errors.push({ code: 'schedule_markers_missing', cases: scheduleUnmarked.slice(0, 50), message: '來源案件缺少時程模式標記，無法確認是否含改期申請紀錄；請以相同版本的系統重新匯出後再複製' });
+  if (scheduleCases.length) errors.push({ code: 'schedule_history_not_supported', cases: scheduleCases.slice(0, 50), message: '來源含時程受控案件或改期申請紀錄，這一版的 Demo 複製不支援；請改用合成資料驗收，或移除這些案件後再複製' });
+  if (recordsCases.length) errors.push({ code: 'delivery_records_not_supported', cases: recordsCases.slice(0, 50), message: '來源含交付明細制案件或交付／送審紀錄，這一版的 Demo 複製不支援；請改用合成資料驗收，或移除這些案件後再複製' });
+
   // 人員映射：alias email 命中 → 沿用；同名但 email 非 alias → 拒絕；否則新建
   const existing = await db.staff.findMany({ select: { id: true, name: true, email: true } });
   const byEmail = new Map(existing.map((s) => [s.email, s]));

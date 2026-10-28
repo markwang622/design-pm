@@ -43,6 +43,14 @@ export function clearAuthCookie(res) {
   res.clearCookie(COOKIE_NAME, { path: '/' });
 }
 
+// REPORTS-P2-D2: closing one's own release notice is not a business write, so observers may persist it. Exactly
+// POST /api/notices/<id>/dismiss (no other path, method or notice route); the route writes for req.user only and
+// enforces expectedStaffId as a precondition. Must match the global observer guard's exemption in src/index.js.
+const OWN_NOTICE_DISMISS = /^\/api\/notices\/[A-Za-z0-9_-]{4,80}\/dismiss$/;
+function isOwnNoticeDismissal(req) {
+  return req.method === 'POST' && OWN_NOTICE_DISMISS.test(String(req.originalUrl || '').split('?')[0]);
+}
+
 export async function requireAuth(req, res, next) {
   const token = req.cookies?.[COOKIE_NAME];
   if (!token) return res.status(401).json({ error: 'unauthenticated' });
@@ -56,7 +64,10 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ error: 'session_expired' });
     }
     req.user = { id: staff.id, name: staff.name, email: staff.email, role: staff.role };
-    if (staff.role === 'observer' && !['GET','HEAD','OPTIONS'].includes(req.method) && !req.originalUrl.startsWith('/api/auth/')) {
+    // REPORTS-P3-E1b: the verified session version, re-checked inside report publication transactions.
+    req.authSession = { sessionVersion: staff.sessionVersion };
+    if (staff.role === 'observer' && !['GET','HEAD','OPTIONS'].includes(req.method) && !req.originalUrl.startsWith('/api/auth/')
+      && !isOwnNoticeDismissal(req)) {
       return res.status(403).json({ error: 'read_only', message: '觀察者帳號為唯讀' });
     }
     next();

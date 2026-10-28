@@ -1,0 +1,57 @@
+/* REPORTS-P1-B 交付成果：案件抽屜內的精簡區塊。沿用霧藍微透與清晰列表 token，不新增字體或圖片。
+   所有文字／背景成對取自同一組 token，暗色模式由既有 [data-theme="dark"] token 自動切換。 */
+.cd-root{margin:12px 0;padding:12px 14px;border:1px solid var(--hf-line,#d6e1ef);border-radius:12px;background:var(--hf-surface,rgba(255,255,255,.72));color:var(--hf-ink,#233b56);min-width:0;max-width:100%;box-sizing:border-box;overflow-wrap:anywhere}
+.cd-root *,.cd-root *::before,.cd-root *::after{box-sizing:border-box}
+.cd-head{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;min-width:0}
+.cd-title{margin:0;font-size:13px;font-weight:600;color:var(--hf-ink,#233b56)}
+.cd-help{margin:2px 0 8px;font-size:11.5px;line-height:1.6;color:var(--hf-muted,#526983)}
+.cd-head .cd-btn-primary{margin-left:auto}
+.cd-summary{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px;min-width:0}
+.cd-chip{display:inline-flex;align-items:baseline;gap:4px;padding:3px 9px;border:1px solid var(--hf-line,#d6e1ef);border-radius:999px;background:var(--hf-soft,#f4f8ff);font-size:12px;color:var(--hf-ink,#233b56);white-space:nowrap}
+.cd-chip b{font-weight:600}
+.cd-unknown,.cd-legacy,.cd-readonly{margin:4px 0 8px;font-size:11.5px;line-height:1.6;color:var(--hf-muted,#526983)}
+.cd-legacy b{color:var(--hf-ink,#233b56);font-weight:600}
+.cd-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.cd-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:start;padding:8px 10px;border:1px solid var(--hf-line,#d6e1ef);border-radius:9px;background:var(--hf-paper,#fff);min-width:0}
+.cd-row.is-void{border-style:dashed;background:var(--hf-soft,#f4f8ff)}
+.cd-row-main{min-width:0}
+.cd-row-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;font-size:12.5px;color:var(--hf-ink,#233b56);min-width:0}
+.cd-row-name{font-weight:600;overflow-wrap:anywhere;min-width:0}
+.cd-row-meta,.cd-row-note{font-size:11.5px;line-height:1.55;color:var(--hf-muted,#526983);overflow-wrap:anywhere}
+.cd-kind{display:inline-block;padding:0 6px;border:1px solid var(--hf-line,#d6e1ef);border-radius:5px;font-size:11px;white-space:nowrap;color:var(--hf-ink,#233b56)}
+.cd-qty{white-space:nowrap;font-variant-numeric:tabular-nums}
+.cd-void-badge{display:inline-block;padding:0 6px;border:1px solid currentColor;border-radius:5px;font-size:11px;white-space:nowrap;color:var(--dk-red,#9A2E2E)}
+.cd-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;min-width:0}
+.cd-btn{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;white-space:nowrap;word-break:keep-all;min-height:32px;padding:5px 11px;border:1px solid var(--input-border,#cad7e6);border-radius:8px;background:var(--input-bg,#fff);color:var(--input-fg,var(--fg,#233b56));font:inherit;font-size:12px;cursor:pointer}
+.cd-btn:hover:not(:disabled){background:var(--hf-tint,#eaf1ff)}
+.cd-btn:focus-visible,.cd-field input:focus-visible,.cd-field select:focus-visible,.cd-field textarea:focus-visible{outline:2px solid var(--accent,#315ea8);outline-offset:1px}
+.cd-btn-primary{background:var(--accent,#315ea8);border-color:var(--accent,#315ea8);color:var(--accent-ink,#fff)}
+.cd-btn-primary:hover:not(:disabled){background:var(--accent,#315ea8);filter:brightness(1.06)}
+.cd-btn-danger{color:var(--dk-red,#9A2E2E)}
+.cd-btn:disabled{opacity:.55;cursor:not-allowed}
+.cd-form{margin:8px 0 4px;padding:10px 12px;border:1px solid var(--hf-line,#d6e1ef);border-radius:10px;background:var(--hf-paper,#fff);min-width:0}
+.cd-form fieldset{margin:0;padding:0;border:0;min-width:0}
+.cd-form-title{margin:0 0 6px;font-size:12.5px;font-weight:600;color:var(--hf-ink,#233b56)}
+.cd-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px}
+.cd-field{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:11.5px;color:var(--hf-muted,#526983)}
+.cd-field.cd-wide{grid-column:1/-1}
+.cd-field input,.cd-field select,.cd-field textarea{width:100%;min-width:0;min-height:34px;padding:6px 8px;border:1px solid var(--input-border,#cad7e6);border-radius:7px;background:var(--input-bg,#fff);color:var(--input-fg,var(--fg,#233b56));font:inherit;font-size:12.5px}
+.cd-field textarea{min-height:56px;resize:vertical}
+.cd-field [aria-invalid="true"]{border-color:var(--dk-red,#B3261E)}
+.cd-hint{font-size:11px;line-height:1.5;color:var(--hf-muted,#526983)}
+.cd-consequence{margin:0 0 6px;font-size:11.5px;line-height:1.6;color:var(--hf-ink,#233b56)}
+.cd-form-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center}
+.cd-form-actions .cd-discard{margin-left:auto}
+.cd-msg{min-height:0;margin:6px 0 0;font-size:11.5px;line-height:1.6;color:var(--hf-ink,#233b56)}
+.cd-msg:empty{display:none}
+.cd-msg.is-error{color:var(--dk-red,#9A2E2E)}
+.cd-msg.is-ok{color:var(--dk-green,#1F6B3A)}
+.cd-status{font-size:12px;color:var(--hf-muted,#526983);padding:4px 0}
+@media(max-width:620px){.cd-grid{grid-template-columns:minmax(0,1fr)}.cd-row{grid-template-columns:minmax(0,1fr)}.cd-actions{justify-content:flex-start}.cd-head .cd-btn-primary{margin-left:0}.cd-form-actions .cd-discard{margin-left:0}}
+.cd-root[hidden]{display:none}
+.cd-help-inline{color:var(--hf-muted,#526983);font-size:11px}
+.cd-inline-form{list-style:none}
+/* 淺色季節的強調色（春／夏／秋）配白字不到 4.5:1；本元件主按鈕在淺色下加深 20%，暗色維持原強調色＋深字 */
+html:not([data-theme="dark"]) .cd-btn-primary,html:not([data-theme="dark"]) .cd-btn-primary:hover:not(:disabled){background:color-mix(in srgb,var(--accent,#315ea8) 80%,#000);border-color:color-mix(in srgb,var(--accent,#315ea8) 80%,#000)}
+/* 手機觸控目標（Codex 390px 驗收）：≤620px 時按鈕與輸入／選單至少 44px；桌面密度不變 */
+@media(max-width:620px){.cd-root .cd-btn{min-height:44px;min-width:44px;padding-top:8px;padding-bottom:8px}.cd-root .cd-field input,.cd-root .cd-field select{min-height:44px}}

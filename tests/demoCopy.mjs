@@ -30,12 +30,55 @@ const cookie=id=>'designpm_token='+signToken({id,role:id===10?'admin':'member',s
 const post=async(path,body,auth=cookie(10))=>{const r=await fetch(base+'/copy/'+path,{method:'POST',headers:{'Content-Type':'application/json',...(auth?{Cookie:auth}:{})},body:JSON.stringify(body)});return{status:r.status,data:await r.json()};};
 const day='2026-10-01T00:00:00.000Z';
 const payload={sourceOrigin:'https://artdesign.zeabur.app',staff:[1,2].map(id=>({id,name:'Source '+id,joined:day,seniority:'mid',active:true,departedOn:null})),hotels:[{name:'Hotel',region:'New',sortOrder:9,active:true}],units:[{name:'Unit',sortOrder:7,active:true}],cases:[{id:'KEEP',title:'must not overwrite',designerId:1},{id:'CASE-ONE',title:'Source case',designerId:1,createdById:2,collaborators:[{id:2}],level:'A',status:'doing',note:'work',openDate:day,dispatchDate:day,goLiveDate:day,items:[{n:'Child',assigneeId:2,owner:'Source 2'}],logs:[{by:'Source 1',note:'progress',date:'2026-10-01'}],deliverables:null},{id:'CASE-TWO',title:'Archived case',designerId:2,createdById:null,collaborators:[],level:'B',status:'closed',archived:true,openDate:day,dispatchDate:day,goLiveDate:day,closedOn:day,items:null,logs:null,deliverables:[]}]};
+// REPORTS-P1-C1: a same-version source export (GET /api/cases) carries delivery markers; legacy cases have none.
+// REPORTS-P2-D1a: the same export also carries schedule markers (legacy, no schedule requests).
+// REPORTS-P2-D1b: … and lifecycle markers (legacy, no cycles or seal/resume requests).
+for(const c of payload.cases)Object.assign(c,{deliveryMode:'legacy',scheduleMode:'legacy',lifecycleMode:'legacy',_count:{deliveries:0,deliverySubmissions:0,scheduleRequests:0,cycles:0,lifecycleRequests:0}});
 const phrase='COPY PRODUCTION PROJECT DATA TO DEMO';let pass=0;
 const test=async(name,fn)=>{await fn();pass++;console.log('PASS '+name);};
 try{
   await test('disabled on production origin',async()=>{process.env.APP_BASE_URL='https://artdesign.zeabur.app';assert.equal((await post('preview',payload)).status,404);process.env.APP_BASE_URL='https://artdesign-for-demo.zeabur.app';});
   await test('requires authenticated admin',async()=>{assert.equal((await post('preview',payload,null)).status,401);assert.equal((await post('preview',payload,cookie(20))).status,403);});
   await test('rejects credentials at any depth',async()=>{const p=structuredClone(payload);p.cases[1].items[0].resetToken='do-not-copy';assert.equal((await post('preview',p)).status,400);assert.equal(writes,0);});
+  await test('C1: records-mode or evidence-bearing sources are refused explicitly, never stripped into legacy',async()=>{
+    for(const mutate of [c=>{c.deliveryMode='records';},c=>{c._count.deliveries=2;},c=>{c._count.deliverySubmissions=1;},c=>{c.pendingDeliverySubmissionId='sub-pending-0001';},c=>{c.deliveries=[];}]){
+      const p=structuredClone(payload);mutate(p.cases[1]);const check=await post('preview',p);
+      assert.equal(check.status,200);assert.equal(check.data.ok,false);assert(check.data.errors.some(e=>e.code==='delivery_records_not_supported'&&e.cases.includes(p.cases[1].id)));
+      const r=await post('import',{...p,confirm:phrase,digest:check.data.digest});assert.notEqual(r.status,200);
+    }
+    assert.equal(writes,0);
+  });
+  await test('D1a: schedule-managed or schedule-history sources are refused; missing schedule markers too',async()=>{
+    for(const mutate of [c=>{c.scheduleMode='managed';},c=>{c._count.scheduleRequests=1;},c=>{c.pendingScheduleRequestId='sched-pending-01';},c=>{c.scheduleBaseline={};},c=>{c.scheduleRequests=[];}]){
+      const p=structuredClone(payload);mutate(p.cases[1]);const check=await post('preview',p);
+      assert.equal(check.status,200);assert.equal(check.data.ok,false);assert(check.data.errors.some(e=>e.code==='schedule_history_not_supported'&&e.cases.includes(p.cases[1].id)));
+      const r=await post('import',{...p,confirm:phrase,digest:check.data.digest});assert.notEqual(r.status,200);
+    }
+    for(const strip of [c=>{delete c.scheduleMode;},c=>{delete c._count.scheduleRequests;}]){
+      const p=structuredClone(payload);strip(p.cases[1]);const check=await post('preview',p);
+      assert.equal(check.data.ok,false);assert(check.data.errors.some(e=>e.code==='schedule_markers_missing'));
+    }
+    assert.equal(writes,0);
+  });
+  await test('D1b: lifecycle-managed or cycle/seal-history sources are refused; missing lifecycle markers too',async()=>{
+    for(const mutate of [c=>{c.lifecycleMode='managed';},c=>{c._count.cycles=1;},c=>{c._count.lifecycleRequests=1;},c=>{c.currentCycleId='cycle-0000-0001';},c=>{c.lifecycleStatus='sealed_incomplete';},c=>{c.cycles=[];}]){
+      const p=structuredClone(payload);mutate(p.cases[1]);const check=await post('preview',p);
+      assert.equal(check.status,200);assert.equal(check.data.ok,false);assert(check.data.errors.some(e=>e.code==='lifecycle_history_not_supported'&&e.cases.includes(p.cases[1].id)));
+      const r=await post('import',{...p,confirm:phrase,digest:check.data.digest});assert.notEqual(r.status,200);
+    }
+    for(const strip of [c=>{delete c.lifecycleMode;},c=>{delete c._count.cycles;},c=>{delete c._count.lifecycleRequests;}]){
+      const p=structuredClone(payload);strip(p.cases[1]);const check=await post('preview',p);
+      assert.equal(check.data.ok,false);assert(check.data.errors.some(e=>e.code==='lifecycle_markers_missing'));
+    }
+    assert.equal(writes,0);
+  });
+  await test('C1: sources without delivery markers cannot be classified and are refused',async()=>{
+    for(const strip of [c=>{delete c.deliveryMode;},c=>{delete c._count;},c=>{c._count={deliveries:'0'};}]){
+      const p=structuredClone(payload);strip(p.cases[0]);const check=await post('preview',p);
+      assert.equal(check.data.ok,false);assert(check.data.errors.some(e=>e.code==='delivery_markers_missing'));
+    }
+    assert.equal(writes,0);
+  });
   const preview=await post('preview',payload);
   await test('preview is read-only and reports skips/dictionary changes',()=>{assert.equal(preview.status,200);assert.equal(preview.data.ok,true);assert.equal(preview.data.counts.cases.import,2);assert.equal(preview.data.counts.cases.skippedExisting,1);assert.equal(preview.data.hotelsUpdate.length,1);assert.equal(writes,0);});
   await test('unknown staff reference blocks whole import',async()=>{const p=structuredClone(payload);p.cases[1].items[0].assigneeId=999;const check=await post('preview',p);assert.equal(check.data.ok,false);const r=await post('import',{...p,confirm:phrase,digest:check.data.digest});assert.equal(r.status,409);assert.equal(writes,0);});

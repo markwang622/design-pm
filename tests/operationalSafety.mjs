@@ -13,7 +13,7 @@ for (const key of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']) delete process.env[ke
 const { ConfigurationError, validateRuntimeConfig, getJwtSecret, validatePostgresUrl, validateOperatorPassword } = await import(root + '/src/lib/runtimeConfig.js');
 const { DEMO_ORIGIN, DEMO_RESET_CONFIRMATION, requireDeploymentIdentity } = await import(root + '/src/lib/databaseIdentity.js');
 const { prisma } = await import(root + '/src/lib/db.js');
-const models = ['staff', 'case', 'hotel', 'requestUnit', 'meeting', 'meetingAttendee', 'vacation', 'businessTrip', 'shoot', 'changeLog', 'transferLog', 'notification', 'deploymentIdentity'];
+const models = ['staff', 'case', 'hotel', 'requestUnit', 'meeting', 'meetingAttendee', 'vacation', 'businessTrip', 'shoot', 'changeLog', 'transferLog', 'notification', 'deliveryRecord', 'deliverySubmission', 'scheduleRequest', 'caseCycle', 'lifecycleRequest', 'reportSourceEvent', 'reportSnapshot', 'reportJobRun', 'reportSchedulerState', 'deploymentIdentity']; // REPORTS-P3-E1a/E1b/E3: source versions, report snapshots and scheduled report jobs count for the empty-DB check
 let unexpectedGlobalAccess = 0;
 for (const model of models) if (prisma[model]) {
   for (const method of ['count', 'findUnique', 'findFirst', 'findMany', 'create', 'createMany', 'update', 'updateMany', 'delete', 'deleteMany', 'upsert']) {
@@ -73,6 +73,14 @@ function adapter(getDatabase, inTransaction = false) {
       };
     }
   }
+  // REPORTS-P1-A: the only raw statement maintenance may issue is the transaction-local
+  // delivery purge switch, and only inside the reset transaction.
+  client.$queryRawUnsafe = async sql => {
+    operations.push({ model: '$raw', method: 'queryRawUnsafe', sql, transaction: inTransaction });
+    assert(inTransaction, 'raw maintenance statements must use the transaction client');
+    assert.equal(sql, "SELECT set_config('design_pm.allow_delivery_purge', 'on', true)", 'only the scoped delivery purge switch is allowed');
+    return [{ set_config: 'on' }];
+  };
   return client;
 }
 const client = adapter(() => state);
@@ -246,6 +254,20 @@ await test('successful Demo reset preserves identity and commits only synthetic 
   const people = new Set(state.staff.map(p => p.id)); for (const record of state.case) { assert(people.has(record.designerId)); for (const co of record.collaborators) assert(people.has(co.id)); }
   const log = state.case[0].logs[0]; assert(log.note); assert(log.by); assert.equal(log.text, undefined); assert.equal(log.author, undefined);
   assert.equal(transactionOptions[0].isolationLevel, 'Serializable'); assert(operations.filter(op => op.model === 'deploymentIdentity').every(op => op.method === 'findUnique'));
+  // REPORTS-P1-A: append-only delivery evidence is removed only after the scoped purge switch and before cases.
+  const at = (model, method) => operations.findIndex(op => op.model === model && op.method === method && op.transaction);
+  assert(at('$raw', 'queryRawUnsafe') >= 0 && at('$raw', 'queryRawUnsafe') < at('deliveryRecord', 'deleteMany') && at('deliveryRecord', 'deleteMany') < at('case', 'deleteMany'));
+  assert.equal(state.deliveryRecord.length, 0);
+  // REPORTS-P1-C1: submission evidence is purged under the same switch, before cases (RESTRICT FK).
+  assert(at('$raw', 'queryRawUnsafe') < at('deliverySubmission', 'deleteMany') && at('deliverySubmission', 'deleteMany') < at('case', 'deleteMany'));
+  assert.equal(state.deliverySubmission.length, 0);
+  // REPORTS-P2-D1a: schedule-request history is purged under the same switch, before cases (RESTRICT FK).
+  assert(at('$raw', 'queryRawUnsafe') < at('scheduleRequest', 'deleteMany') && at('scheduleRequest', 'deleteMany') < at('case', 'deleteMany'));
+  assert.equal(state.scheduleRequest.length, 0);
+  // REPORTS-P2-D1b: lifecycle requests, then deliveries (they reference cycles), then cycles — all before cases.
+  assert(at('$raw', 'queryRawUnsafe') < at('lifecycleRequest', 'deleteMany') && at('lifecycleRequest', 'deleteMany') < at('caseCycle', 'deleteMany'));
+  assert(at('deliveryRecord', 'deleteMany') < at('caseCycle', 'deleteMany') && at('caseCycle', 'deleteMany') < at('case', 'deleteMany'));
+  assert.equal(state.caseCycle.length, 0); assert.equal(state.lifecycleRequest.length, 0);
 });
 await test('maintenance entrypoints do not emit supplied passwords connection URLs or secrets', async () => {
   const seen = [], old = console.log; console.log = (...args) => seen.push(args.join(' '));

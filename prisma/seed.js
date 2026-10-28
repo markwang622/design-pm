@@ -8,7 +8,11 @@ import { prisma } from '../src/lib/db.js';
 import { ConfigurationError, validateRuntimeConfig, validatePostgresUrl, validateOperatorPassword } from '../src/lib/runtimeConfig.js';
 import { taipeiCalendarDay } from '../src/services/analytics.js';
 
-const BUSINESS_MODELS = ['staff', 'case', 'hotel', 'requestUnit', 'meeting', 'meetingAttendee', 'vacation', 'businessTrip', 'shoot', 'changeLog', 'transferLog', 'notification'];
+const BUSINESS_MODELS = ['staff', 'case', 'hotel', 'requestUnit', 'meeting', 'meetingAttendee', 'vacation', 'businessTrip', 'shoot', 'changeLog', 'transferLog', 'notification',
+  'deliveryRecord', 'deliverySubmission', 'scheduleRequest', 'caseCycle', 'lifecycleRequest', // REPORTS-P2-D1b: evidence/history tables count too
+  'reportSourceEvent', // REPORTS-P3-E1a: source versions (the single coverage row exists from migration 0008 on, even when empty)
+  'reportSnapshot', // REPORTS-P3-E1b: immutable work-report snapshots
+  'reportJobRun', 'reportSchedulerState']; // REPORTS-P3-E3: scheduled report jobs and the scheduler state (absent until first enabled)
 const HOTELS = [
   { region: '集團', name: '集團本部', sortOrder: 10 },
   { region: '新竹', name: '新竹湖濱館', sortOrder: 20 },

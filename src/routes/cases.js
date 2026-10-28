@@ -8,9 +8,65 @@ import { caseEditPermission } from '../lib/casePermissions.js';
 import { caseContentInclude, replaceCaseJson, appendCaseLog, sendCaseEditError } from '../lib/caseJsonEdits.js';
 import { notify, tplCaseAssigned, tplCollabInvite } from '../services/notify.js';
 import { detectChanges, writeChangeLog, TRACKED_FIELDS } from '../services/changelog.js';
+import deliveriesRouter from './deliveries.js';
+import { assignNewItemKeys, reconcileItemKeys } from '../lib/caseItemKeys.js';
+import { linkedItemKeys } from '../lib/deliveries.js';
+import deliveryWorkflowRouter from './deliveryWorkflow.js';
+import { deliveryFlags } from '../lib/deliveryFlags.js';
+import { parseDecision, decideSubmission, cancelPendingSubmissionInTx } from '../lib/deliveryWorkflow.js';
+import { CaseEditError } from '../lib/caseJsonEdits.js';
+import scheduleWorkflowRouter from './scheduleWorkflow.js';
+import { managedPatchCheck, managedDateProblem, invalidatePendingScheduleInTx } from '../lib/scheduleWorkflow.js';
+import caseLifecycleRouter from './caseLifecycle.js';
+import { lifecyclePatchCheck, lifecycleProblem, cycleProblem, closeCycleInTx, expectedCycleField } from '../lib/caseLifecycle.js';
 
 const router = safeRouter(); // v9.6: async 錯誤一律交給 error middleware
 router.use(requireAuth);
+router.use(deliveriesRouter); // REPORTS-P1-A：/:id/deliveries（預設關閉，見 DELIVERY_RECORDS_ENABLED）
+router.use(deliveryWorkflowRouter); // REPORTS-P1-C1：送審／撤回／導入／送審紀錄（見 DELIVERY_WORKFLOW_ENABLED）
+router.use(scheduleWorkflowRouter); // REPORTS-P2-D1a：時程受控導入／改期申請／主管決議（見 SCHEDULE_WORKFLOW_ENABLED）
+router.use(caseLifecycleRouter); // REPORTS-P2-D1b：生命週期導入／未完成封存／復工（見 LIFECYCLE_WORKFLOW_ENABLED）
+
+// REPORTS-P1-C1: records-mode cases may only enter review_done / done / closed through the
+// dedicated submission and approval endpoints. Evidence (archive path, items, legacy counts) is
+// frozen while a submission is pending and after approval; C1 offers no reopen of approved records.
+const recordsFrozen = row => row.deliveryMode === 'records' && (row.status === 'review_done' || terminalStatus(row.status));
+function recordsPatchViolation(existing, body) {
+  if (existing.deliveryMode !== 'records') return null;
+  if (body.status !== undefined && body.status !== existing.status) {
+    if (body.status === 'review_done') return [409, 'delivery_submission_required', '此案件採交付明細制，請使用「送審」動作並確認交付已完整登錄。'];
+    if (terminalStatus(body.status)) return [409, 'delivery_approval_required', '交付明細制案件只能經由送審與主管核可結案，不能直接改成結案狀態。'];
+    if (existing.status === 'review_done') return [409, 'delivery_withdraw_required', '案件正待主管核可：請由主責／協作者撤回，或由主管退回後再調整狀態。'];
+    if (terminalStatus(existing.status)) return [409, 'records_reopen_unavailable', '交付明細制案件核可後暫不提供重啟；同案復工將於後續批次提供。'];
+  }
+  const touchesEvidence = (body.archivePath !== undefined && body.archivePath !== existing.archivePath)
+    || (body.requestCount !== undefined && body.requestCount !== existing.requestCount)
+    || (body.outputCount !== undefined && body.outputCount !== existing.outputCount);
+  if (recordsFrozen(existing) && touchesEvidence) return [409, 'delivery_evidence_frozen', '送審中或已核可的交付明細制案件，歸檔位置與數量已凍結；如需更正請先撤回或由主管退回。'];
+  return null;
+}
+const recordsModeStamp = user => (deliveryFlags().workflowActive
+  ? { deliveryMode: 'records', deliveryModeSince: new Date(), deliveryModeById: user.id, deliveryModeByName: user.name || '—', deliveryModeReason: '流程啟用後新建案件' }
+  : {});
+const evidenceCount = { _count: { select: { deliveries: true, deliverySubmissions: true, scheduleRequests: true, cycles: true, lifecycleRequests: true } } };
+// REPORTS-P2-D1b: browser versions + cycle for a lifecycle-managed case's state/assignment action (cancel,
+// transfer, legacy approve). Never filled in from what the server just read.
+function lifecycleActionProblem(existing, body) {
+  if (existing.lifecycleMode !== 'managed') return null;
+  const blocked = lifecycleProblem(existing, 'evidence');
+  if (blocked) return [blocked.status, blocked.code, blocked.message, blocked.extra];
+  if (!body || body.expectedUpdatedAt === undefined || body.expectedContentVersion === undefined) {
+    return [409, 'client_update_required', '此案件的生命週期受控管，請重新整理頁面（需要最新版本與週期資訊）後再操作；這次沒有寫入。'];
+  }
+  const cycle = cycleProblem(existing, body.expectedCycleId);
+  if (cycle) return [cycle.status, cycle.code, cycle.message];
+  if (existing.contentVersion !== body.expectedContentVersion || new Date(body.expectedUpdatedAt).getTime() !== new Date(existing.updatedAt).getTime()) {
+    return [409, 'edit_conflict', '案件已被其他操作更新，請重新載入後再試；這次沒有寫入。'];
+  }
+  return null;
+}
+const sendTuple = (res, t) => res.status(t[0]).json({ error: t[1], message: t[2], ...(t[3] || {}) });
+const browserVersionFields = { expectedUpdatedAt: z.string().datetime({ offset: true }).optional(), expectedContentVersion: z.number().int().nonnegative().optional(), expectedCycleId: expectedCycleField };
 
 // ─── Helpers ───────────────────────────────────────────────
 const caseInclude = caseContentInclude;
@@ -36,8 +92,48 @@ async function writeWorkflowAudit(tx, caseId, changes, reason, operator) {
 // Claim the snapshot before changing relations. The row lock, ownership change,
 // transfer record and audit all belong to one transaction; callers notify after it.
 // Serializable also protects assignment eligibility against concurrent departures.
-async function applyWorkflow(existing, data, changes, reason, operator, toDesignerId, actor) {
+// `options` (optional, REPORTS-P1-C1) — a function is treated as { inTx }:
+//   inTx(tx, current)  runs after the snapshot claim inside the same transaction (current = re-read actor);
+//   snapshotEvidence   also claims deliveryMode + contentVersion, so any submit / approval / adoption /
+//                      delivery write committed after `existing` was read makes this write lose (409),
+//                      even within the same millisecond;
+//   revalidateActor    re-reads the signed-in staff row in the transaction (active, activated, current
+//                      role) and enforces primary/collaborator assignment from the database role;
+//   primaryOrAdmin     (with revalidateActor; the 403 message) narrows that to current admin or primary;
+//   bumpContentVersion advances contentVersion with the write (records evidence edits), so a later
+//                      submission carrying the pre-edit browser version loses;
+//   snapshotSchedule   (REPORTS-P2-D1a) also claims scheduleMode + pendingScheduleRequestId, so an adoption
+//                      or schedule request committed after `existing` was read makes this write lose;
+//   snapshotLifecycle  (REPORTS-P2-D1b) also claims lifecycleStatus + currentCycleId + pendingLifecycleRequestId;
+//   closeCycle         (REPORTS-P2-D1b) { outcome, actor, reason } closes the current cycle in the same transaction;
+//   patchPermission    (REPORTS-P2-D1a, with revalidateActor) the intended PATCH body: the action-specific rules
+//                      (closed admin-only, reassignment primary/admin-only) are re-checked against the re-read
+//                      actor, so a demotion after the outer checks cannot keep those privileges.
+async function applyWorkflow(existing, data, changes, reason, operator, toDesignerId, actor, options) {
+  const opts = typeof options === 'function' ? { inTx: options } : (options || {});
+  const inTx = opts.inTx;
   return prisma.$transaction(async tx => {
+    let currentActor;
+    if (opts.revalidateActor) {
+      const current = await tx.staff.findUnique({ where: { id: opts.revalidateActor.id ?? -1 }, select: { id: true, name: true, role: true, active: true, pendingActivation: true } });
+      if (!current || !current.active || current.pendingActivation) throw workflowError(403, 'actor_inactive', '帳號已停用或尚未啟用，這次沒有儲存。');
+      if (current.role === 'observer') throw workflowError(403, 'read_only', '觀察者帳號為唯讀。');
+      currentActor = current;
+      operator = current.name || operator;
+      // primaryOrAdmin: CURRENT admin or CURRENT primary only (collaborators never); the claim below
+      // keeps designerId pinned to the read snapshot, so primary-ness holds at commit.
+      if (opts.patchPermission) {
+        const denied = caseEditPermission({ id: current.id, role: current.role }, existing, opts.patchPermission);
+        if (denied === 'closed_admin_only') throw workflowError(403, 'closed_admin_only', '結案需要由 admin 在審核中心通過，這次沒有儲存。');
+        if (denied === 'assignment_primary_only') throw workflowError(403, 'assignment_primary_only', '主責與協作者調整、取消專案請交由主負責人或管理員處理；這次沒有儲存。');
+        if (denied) throw workflowError(403, 'forbidden', '你目前沒有此案件的編輯權限，這次沒有儲存。');
+      }
+      if (opts.primaryOrAdmin) {
+        if (current.role !== 'admin' && current.id !== existing.designerId) throw workflowError(403, 'forbidden', opts.primaryOrAdmin);
+      } else {
+        actor = { id: current.id, role: current.role };
+      }
+    }
     let target;
     if (toDesignerId !== undefined) {
       target = await tx.staff.findUnique({ where: { id: toDesignerId } });
@@ -49,9 +145,13 @@ async function applyWorkflow(existing, data, changes, reason, operator, toDesign
     const claimed = await tx.case.updateMany({
       where: {
         id: existing.id, designerId: existing.designerId, status: existing.status, updatedAt: existing.updatedAt,
+        ...(opts.snapshotEvidence && { deliveryMode: existing.deliveryMode, contentVersion: existing.contentVersion }),
+        ...(opts.snapshotSchedule && { scheduleMode: existing.scheduleMode, pendingScheduleRequestId: existing.pendingScheduleRequestId, contentVersion: existing.contentVersion }),
+        ...(opts.snapshotLifecycle && { lifecycleMode: existing.lifecycleMode, lifecycleStatus: existing.lifecycleStatus, currentCycleId: existing.currentCycleId,
+          pendingLifecycleRequestId: existing.pendingLifecycleRequestId, contentVersion: existing.contentVersion }),
         ...(actor && actor.role !== 'admin' && { OR: [{ designerId: actor.id }, { collaborators: { some: { id: actor.id } } }] }),
       },
-      data: { ...scalarData, ...(target && { designerId: target.id }) },
+      data: { ...scalarData, ...(target && { designerId: target.id }), ...(opts.bumpContentVersion && { contentVersion: { increment: 1 } }) },
     });
     if (claimed.count !== 1) throw workflowError(409, 'case_conflict', '案件已被其他操作更新，請重新載入案件後再試');
     if (collaborators || target) {
@@ -63,6 +163,11 @@ async function applyWorkflow(existing, data, changes, reason, operator, toDesign
     if (target) {
       const from = await tx.staff.findUnique({ where: { id: existing.designerId }, select: { name: true } });
       await tx.transferLog.create({ data: { caseId: existing.id, fromName: from?.name || '—', toName: target.name, reason, operator } });
+    }
+    if (typeof inTx === 'function') await inTx(tx, currentActor);
+    if (opts.closeCycle) {
+      const who = currentActor || opts.closeCycle.actor;
+      await closeCycleInTx(tx, existing, opts.closeCycle.outcome, { id: who.id, name: who.name }, opts.closeCycle.reason ?? reason, { finalStatus: scalarData.status });
     }
     await writeWorkflowAudit(tx, existing.id, changes, reason, operator);
     return tx.case.findUnique({ where: { id: existing.id }, include: caseInclude });
@@ -135,6 +240,10 @@ const updateSchema = z.object({
   requestCount: closureCountSchema.optional(),
   outputCount: closureCountSchema.optional(),
   reason: z.string().optional(), // required only when tracked fields change
+  // REPORTS-P2-D1a: browser versions; required for tracked changes on schedule-managed cases (ignored for legacy).
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
+  expectedContentVersion: z.number().int().nonnegative().optional(),
+  expectedCycleId: expectedCycleField, // REPORTS-P2-D1b: required for writes on lifecycle-managed cases
 });
 
 // ─── POST /api/cases/bulk-import — admin only (v3.4) ──────
@@ -316,7 +425,7 @@ router.get('/', async (req, res) => {
   const includeArchived = req.query.includeArchived === '1';
   const rows = await prisma.case.findMany({
     where: includeArchived ? {} : { archived: false },
-    include: caseInclude,
+    include: { ...caseInclude, ...evidenceCount }, // REPORTS-P1-C1：來源匯出可辨識交付證據
     orderBy: { goLiveDate: 'asc' },
   });
   res.json(rows);
@@ -330,6 +439,7 @@ router.get('/:id', async (req, res) => {
       ...caseInclude,
       transferLogs: { orderBy: { date: 'desc' } },
       changeLogs: { orderBy: { createdAt: 'desc' } },
+      ...evidenceCount,
     },
   });
   if (!row) return res.status(404).json({ error: 'not_found' });
@@ -343,6 +453,9 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues });
   }
   const body = parsed.data;
+  let createItems;
+  try { createItems = body.items ? assignNewItemKeys(body.items) : undefined; } // REPORTS-P1-A：伺服器產生穩定子案件 key
+  catch (e) { if (sendCaseEditError(res, e)) return; throw e; }
 
   // Designer must not be in collaborators list
   const collabIds = body.collaboratorIds.filter((id) => id !== body.designerId);
@@ -368,11 +481,12 @@ router.post('/', async (req, res) => {
     source: body.source ?? undefined,
     deliverables: body.deliverables ?? undefined,
     needsOutsourcing: body.needsOutsourcing ?? false,
-    items: body.items ?? undefined,
+    items: createItems,
     logs: body.logs ?? undefined,
     designer: { connect: { id: body.designerId } },
     collaborators: { connect: collabIds.map((id) => ({ id })) },
     createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
+    ...recordsModeStamp(req.user), // REPORTS-P1-C1：流程開啟後的新建一般案件採交付明細制
   };
   const created = await createWithCaseId(body.level, body.openDate, id =>
     prisma.case.create({ data: { id, ...caseData }, include: caseInclude }));
@@ -418,6 +532,9 @@ router.patch('/:id', async (req, res) => {
 
   const existing = await prisma.case.findUnique({ where: { id: req.params.id }, include: { collaborators: { select: { id: true } } } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
+  // REPORTS-P2-D1a: managed cases validate the raw calendar dates before any legacy coercion.
+  const badDate = managedDateProblem(existing, req.body);
+  if (badDate) return res.status(400).json({ error: 'invalid_date', field: badDate.field, message: badDate.message });
 
   const denied = caseEditPermission(req.user, existing, body);
   if (denied) return res.status(403).json({ error: denied, message: denied === 'assignment_primary_only'
@@ -430,6 +547,9 @@ router.patch('/:id', async (req, res) => {
   if (existing.status === 'cancelled' && body.status !== undefined) {
     return res.status(422).json({ error: 'uncancel_action_required', message: `請先使用 POST /api/cases/${existing.id}/uncancel 還原取消，再調整案件狀態` });
   }
+  // REPORTS-P1-C1: records mode routes status and frozen evidence through the delivery workflow (admins too).
+  const recordsViolation = recordsPatchViolation(existing, body);
+  if (recordsViolation) return res.status(recordsViolation[0]).json({ error: recordsViolation[1], message: recordsViolation[2] });
 
   // ── Archive-path guard ───────────────────────────────────
   // Required when going into review_done / done / closed (any "終態")
@@ -460,6 +580,20 @@ router.patch('/:id', async (req, res) => {
     if (body[f] !== undefined) trackedPatch[f] = body[f];
   }
   const changes = detectChanges(existing, trackedPatch);
+  // REPORTS-P2-D1a: schedule-managed cases — tracked/date changes need a meaningful reason and the real
+  // browser versions; postponing or clearing a parent milestone (dispatch/copy/print/goLive) needs an
+  // approved schedule request; nothing may slip past a pending request. Applies while paused too.
+  const managed = managedPatchCheck(existing, body, changes);
+  if (managed.error) return res.status(managed.error[0]).json({ error: managed.error[1], message: managed.error[2], ...(managed.error[3] || {}) });
+  if (managed.tracked) changes.push(...managed.extraChanges);
+  // REPORTS-P2-D1b: lifecycle-managed cases — any real change needs versions + the current cycle and goes through
+  // the claim; sealed cases are read-only; evidence edits wait for a pending lifecycle request; no reopen after
+  // completion/cancellation; reaching done/closed closes the current cycle as `completed` in the same transaction.
+  const lifecycle = lifecyclePatchCheck(existing, body);
+  if (lifecycle.error) return sendTuple(res, lifecycle.error);
+  if (lifecycle.tracked) for (const c of lifecycle.extraChanges) if (!changes.some(x => x.field === c.field)) changes.push(c);
+  // Unchanged protected fields are never written on managed cases (no blind overwrite of a concurrent approval).
+  const skipUnchanged = new Set([...(managed.unchanged || []), ...(lifecycle.unchanged || [])]);
   // D3: 調整原因改為非必填（未填則記錄為「—」）
   const reasonStr = (body.reason || '').trim() || '—';
 
@@ -489,16 +623,17 @@ router.patch('/:id', async (req, res) => {
     ...(body.outputCount !== undefined && { outputCount: body.outputCount }),
   };
 
+  for (const f of skipUnchanged) delete data[f];
   const transferring = body.designerId !== undefined && body.designerId !== existing.designerId;
-  if (body.collaboratorIds !== undefined) {
+  if (body.collaboratorIds !== undefined && !skipUnchanged.has('collaboratorIds')) {
     data.collaborators = {
       set: [...new Set(body.collaboratorIds)].filter(id => id !== (body.designerId ?? existing.designerId)).map(id => ({ id })),
     };
-  } else if (body.designerId !== undefined) {
+  } else if (body.designerId !== undefined && !skipUnchanged.has('designerId')) {
     data.collaborators = { disconnect: [{ id: body.designerId }] };
   }
 
-  if (body.status !== undefined) {
+  if (body.status !== undefined && !skipUnchanged.has('status')) {
     if (terminalStatus(body.status)) {
       if (!terminalStatus(existing.status) || !existing.closedOn) data.closedOn = taipeiCalendarDay();
       if (body.status === 'closed') data.archived = true;
@@ -510,13 +645,33 @@ router.patch('/:id', async (req, res) => {
 
   let updated;
   const hasClosureCounts = body.requestCount !== undefined || body.outputCount !== undefined;
-  if (transferring || body.status !== undefined || hasClosureCounts) {
+  // REPORTS-P1-C1: archive path and legacy counts are submission evidence. Their write claims the
+  // read snapshot (status, mode, updatedAt AND contentVersion) with the actor re-validated inside the
+  // transaction; a submit/approval/adoption that commits in between makes this PATCH lose with 409.
+  const evidenceEdit = body.archivePath !== undefined || hasClosureCounts;
+  if (managed.tracked || lifecycle.tracked) {
+    // Managed tracked change: Serializable claim of the browser-confirmed snapshot (versions, mode, pending
+    // schedule request, delivery mode, lifecycle), actor + assignment re-read in the transaction, version advanced.
+    if (lifecycle.closing) data.lifecycleStatus = 'completed';
+    const managedOptions = { snapshotEvidence: true, snapshotSchedule: true, snapshotLifecycle: existing.lifecycleMode === 'managed', revalidateActor: req.user,
+      bumpContentVersion: true, patchPermission: body, ...(lifecycle.closing && { closeCycle: { outcome: 'completed', actor: req.user } }) };
+    try { updated = await applyWorkflow(existing, data, changes, reasonStr, req.user.name, transferring ? body.designerId : undefined, req.user, managedOptions); }
+    catch (e) { if (sendWorkflowError(res, e)) return; throw e; }
+  } else if (transferring || body.status !== undefined || evidenceEdit) {
     // Count edits share the workflow snapshot claim, including current ownership
     // or collaboration, so a revoked editor cannot persist a stale submission.
-    try { updated = await applyWorkflow(existing, data, changes, reasonStr, req.user.name, transferring ? body.designerId : undefined, hasClosureCounts ? req.user : undefined); }
+    const evidenceOptions = evidenceEdit ? { snapshotEvidence: true, revalidateActor: req.user, bumpContentVersion: existing.deliveryMode === 'records', patchPermission: body } : undefined;
+    try { updated = await applyWorkflow(existing, data, changes, reasonStr, req.user.name, transferring ? body.designerId : undefined, evidenceEdit ? req.user : undefined, evidenceOptions); }
     catch (e) { if (sendWorkflowError(res, e)) return; throw e; }
   } else {
-    updated = await prisma.case.update({ where: { id: req.params.id }, data, include: caseInclude });
+    // REPORTS-P2-D1a: pin the schedule mode that was read, so an adoption committed in between cannot let a
+    // legacy-rules date write slip onto a now-managed case.
+    if ((existing.scheduleMode === 'managed' || existing.lifecycleMode === 'managed') && !Object.keys(data).length) {
+      updated = await prisma.case.findUnique({ where: { id: req.params.id }, include: caseInclude });   // true no-op: nothing written
+    } else {
+      try { updated = await prisma.case.update({ where: { id: req.params.id, scheduleMode: existing.scheduleMode }, data, include: caseInclude }); }
+      catch (e) { if (e?.code === 'P2025') return res.status(409).json({ error: 'case_conflict', message: '案件已被其他操作更新，請重新載入案件後再試' }); throw e; }
+    }
     if (changes.length) {
       try { await writeChangeLog(updated.id, changes, reasonStr, req.user.name); }
       catch (e) { console.warn('[cases.update] changelog write failed:', e.message); }
@@ -577,6 +732,7 @@ router.patch('/:id', async (req, res) => {
 const approveSchema = z.object({
   decision: z.enum(['approve', 'reject']),
   comment: z.string().optional(),
+  ...browserVersionFields, // REPORTS-P2-D1b: required for lifecycle-managed legacy-delivery cases
 });
 router.post('/:id/approve', requireAdmin, async (req, res) => {
   const parsed = approveSchema.safeParse(req.body);
@@ -588,6 +744,26 @@ router.post('/:id/approve', requireAdmin, async (req, res) => {
     include: { designer: { select: { id: true, name: true } } },
   });
   if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (existing.deliveryMode === 'records') {
+    // REPORTS-P1-C1: records decisions bind to the submission, the browser's versions and a stable
+    // operation id; approve re-verifies evidence and explicit zero-support approval in one transaction.
+    let result;
+    try { result = await decideSubmission(req.user, existing.id, parseDecision(req.body)); }
+    catch (e) {
+      if (e?.issues) return res.status(400).json({ error: 'invalid_body', message: e.message, issues: e.issues });
+      if (sendCaseEditError(res, e)) return; throw e;
+    }
+    if (!result.replayed) {
+      try {
+        const approved = result.decision === 'approve';
+        await notify({ type: approved ? 'caseClosed' : 'caseRejected', recipientId: existing.designer.id,
+          subject: approved ? `✅ 案件已結案：${existing.id} · ${existing.title}` : `↩ 案件被退回：${existing.id} · ${existing.title}`,
+          body: approved ? `Admin ${req.user.name} 已核可交付明細送審，案件已結案。${result.submission.decisionReason ? '評語：' + result.submission.decisionReason : ''}`
+            : `Admin ${req.user.name} 退回此案，狀態已切回「進行中」。原因：${result.submission.decisionReason}`, relatedCaseId: existing.id });
+      } catch (e) { console.warn('[approve:records] notify failed (decision already committed):', e.message); }
+    }
+    return res.json({ submission: result.submission, case: result.case, replayed: result.replayed });
+  }
   if (existing.status !== 'review_done') {
     return res.status(409).json({
       error: 'wrong_state',
@@ -599,14 +775,21 @@ router.post('/:id/approve', requireAdmin, async (req, res) => {
   if (decision === 'approve' && (!existing.archivePath || !String(existing.archivePath).trim())) {
     return res.status(422).json({ error: 'archive_path_required', message: '結案前必須先填寫檔案歸檔位置' });
   }
+  // REPORTS-P2-D1b: a lifecycle-managed case needs the browser's versions + cycle; approval closes the current
+  // cycle as `completed` in the same transaction (rejection keeps it open).
+  const lifecycleIssue = lifecycleActionProblem(existing, parsed.data);
+  if (lifecycleIssue) return sendTuple(res, lifecycleIssue);
+  const lifecycleManaged = existing.lifecycleMode === 'managed';
   const data = decision === 'approve'
-    ? { status: 'closed', archived: true, closedOn: taipeiCalendarDay() }
+    ? { status: 'closed', archived: true, closedOn: taipeiCalendarDay(), ...(lifecycleManaged && { lifecycleStatus: 'completed' }) }
     : { status: 'doing', archived: false, closedOn: null };
   let updated;
   try {
     updated = await applyWorkflow(existing, data,
       [{ field: 'status', fromValue: 'review_done', toValue: data.status }],
-      `${decision === 'approve' ? '審核通過' : '退回修改'}${comment ? ' — ' + comment : ''}`, req.user.name);
+      `${decision === 'approve' ? '審核通過' : '退回修改'}${comment ? ' — ' + comment : ''}`, req.user.name, undefined, undefined,
+      lifecycleManaged ? { snapshotLifecycle: true, bumpContentVersion: true, revalidateActor: req.user, patchPermission: { status: data.status },
+        ...(decision === 'approve' && { closeCycle: { outcome: 'completed', actor: req.user } }) } : undefined);
   } catch (e) { if (sendWorkflowError(res, e)) return; throw e; }
 
   // Notify designer
@@ -627,6 +810,28 @@ router.post('/:id/approve', requireAdmin, async (req, res) => {
   }
 
   res.json(updated);
+});
+
+// ─── GET /api/cases/pending-requests/list — REPORTS-P2-D2 admin queue for schedule / lifecycle requests ─
+// Read-only: cases with a pending schedule-change or seal/resume request, with the request kind. Decisions are
+// made from the case drawer against the snapshot the manager has reviewed.
+router.get('/pending-requests/list', requireAdmin, async (req, res) => {
+  const rows = await prisma.case.findMany({
+    where: { OR: [{ NOT: { pendingScheduleRequestId: null } }, { NOT: { pendingLifecycleRequestId: null } }] },
+    select: { id: true, title: true, subTitle: true, hotel: true, level: true, status: true, archived: true, goLiveDate: true,
+      designer: { select: { id: true, name: true } }, pendingScheduleRequestId: true, pendingLifecycleRequestId: true, lifecycleStatus: true },
+    orderBy: { goLiveDate: 'asc' },
+  });
+  const lifecycleIds = rows.map(r => r.pendingLifecycleRequestId).filter(Boolean);
+  const scheduleIds = rows.map(r => r.pendingScheduleRequestId).filter(Boolean);
+  const [lifecycle, schedule] = await Promise.all([
+    lifecycleIds.length ? prisma.lifecycleRequest.findMany({ where: { id: { in: lifecycleIds } }, select: { id: true, kind: true, requestedByName: true, createdAt: true, reasonCategory: true, reason: true } }) : [],
+    scheduleIds.length ? prisma.scheduleRequest.findMany({ where: { id: { in: scheduleIds } }, select: { id: true, requestedByName: true, createdAt: true, reasonCategory: true, reason: true, currentSchedule: true, proposedSchedule: true } }) : [],
+  ]);
+  res.json(rows.map(r => {
+    const l = lifecycle.find(x => x.id === r.pendingLifecycleRequestId), s = schedule.find(x => x.id === r.pendingScheduleRequestId);
+    return { ...r, request: l ? { kind: l.kind, ...l } : s ? { kind: 'schedule', ...s } : null };
+  }));
 });
 
 // ─── GET /api/cases/pending-approval — admin queue (v3.6 #21) ─
@@ -666,13 +871,33 @@ router.delete('/:id', async (req, res) => {
   // already have onDelete: Cascade in the schema, so a single delete is
   // enough — but Notifications referenced by relatedCaseId are nullable
   // strings and won't cascade.
-  await prisma.$transaction([
-    prisma.notification.updateMany({
-      where: { relatedCaseId: existing.id },
-      data: { relatedCaseId: null },
-    }),
-    prisma.case.delete({ where: { id: existing.id } }),
-  ]);
+  // REPORTS-P1-A: delivery evidence blocks deletion. The count gives a clear early answer;
+  // the RESTRICT foreign key stays authoritative when a delivery is written concurrently.
+  const deliveryBlocked = () => res.status(409).json({ error: 'case_has_deliveries', message: '此案件已有交付紀錄，不能刪除；如需更正請作廢個別交付紀錄。' });
+  if (await prisma.deliveryRecord.count({ where: { caseId: existing.id } })) return deliveryBlocked();
+  if (await prisma.deliverySubmission.count({ where: { caseId: existing.id } })) return deliveryBlocked();
+  // REPORTS-P2-D1a: schedule-change history also blocks deletion (count + RESTRICT FK).
+  const scheduleBlocked = () => res.status(409).json({ error: 'case_has_schedule_requests', message: '此案件已有改期申請紀錄，不能刪除；歷史紀錄必須保留。' });
+  if (await prisma.scheduleRequest.count({ where: { caseId: existing.id } })) return scheduleBlocked();
+  // REPORTS-P2-D1b: cycles and lifecycle requests are history too (count + RESTRICT / same-case FKs).
+  const lifecycleBlocked = () => res.status(409).json({ error: 'case_has_lifecycle_history', message: '此案件已有工作週期或封存／復工紀錄，不能刪除；歷史紀錄必須保留。' });
+  if (await prisma.caseCycle.count({ where: { caseId: existing.id } }) || await prisma.lifecycleRequest.count({ where: { caseId: existing.id } })) return lifecycleBlocked();
+  try {
+    await prisma.$transaction([
+      prisma.notification.updateMany({
+        where: { relatedCaseId: existing.id },
+        data: { relatedCaseId: null },
+      }),
+      prisma.case.delete({ where: { id: existing.id } }),
+    ]);
+  } catch (e) {
+    // PostgreSQL reports ON DELETE RESTRICT as SQLSTATE 23001, which Prisma 6 surfaces as an
+    // unknown request error (no P2003 code); identify it by the constraint name.
+    if (/case_schedule_requests_caseId_fkey/.test(String(e?.message || ''))) return scheduleBlocked();
+    if (/case_cycles_caseId_fkey|case_lifecycle_requests_caseId_fkey|_same_case_fkey/.test(String(e?.message || ''))) return lifecycleBlocked();
+    if (e?.code === 'P2003' || e?.code === 'P2014' || /case_deliveries_caseId_fkey|case_delivery_submissions_caseId_fkey/.test(String(e?.message || ''))) return deliveryBlocked();
+    throw e;
+  }
 
   res.json({ ok: true, deleted: existing.id });
 });
@@ -688,11 +913,23 @@ router.get('/:id/changelog', async (req, res) => {
 
 // ─── POST /api/cases/:id/archive — mark archived ──────────
 router.post('/:id/archive', requireAdmin, async (req, res) => {
-  const updated = await prisma.case.update({
-    where: { id: req.params.id },
-    data: { archived: true },
-    include: caseInclude,
-  });
+  // REPORTS-P1-C1: a records submission awaiting approval cannot be hidden by archiving; the
+  // condition is part of the update so a concurrent submit cannot slip past it.
+  // REPORTS-P2-D1a: a pending schedule request must be decided or withdrawn first (same conditional update).
+  const blocked = { deliveryMode: 'records', status: 'review_done' };
+  // REPORTS-P2-D1b: archiving never stands in for an incomplete seal — an active or sealed lifecycle-managed case
+  // is refused by the same conditional update (completed/cancelled managed cases may still be filed away).
+  const lifecycleBlocked = { lifecycleMode: 'managed', lifecycleStatus: { in: ['active', 'sealed_incomplete'] } };
+  const result = await prisma.case.updateMany({ where: { id: req.params.id, AND: [{ NOT: blocked }, { NOT: lifecycleBlocked }], pendingScheduleRequestId: null }, data: { archived: true } });
+  if (result.count !== 1) {
+    const row = await prisma.case.findUnique({ where: { id: req.params.id }, select: { id: true, pendingScheduleRequestId: true, lifecycleMode: true, lifecycleStatus: true } });
+    if (!row) return res.status(404).json({ error: 'not_found' });
+    if (row.lifecycleMode === 'managed' && row.lifecycleStatus === 'sealed_incomplete') return res.status(409).json({ error: 'lifecycle_sealed', message: '案件已未完成封存。' });
+    if (row.lifecycleMode === 'managed' && row.lifecycleStatus === 'active') return res.status(409).json({ error: 'lifecycle_seal_required', message: '未完成的受控案件不能直接封存；請提出未完成封存申請並經主管核准。' });
+    if (row.pendingScheduleRequestId) return res.status(409).json({ error: 'schedule_request_pending', message: '此案件有待決議的改期申請，請先核准、退回或撤回，再封存。' });
+    return res.status(409).json({ error: 'delivery_pending_review', message: '此案件的交付明細正待主管核可，請核可或退回，不能直接封存。' });
+  }
+  const updated = await prisma.case.findUnique({ where: { id: req.params.id }, include: caseInclude });
   res.json(updated);
 });
 
@@ -703,6 +940,7 @@ router.post('/:id/archive', requireAdmin, async (req, res) => {
 const cancelSchema = z.object({
   reason: z.enum(CANCEL_REASONS),
   note: z.string().max(500).optional(),
+  ...browserVersionFields, // REPORTS-P2-D1b: required for lifecycle-managed cases
 });
 router.post('/:id/cancel', async (req, res) => {
   const parsed = cancelSchema.safeParse(req.body);
@@ -718,14 +956,32 @@ router.post('/:id/cancel', async (req, res) => {
   if (terminalStatus(existing.status)) {
     return res.status(422).json({ error: 'closed_case', message: '已結案案件請先還原為進行中，再使用取消動作' });
   }
+  // REPORTS-P2-D1b: a pending lifecycle request blocks cancellation (withdraw/reject first); sealed is read-only;
+  // otherwise the current cycle closes as `cancelled` in the same transaction.
+  const lifecycleIssue = lifecycleActionProblem(existing, parsed.data);
+  if (lifecycleIssue) return sendTuple(res, lifecycleIssue);
+  const lifecycleCancel = existing.lifecycleMode === 'managed';
   let updated;
   try {
     updated = await applyWorkflow(existing, {
+      ...(lifecycleCancel && { lifecycleStatus: 'cancelled' }),
       status: 'cancelled', cancelReason: parsed.data.reason, cancelStage: existing.status,
       cancelledOn: taipeiCalendarDay(), archived: true, closedOn: null,
       note: parsed.data.note ? `${existing.note || ''}\n[取消] ${parsed.data.note}`.trim() : existing.note,
+      ...(existing.pendingDeliverySubmissionId ? { pendingDeliverySubmissionId: null } : {}),
+      ...(existing.pendingScheduleRequestId ? { pendingScheduleRequestId: null } : {}),
     }, [{ field: 'status', fromValue: existing.status, toValue: 'cancelled' }],
-    `專案取消：${parsed.data.reason}${parsed.data.note ? ' — ' + parsed.data.note : ''}`, req.user.name);
+    `專案取消：${parsed.data.reason}${parsed.data.note ? ' — ' + parsed.data.note : ''}`, req.user.name, undefined, undefined, {
+      // REPORTS-P1-C1: the actor is re-read in the transaction (current admin or current primary), and a
+      // pending records submission is stamped "cancelled" by that current actor in the same transaction.
+      revalidateActor: req.user, primaryOrAdmin: '只有主負責人或 admin 可取消專案',
+      ...(lifecycleCancel && { snapshotLifecycle: true, bumpContentVersion: true, closeCycle: { outcome: 'cancelled', actor: req.user, reason: `專案取消：${parsed.data.reason}` } }),
+      // REPORTS-P2-D1a: a pending schedule request is stamped "invalidated" in the same transaction too.
+      inTx: async (tx, who) => {
+        await cancelPendingSubmissionInTx(tx, existing, `專案取消：${parsed.data.reason}`, who.name, who.id);
+        await invalidatePendingScheduleInTx(tx, existing, `專案取消：${parsed.data.reason}`, who.name, who.id);
+      },
+    });
   } catch (e) { if (sendWorkflowError(res, e)) return; throw e; }
 
   res.json(updated);
@@ -737,12 +993,16 @@ router.post('/:id/uncancel', async (req, res) => {
   const existing = await prisma.case.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   if (existing.status !== 'cancelled') return res.status(409).json({ error: 'not_cancelled', message: '此案不是取消狀態' });
+  // REPORTS-P2-D1b: a lifecycle-managed case is never reopened by uncancel (no reopen of cancelled cases in D1b).
+  if (existing.lifecycleMode === 'managed') return res.status(409).json({ error: 'lifecycle_reopen_unavailable', message: '受控案件取消後本批不提供還原；週期紀錄已保留。' });
   const isAdmin = req.user?.role === 'admin';
   const isPrimary = existing.designerId === req.user?.id;
   if (!isAdmin && !isPrimary) {
     return res.status(403).json({ error: 'forbidden', message: '只有主負責人或 admin 可還原' });
   }
-  const back = ACTIVE_STATUSES.includes(existing.cancelStage) ? existing.cancelStage : 'doing';
+  let back = ACTIVE_STATUSES.includes(existing.cancelStage) ? existing.cancelStage : 'doing';
+  // REPORTS-P1-C1: the records submission was invalidated by the cancellation; resubmit from doing.
+  if (existing.deliveryMode === 'records' && back === 'review_done') back = 'doing';
   let updated;
   try {
     updated = await applyWorkflow(existing,
@@ -754,7 +1014,7 @@ router.post('/:id/uncancel', async (req, res) => {
 });
 
 // ─── POST /api/cases/:id/transfer — explicit transfer ────
-const transferSchema = z.object({ toDesignerId: z.number().int(), reason: z.string().default('主管派發') });
+const transferSchema = z.object({ toDesignerId: z.number().int(), reason: z.string().default('主管派發'), ...browserVersionFields });
 router.post('/:id/transfer', requireAdmin, async (req, res) => {
   const parsed = transferSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
@@ -766,11 +1026,16 @@ router.post('/:id/transfer', requireAdmin, async (req, res) => {
   if (toDesignerId === existing.designerId) {
     return res.status(422).json({ error: 'same_designer', message: '請選擇不同的主負責人後再轉派' });
   }
+  // REPORTS-P2-D1b: lifecycle-managed reassignment needs the browser's versions + cycle and is claimed with the
+  // lifecycle snapshot; sealed or pending-lifecycle cases are refused.
+  const lifecycleIssue = lifecycleActionProblem(existing, parsed.data);
+  if (lifecycleIssue) return sendTuple(res, lifecycleIssue);
   let updated;
   try {
     updated = await applyWorkflow(existing, {},
       [{ field: 'designerId', fromValue: String(existing.designerId), toValue: String(toDesignerId) }],
-      reason.trim() || '主管派發', req.user.name, toDesignerId);
+      reason.trim() || '主管派發', req.user.name, toDesignerId, undefined,
+      existing.lifecycleMode === 'managed' ? { snapshotLifecycle: true, bumpContentVersion: true, revalidateActor: req.user, patchPermission: { designerId: toDesignerId } } : undefined);
   } catch (e) { if (sendWorkflowError(res, e)) return; throw e; }
   const toStaff = updated.designer;
 
@@ -798,6 +1063,8 @@ const itemSchema = z.object({
   assigneeId: z.number().int().nullable().optional(),
   start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  // REPORTS-P1-A: stable server-issued identity; validated/reconciled against the stored snapshot.
+  key: z.string().max(64).nullable().optional(),
   // D1: status 放寬為字串（支援完整製作流程清單），新增第二狀態
   status: z.string().optional().default('尚未製作'),
   status2: z.string().nullable().optional(),
@@ -813,6 +1080,7 @@ const itemsPatchSchema = z.object({
   reason: z.string().optional(),
   expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
   expectedContentVersion: z.number().int().nonnegative().optional(),
+  expectedCycleId: expectedCycleField, // REPORTS-P2-D1b
 });
 router.patch('/:id/items', async (req, res) => {
   const parsed = itemsPatchSchema.safeParse(req.body);
@@ -837,7 +1105,14 @@ router.patch('/:id/items', async (req, res) => {
   const oldItemsCount = Array.isArray(existing.items) ? existing.items.length : 0;
   const newItems = parsed.data.items;
   let updated;
-  try { updated = await replaceCaseJson(existing.id, req.user, 'items', newItems, parsed.data.expectedUpdatedAt, parsed.data.expectedContentVersion); }
+  // REPORTS-P1-A: keys are reconciled against the snapshot the conditional update claims;
+  // a concurrent delivery write advances contentVersion, so this update then 409s.
+  const prepare = async snapshot => {
+    // REPORTS-P1-C1: items are part of the submission evidence while pending and after approval.
+    if (recordsFrozen(snapshot)) throw new CaseEditError(409, 'delivery_evidence_frozen', '送審中或已核可的交付明細制案件，子案件已凍結；如需更正請先撤回或由主管退回。');
+    return reconcileItemKeys(snapshot.items, newItems, await linkedItemKeys(prisma, existing.id));
+  };
+  try { updated = await replaceCaseJson(existing.id, req.user, 'items', newItems, parsed.data.expectedUpdatedAt, parsed.data.expectedContentVersion, prepare, parsed.data.expectedCycleId); }
   catch (e) { if (sendCaseEditError(res, e)) return; throw e; }
 
   // ChangeLog
@@ -867,6 +1142,7 @@ const logsPatchSchema = z.object({
   logs: z.array(logEntrySchema).max(500),
   expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
   expectedContentVersion: z.number().int().nonnegative().optional(),
+  expectedCycleId: expectedCycleField, // REPORTS-P2-D1b
 });
 const appendLogSchema = z.object({
   entry: z.object({
@@ -879,11 +1155,12 @@ const appendLogSchema = z.object({
     tag: z.string().max(20).nullable().optional(),
     tagBy: z.string().max(20).nullable().optional(),
   }),
+  expectedCycleId: expectedCycleField, // REPORTS-P2-D1b
 });
 router.post('/:id/logs', async (req, res) => {
   const parsed = appendLogSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues });
-  try { res.json(await appendCaseLog(req.params.id, req.user, parsed.data.entry)); }
+  try { res.json(await appendCaseLog(req.params.id, req.user, parsed.data.entry, parsed.data.expectedCycleId)); }
   catch (e) { if (sendCaseEditError(res, e)) return; throw e; }
 });
 router.patch('/:id/logs', async (req, res) => {
@@ -907,7 +1184,7 @@ router.patch('/:id/logs', async (req, res) => {
     });
   }
   let updated;
-  try { updated = await replaceCaseJson(existing.id, req.user, 'logs', parsed.data.logs, parsed.data.expectedUpdatedAt, parsed.data.expectedContentVersion); }
+  try { updated = await replaceCaseJson(existing.id, req.user, 'logs', parsed.data.logs, parsed.data.expectedUpdatedAt, parsed.data.expectedContentVersion, undefined, parsed.data.expectedCycleId); }
   catch (e) { if (sendCaseEditError(res, e)) return; throw e; }
 
   res.json(updated);
@@ -936,6 +1213,11 @@ router.post('/:id/clone', async (req, res) => {
   const isDesigner = src.designerId === req.user?.id;
   if (!isAdmin && !isDesigner) {
     return res.status(403).json({ error: 'forbidden', message: '只有 admin 或原負責人可以原案重啟' });
+  }
+  // REPORTS-P2-D1b: a sealed (or pending seal/resume) lifecycle-managed case resumes only through an approved
+  // resume request on the same case ID — the clone ("原案重啟", a NEW case) is not a side door.
+  if (src.lifecycleMode === 'managed' && (src.lifecycleStatus === 'sealed_incomplete' || src.pendingLifecycleRequestId)) {
+    return res.status(409).json({ error: 'lifecycle_resume_required', message: '未完成封存的案件請改提復工申請並經主管核准，沿用同一案號。' });
   }
 
   const today = taipeiCalendarDay();
@@ -969,6 +1251,7 @@ router.post('/:id/clone', async (req, res) => {
       designer: { connect: { id: src.designerId } },
       collaborators: { connect: src.collaborators.filter(c => c.id !== src.designerId).map((c) => ({ id: c.id })) },
       createdBy: req.user?.id ? { connect: { id: req.user.id } } : undefined,
+      ...recordsModeStamp(req.user), // REPORTS-P1-C1：clone 是新案，依新建規則；不複製交付或送審
     },
     include: caseInclude,
   }));

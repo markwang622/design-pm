@@ -1,4 +1,5 @@
 import { prisma } from './db.js';
+import { assertLifecycle, assertCycle } from './caseLifecycle.js';
 
 export const caseContentInclude = {
   designer: { select: { id: true, name: true, seniority: true, active: true } },
@@ -12,7 +13,7 @@ export class CaseEditError extends Error {
 const conflict = () => new CaseEditError(409, 'edit_conflict', '內容已更新，請重新載入後再編輯；你的變更尚未覆寫。');
 export function sendCaseEditError(res, error) {
   if (!(error instanceof CaseEditError)) return false;
-  res.status(error.status).json({ error: error.code, message: error.message });
+  res.status(error.status).json({ error: error.code, message: error.message, ...(error.extra || {}) });
   return true;
 }
 function assignmentWhere(user) {
@@ -48,13 +49,20 @@ export function normalizeStoredLogs(logs) {
 export function taipeiLogDate() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 }
-export async function replaceCaseJson(id, user, field, value, expectedUpdatedAt, expectedContentVersion) {
+// `prepare(existing)` (optional) derives the stored value from the same snapshot the
+// conditional update claims, e.g. reconciling stable item keys (REPORTS-P1-A).
+// REPORTS-P2-D1b: on lifecycle-managed cases items are evidence (refused while sealed or a lifecycle request is
+// pending), logs are content (refused while sealed); both require the browser's current cycle id.
+export async function replaceCaseJson(id, user, field, value, expectedUpdatedAt, expectedContentVersion, prepare, expectedCycleId) {
   if (!['logs', 'items'].includes(field)) throw new Error('Unsupported case JSON field');
   const existing = await editableCase(id, user);
+  assertLifecycle(existing, field === 'items' ? 'evidence' : 'content');
+  assertCycle(existing, expectedCycleId);
   const version = stamp(existing);
   if (!Number.isSafeInteger(existing.contentVersion) || existing.contentVersion < 0) throw new Error('Case content version unavailable');
   if (expectedContentVersion !== existing.contentVersion) throw conflict();
   if (!expectedUpdatedAt || new Date(expectedUpdatedAt).getTime() !== version.previous.getTime()) throw conflict();
+  if (typeof prepare === 'function') value = await prepare(existing);
   const result = await prisma.case.updateMany({
     where: { id, updatedAt: version.previous, contentVersion: existing.contentVersion, ...assignmentWhere(user) },
     data: { [field]: value, updatedAt: version.next, contentVersion: { increment: 1 } },
@@ -64,7 +72,7 @@ export async function replaceCaseJson(id, user, field, value, expectedUpdatedAt,
 }
 // Compare-and-swap retries make independent additions commute. Each request has
 // a stable ID so a lost response followed by a retry cannot duplicate a log.
-export async function appendCaseLog(id, user, entry) {
+export async function appendCaseLog(id, user, entry, expectedCycleId) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const existing = await editableCase(id, user);
     const logs = normalizeStoredLogs(existing.logs);
@@ -78,6 +86,9 @@ export async function appendCaseLog(id, user, entry) {
       if (!same) throw new CaseEditError(409, 'log_request_conflict', '這筆送出的識別碼已用於其他內容；既有紀錄未更動，請重新送出。');
       return { ...existing, logs };
     }
+    // Re-checked on every attempt: a retry never appends across a seal / cycle boundary.
+    assertLifecycle(existing, 'content');
+    assertCycle(existing, expectedCycleId);
     if (logs.length >= 500) throw new CaseEditError(422, 'log_limit', '日誌已達 500 則，未新增，也未移除既有紀錄。');
     const version = stamp(existing);
     if (!Number.isSafeInteger(existing.contentVersion) || existing.contentVersion < 0) throw new Error('Case content version unavailable');

@@ -361,6 +361,7 @@ function archiveWorkflowEnv(extra={}){
   d.seed('archive-fixture').innerHTML=section('<div class="drawer" id="drawer">','<!-- Create project modal -->');d.seed('drawer-bg');
   c.VACATIONS=[];c.TRIPS=[];c.exportDetail=()=>{};c.openReassign=()=>{};c.refreshAll=()=>{};c.saveClosure=()=>{};c.v51WireLogs=()=>{};c.v52WireBasicEdit=()=>{};
   c.v33InjectDrawerExtras=async()=>{};c.v33RenderChangeLog=async()=>{};c.promptReason=async detail=>{reasons.push(detail);return 'Fixture status reason';};
+  vm.runInContext(section('function v2ReasonProblem(text)','function promptReason(detailHtml'),c); // REPORTS-P2-D2: real managed-reason wrapper (legacy cases pass straight through)
   c.decorateCases=()=>c.CASES.forEach(c.decorateCase);c.v37ReopenCase=()=>{};c.v71CanCancel=()=>false;
   c.api={cases:{update:async(id,body)=>{writes.push({id,body:plain(body)});const result=extra.update?await extra.update(id,body):null;stored={...stored,...body};return result||structuredClone(stored);}}};
   vm.runInContext(section('function v10SyncUpdatedAt(c, raw)','function v51LogsForApi(logs)'),c);

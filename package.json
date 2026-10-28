@@ -15,14 +15,15 @@
     "postinstall": "prisma generate",
     "prebuild": "prisma generate",
     "build": "echo \"no-op build (Prisma client generated via postinstall)\"",
-    "test": "node tests/features.mjs && node tests/demoCopy.mjs && node tests/caseOpener.mjs && node tests/stability.mjs && node tests/frontendStability.mjs && node tests/hotelOrder.mjs && node tests/collaborationSafety.mjs && node tests/calendarSecurity.mjs && node tests/frontendSafety.mjs && node tests/requestPrivacy.mjs && node tests/caseWorkflowSafety.mjs && node tests/staffScheduleSafety.mjs && node tests/frontendWorkflowSafety.mjs && node tests/analyticsWorkflowSafety.mjs && node tests/workloadScaleSafety.mjs && node tests/operationalSafety.mjs && node tests/notifyCompatibility.mjs && node tests/frontendScaleSafety.mjs && node tests/sessionRecoverySafety.mjs && node tests/caseClosureCountsSafety.mjs && node tests/analyticsUiSafety.mjs",
+    "test": "node tests/features.mjs && node tests/demoCopy.mjs && node tests/caseOpener.mjs && node tests/stability.mjs && node tests/frontendStability.mjs && node tests/hotelOrder.mjs && node tests/collaborationSafety.mjs && node tests/calendarSecurity.mjs && node tests/frontendSafety.mjs && node tests/requestPrivacy.mjs && node tests/caseWorkflowSafety.mjs && node tests/staffScheduleSafety.mjs && node tests/frontendWorkflowSafety.mjs && node tests/analyticsWorkflowSafety.mjs && node tests/workloadScaleSafety.mjs && node tests/operationalSafety.mjs && node tests/notifyCompatibility.mjs && node tests/frontendScaleSafety.mjs && node tests/sessionRecoverySafety.mjs && node tests/caseClosureCountsSafety.mjs && node tests/analyticsUiSafety.mjs && node tests/caseDeliveriesSafety.mjs && node tests/caseDeliveriesUiSafety.mjs && node tests/caseDeliveryWorkflowSafety.mjs && node tests/caseWorkflowUiSafety.mjs && node tests/caseScheduleWorkflowSafety.mjs && node tests/caseLifecycleWorkflowSafety.mjs && node tests/caseLifecycleUiSafety.mjs && node tests/reportSourcesSafety.mjs && node tests/workReportsSafety.mjs && node tests/workReportsUiSafety.mjs && node tests/workReportSchedulerSafety.mjs",
     "db:deploy": "node scripts/database-maintenance.mjs deploy",
     "db:baseline": "node scripts/database-maintenance.mjs baseline",
     "db:backup": "node scripts/database-maintenance.mjs backup",
     "db:restore-check": "node scripts/database-maintenance.mjs restore-check",
     "db:identify": "node scripts/database-maintenance.mjs identify",
     "test:postgres": "node tests/postgresMaintenance.mjs",
-    "test:node24": "docker build --target test -t design-pm-phase3-test ."
+    "test:node24": "docker build --target test -t design-pm-phase3-test .",
+    "reports:jobs": "node scripts/work-report-jobs.mjs"
   },
   "engines": {
     "node": "^24.22.1 || ^26.0.0"

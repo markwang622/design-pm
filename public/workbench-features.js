@@ -71,7 +71,8 @@
           if (state.role === 'primary' ? !primary : state.role === 'collab' ? !collab : !(primary || collab)) return;
         }
         if (state.phase && c._phase !== state.phase) return;
-        if (state.status==='active' && ['done','closed','cancelled'].includes(c.status)) return;
+        // REPORTS-P2-D2: an incomplete seal keeps a working status but is not active work.
+        if (state.status==='active' && (['done','closed','cancelled'].includes(c.status) || c.lifecycleStatus==='sealed_incomplete')) return;
         if (state.status==='finished' && !['done','closed'].includes(c.status)) return;
         if (state.status && !['active','finished'].includes(state.status) && state.status!==c.status) return;
         const d = c[state.sort] ? date(c[state.sort]) : '';
@@ -90,7 +91,7 @@
     const rowHtml = c => `<div class="wb-case-row">
         <div><button class="wb-case-link" data-case="${esc(c.id)}">${esc(c.title||c.id)}</button><div class="wb-help">${esc(c.id)} · ${esc(c.hotel||'未指定館別')} · ${esc(c.level||'—')}<br>${esc(c.requester||'未填需求單位')}</div></div>
         <div><span class="wb-mobile-label">主責 </span>${esc(c.designer?.name||'未指派')}<div class="wb-help">${(c.collaborators||[]).length?'協作 '+c.collaborators.map(s=>esc(s.name)).join('、'):'無協作者'}</div></div>
-        <div><span class="wb-status" data-status="${esc(c.status)}">${esc(statuses[c.status]||c.status)}</span>${c.archived?'<small class="wb-help"> 已封存</small>':''}</div>
+        <div><span class="wb-status" data-status="${esc(c.status)}">${esc(statuses[c.status]||c.status)}</span>${c.lifecycleStatus==='sealed_incomplete'?'<small class="wb-help"> 未完成封存</small>':c.archived?'<small class="wb-help"> 已封存</small>':''}</div>
         <div><span class="wb-mobile-label">派發 </span>${date(c.dispatchDate)}</div><div><span class="wb-mobile-label">上線 </span>${date(c.goLiveDate)}</div>
         <div><span class="wb-mobile-label">結束 </span>${date(c.cancelledOn||c.closedOn)}${c.endDateMissing?'<div class="wb-help">結束日待補，暫保留於明細</div>':''}</div>
       </div>`;
@@ -164,7 +165,7 @@
   }
 
   // ═══ v40 分析圖表（原生 HTML/CSS；數字皆可點，與明細共用篩選） ═══
-  const WB_PHASES=[['done','本期結案'],['active','期間在辦'],['cancelled','本期取消'],['later','期後才結束'],['missing','結束日待補']];
+  const WB_PHASES=[['done','本期結案'],['active','期間在辦'],['sealed','未完成封存'],['cancelled','本期取消'],['later','期後才結束'],['missing','結束日待補']];
   const wbTime=v=>{const t=v?new Date(v).getTime():NaN;return Number.isFinite(t)?t:null;};
   // 期間明細的列：後端 workCases（跨期工作）＋完成 cohort 中不在 workCases 的案件（例如缺派發日），
   // 並標上 _phase。只有 cohort 內的案件算「本期結案」，所以圖表數字＝明細篩選後件數。
@@ -173,6 +174,7 @@
     const cohort=new Map(completed.map(c=>[String(c.id),c]));
     const phaseOf=c=>{
       if(cohort.has(String(c.id)))return 'done';
+      if(c.lifecycleStatus==='sealed_incomplete')return 'sealed'; // REPORTS-P2-D2：未完成封存不是在辦也不是結案
       if(!['done','closed','cancelled'].includes(c.status))return 'active';
       const t=wbTime(c.status==='cancelled'?c.cancelledOn:c.closedOn);
       if(t==null)return 'missing';
